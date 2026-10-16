@@ -98,9 +98,13 @@ public final class RecordedHarExchangeResolver {
             "application/javascript", // $NON-NLS-1$
             "application/json", // $NON-NLS-1$
             "application/problem+json", // $NON-NLS-1$
+            "application/vnd.apple.mpegurl", // $NON-NLS-1$
+            "application/x-mpegurl", // $NON-NLS-1$
             "application/x-www-form-urlencoded", // $NON-NLS-1$
             "application/xhtml+xml", // $NON-NLS-1$
             "application/xml", // $NON-NLS-1$
+            "audio/mpegurl", // $NON-NLS-1$
+            "audio/x-mpegurl", // $NON-NLS-1$
             "multipart/form-data"); // $NON-NLS-1$
 
     private RecordedHarExchangeResolver() {

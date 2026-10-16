@@ -46,10 +46,8 @@ public final class ArchiveCleanup {
         int retainedExchanges = 0;
         for (Map.Entry<String, Group> group : owners.entrySet()) {
             String entry = group.getKey();
-            String checksum = group.getValue().checksum();
             Set<String> liveIds = group.getValue().liveIds();
-            Map<String, byte[]> bundle = JmxArchiveEntryStore.findBundle(entry, checksum)
-                    .orElseThrow(() -> new IOException("Recording is unavailable: " + entry));
+            Map<String, byte[]> bundle = resolveBundle(entry, group.getValue().checksums());
             before.putAll(bundle);
             boolean canRemoveOrphans = removeOrphans && !liveIds.isEmpty();
             if (removeOrphans && liveIds.isEmpty() && mode != RecordingStorageMode.NONE) {
@@ -70,8 +68,31 @@ public final class ArchiveCleanup {
         return new Prepared(List.copyOf(updates), beforeBytes, afterBytes, removed.size(), retainedExchanges, unlinkedRecordings);
     }
 
+    // Loaded plans can retain stale checksums on other owners of the same manifest.
+    // Only reconcile them when the cache provides one unambiguous recording version.
+    private static Map<String, byte[]> resolveBundle(String entry, Set<String> checksums) throws IOException {
+        Map<String, byte[]> resolved = null;
+        String resolvedDigest = null;
+        for (String checksum : checksums) {
+            var candidate = JmxArchiveEntryStore.findBundle(entry, checksum);
+            if (candidate.isEmpty()) {
+                continue;
+            }
+            String digest = RecordedExchangeStore.sha256Hex(candidate.get().get(entry));
+            if (resolvedDigest != null && !resolvedDigest.equals(digest)) {
+                throw new IOException("Conflicting recording references: " + entry);
+            }
+            resolved = candidate.get();
+            resolvedDigest = digest;
+        }
+        if (resolved == null) {
+            throw new IOException("Recording is unavailable: " + entry);
+        }
+        return resolved;
+    }
+
     private static void collectOwners(HashTree tree, String inheritedEntry, String inheritedChecksum,
-            Map<String, Group> groups) throws IOException {
+            Map<String, Group> groups) {
         for (Object node : tree.list()) {
             String entry = inheritedEntry;
             String checksum = inheritedChecksum;
@@ -85,12 +106,10 @@ public final class ArchiveCleanup {
                 if (!entry.isEmpty() && (!ownEntry.isEmpty() || !id.isEmpty())) {
                     Group group = groups.get(entry);
                     if (group == null) {
-                        group = new Group(checksum, new ArrayList<>(), new LinkedHashSet<>());
+                        group = new Group(new LinkedHashSet<>(), new ArrayList<>(), new LinkedHashSet<>());
                         groups.put(entry, group);
                     }
-                    if (!checksum.equals(group.checksum())) {
-                        throw new IOException("Conflicting recording references: " + entry);
-                    }
+                    group.checksums().add(checksum);
                     group.owners().add(element);
                     if (!id.isEmpty()) {
                         group.liveIds().add(id);
@@ -101,7 +120,7 @@ public final class ArchiveCleanup {
         }
     }
 
-    private record Group(String checksum, List<TestElement> owners, Set<String> liveIds) {
+    private record Group(Set<String> checksums, List<TestElement> owners, Set<String> liveIds) {
     }
 
     private record Update(List<TestElement> owners, RecordedExchangeStore.Archive archive) {

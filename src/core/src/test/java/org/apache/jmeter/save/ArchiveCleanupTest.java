@@ -20,6 +20,7 @@ package org.apache.jmeter.save;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.OutputStream;
@@ -35,10 +36,73 @@ import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jorphan.collections.HashTree;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 class ArchiveCleanupTest extends JMeterTestCase {
     @TempDir
     Path directory;
+
+    @ParameterizedTest
+    @EnumSource(RecordingStorageMode.class)
+    void cleanupRepairsStaleReferencesAndKeepsLinksFromEveryOwner(RecordingStorageMode mode) throws Exception {
+        var archive = RecordedExchangeStore.fromHar("""
+                {"log":{"entries":[
+                {"request":{"url":"https://example.invalid/first"},"response":{"content":{"text":"first"}}},
+                {"request":{"url":"https://example.invalid/second"},"response":{"content":{"text":"second"}}},
+                {"request":{"url":"https://example.invalid/orphan"},"response":{"content":{"text":"orphan"}}}
+                ]}}
+                """.getBytes(StandardCharsets.UTF_8), "test.har");
+        JmxArchiveEntryStore.registerBundle(archive.manifestEntryName(), archive.checksum(), archive.entries());
+        TestPlan stale = new TestPlan();
+        stale.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, archive.manifestEntryName());
+        stale.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, "stale-checksum");
+        stale.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, archive.exchangeIds().get(0));
+        TestPlan current = new TestPlan();
+        current.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, archive.manifestEntryName());
+        current.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, archive.checksum());
+        current.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, archive.exchangeIds().get(1));
+        HashTree tree = new org.apache.jorphan.collections.ListedHashTree();
+        tree.add(stale);
+        tree.add(current);
+        var prepared = ArchiveCleanup.prepare(tree, mode, true);
+        assertEquals("stale-checksum", stale.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY));
+        assertEquals(mode == RecordingStorageMode.NONE ? 0 : 2, prepared.retainedExchanges());
+        prepared.apply();
+        assertEquals(current.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY),
+                stale.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY));
+        if (mode == RecordingStorageMode.NONE) {
+            assertEquals("", stale.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+            assertEquals("", current.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY));
+        } else {
+            var bundle = JmxArchiveEntryStore.findBundle(archive.manifestEntryName(),
+                    stale.getPropertyAsString(RecordedExchangeStore.CHECKSUM_PROPERTY)).orElseThrow();
+            var cleaned = RecordedExchangeStore.cleanArchive(archive.manifestEntryName(), bundle, RecordingStorageMode.ALL, null);
+            assertTrue(cleaned.resolveExchange(archive.exchangeIds().get(0)).isPresent());
+            assertTrue(cleaned.resolveExchange(archive.exchangeIds().get(1)).isPresent());
+            assertFalse(cleaned.resolveExchange(archive.exchangeIds().get(2)).isPresent());
+        }
+    }
+
+    @Test
+    void differentAvailableVersionsRemainAConflict() throws Exception {
+        var archive = RecordedExchangeStore.fromHar("""
+                {"log":{"entries":[{"request":{"url":"https://example.invalid/api"},
+                "response":{"content":{"text":"recorded-response"}}}]}}
+                """.getBytes(StandardCharsets.UTF_8), "test.har");
+        var reduced = RecordedExchangeStore.cleanArchive(archive.manifestEntryName(), archive.entries(),
+                RecordingStorageMode.NONE, null);
+        JmxArchiveEntryStore.registerBundle(archive.manifestEntryName(), archive.checksum(), archive.entries());
+        JmxArchiveEntryStore.registerBundle(archive.manifestEntryName(), reduced.checksum(), reduced.entries());
+        HashTree tree = new HashTree();
+        for (String checksum : new String[] {archive.checksum(), reduced.checksum()}) {
+            TestPlan owner = new TestPlan();
+            owner.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, archive.manifestEntryName());
+            owner.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, checksum);
+            tree.add(owner);
+        }
+        assertThrows(java.io.IOException.class, () -> ArchiveCleanup.prepare(tree, RecordingStorageMode.ALL, true));
+    }
 
     @Test
     void unlinkedRecordingIsNotAssumedToBeOrphaned() throws Exception {
