@@ -104,8 +104,13 @@ val gatherBinaryLicenses by tasks.registering(GatherLicenseTask::class) {
     // That enables to have "version-independent" MIT license in licenses/slf4j-api, and
     // it would be copied provided the detected license for slf4j-api is MIT.
 
-    overrideLicense("dnsjava:dnsjava:3.6.4") {
-        expectedLicense = SpdxLicense.BSD_2_Clause
+    overrideLicense("dnsjava:dnsjava") {
+        expectedLicense = SpdxLicense.BSD_3_Clause
+    }
+
+    overrideLicense("org.glassfish.jaxb:txw2") {
+        expectedLicense = SimpleLicense("Eclipse Distribution License - v 1.0", uri("http://www.eclipse.org/org/documents/edl-v10.php"))
+        effectiveLicense = SpdxLicense.BSD_3_Clause
     }
 
     for (mig in listOf("com.miglayout:miglayout-core", "com.miglayout:miglayout-swing")) {

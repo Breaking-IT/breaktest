@@ -106,11 +106,10 @@ import org.apache.jorphan.gui.ComponentUtil;
 import org.apache.jorphan.gui.JMeterUIDefaults;
 import org.apache.jorphan.util.StringUtilities;
 import org.apache.tika.Tika;
-import org.apache.tika.config.TikaConfig;
-import org.apache.tika.exception.TikaException;
+import org.apache.tika.detect.DefaultDetector;
+import org.apache.tika.parser.EmptyParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.xml.sax.SAXException;
 
 import com.google.auto.service.AutoService;
 
@@ -139,16 +138,8 @@ public class ParseCurlCommandAction extends AbstractAction implements MenuCreato
     private JSyntaxTextArea cURLCommandTA;
     private JLabel statusText;
     private JCheckBox uploadCookiesCheckBox;
-    private final Tika tika = createTika();
-
-    private Tika createTika() {
-        try {
-            return new Tika(new TikaConfig(this.getClass().getClassLoader()
-                    .getResourceAsStream("org/apache/jmeter/protocol/http/gui/action/tika-config.xml")));
-        } catch (TikaException | IOException | SAXException e) {
-            return new Tika();
-        }
-    }
+    // Only MIME detection is used: skip loading parser services, whose missing dependencies would log warnings.
+    private final Tika tika = new Tika(new DefaultDetector(), EmptyParser.INSTANCE);
 
     public ParseCurlCommandAction() {
         super();
@@ -673,7 +664,6 @@ public class ParseCurlCommandAction extends AbstractAction implements MenuCreato
             }
         }
     }
-
 
     public List<Request>  parseCommands(boolean isReadFromFile, List<String> commandsList) {
         List<Request> requests = new ArrayList<>();
