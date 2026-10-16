@@ -597,12 +597,12 @@ public class CacheManager extends ConfigTestElement implements ValidationCheckpo
         clearCache();
     }
 
-    private record ValidationState(java.util.Map<String, CacheEntry> entries, boolean useExpires) {
+    private record ValidationState(Map<String, CacheEntry> entries, boolean useExpires) {
     }
 
     @Override
     public Object captureValidationState() {
-        return new ValidationState(java.util.Map.copyOf(getCache().asMap()), useExpires);
+        return new ValidationState(Map.copyOf(getCache().asMap()), useExpires);
     }
 
     @Override

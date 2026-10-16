@@ -24,6 +24,7 @@ import javax.swing.JPopupMenu;
 
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
+import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
@@ -49,7 +50,7 @@ public class ThreadGroupsSectionGui extends TestPlanSectionGui {
             popup.insert(new JPopupMenu.Separator(), 1);
             popup.insert(validationItem("validate_all", ActionNames.VALIDATE_ALL), 2);
             popup.insert(validationItem("validate_all_sequentially", ActionNames.VALIDATE_ALL_SEQUENTIALLY), 3);
-            if (org.apache.jmeter.gui.action.Start.canResumeAllFailed()) {
+            if (Start.canResumeAllFailed()) {
                 popup.insert(validationItem("resume_all_failed", ActionNames.RESUME_ALL_FAILED), 4);
             }
         }

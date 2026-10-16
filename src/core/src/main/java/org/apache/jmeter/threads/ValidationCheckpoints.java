@@ -24,23 +24,33 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.function.Consumer;
 
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.control.Controller;
+import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.GenericController;
+import org.apache.jmeter.control.LoopController;
+import org.apache.jmeter.control.ParallelController;
+import org.apache.jmeter.control.TestFragmentController;
+import org.apache.jmeter.control.TransactionController;
+import org.apache.jmeter.engine.event.LoopIterationListener;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.TestIterationListener;
 import org.apache.jorphan.collections.HashTree;
 
 /** In-memory checkpoints belonging to the most recent GUI validation. Never saved in a JMX. */
 public final class ValidationCheckpoints {
     private static final String SOURCE_ID = "__breaktest_validation_source_id";
-    private static final Map<String, String> LATEST = new HashMap<>();
+    /** Source sampler id to the latest execution id per thread group source id. */
+    private static final Map<String, Map<String, String>> LATEST = new HashMap<>();
     private static final Map<String, String> FAILED_SAMPLERS = new HashMap<>();
     private static final Map<String, AbstractThreadGroup> GROUPS = new HashMap<>();
-    private static final Map<SampleResult, ReplayTarget> RESULTS = new LinkedHashMap<>();
+    // Weak keys: a result cleared from the results tree releases its replay target.
+    private static final Map<SampleResult, ReplayTarget> RESULTS = new WeakHashMap<>();
     private static final String ID = "__breaktest_validation_id";
     private static final IdentityHashMap<TestElement, String> IDS = new IdentityHashMap<>();
     private static final Map<String, Checkpoint> CHECKPOINTS = new LinkedHashMap<>();
@@ -123,23 +133,47 @@ public final class ValidationCheckpoints {
         return executionId;
     }
 
+    private static String groupKey(AbstractThreadGroup group) {
+        return group.getThreadGroupId().isEmpty() ? IDS.get(group) : "group:" + group.getThreadGroupId();
+    }
+
     public static synchronized boolean canResumeFailedSampler(TestElement selected) {
         if (!(selected instanceof AbstractThreadGroup group)) {
             return false;
         }
-        String groupId = group.getThreadGroupId().isEmpty() ? IDS.get(group) : "group:" + group.getThreadGroupId();
-        return CHECKPOINTS.containsKey(FAILED_SAMPLERS.get(groupId));
+        return CHECKPOINTS.containsKey(FAILED_SAMPLERS.get(groupKey(group)));
     }
 
-    public static synchronized Checkpoint get(TestElement selected) {
+    /** Whether validation reached this sampler, so resuming it can either start or explain why not. */
+    public static synchronized boolean canResume(TestElement selected) {
+        return selected != null && LATEST.containsKey(IDS.get(selected));
+    }
+
+    public static Checkpoint get(TestElement selected) {
+        return get(selected, null);
+    }
+
+    /**
+     * @param selected a thread group or a sampler
+     * @param group the thread group the selected sampler belongs to, or {@code null} inside a test fragment
+     */
+    public static synchronized Checkpoint get(TestElement selected, AbstractThreadGroup group) {
         String samplerId;
-        if (selected instanceof AbstractThreadGroup group) {
-            samplerId = FAILED_SAMPLERS.get(sourceId(group));
+        if (selected instanceof AbstractThreadGroup threadGroup) {
+            samplerId = FAILED_SAMPLERS.get(sourceId(threadGroup));
             if (samplerId == null) {
                 throw new IllegalStateException("This thread group has no failed sampler from the latest validation.");
             }
         } else {
-            samplerId = LATEST.get(IDS.get(selected));
+            Map<String, String> invocations = LATEST.getOrDefault(IDS.get(selected), Map.of());
+            if (group != null) {
+                samplerId = invocations.get(groupKey(group));
+            } else if (invocations.size() > 1) {
+                throw new IllegalStateException("This sampler ran in several thread groups. "
+                        + "Resume from the failed thread group or use Replay from here in the results tree.");
+            } else {
+                samplerId = invocations.values().stream().findFirst().orElse(null);
+            }
         }
         Checkpoint checkpoint = CHECKPOINTS.get(samplerId);
         if (checkpoint == null) {
@@ -149,15 +183,23 @@ public final class ValidationCheckpoints {
         return checkpoint;
     }
 
+    /** The thread group whose validation captured the checkpoint. */
+    public static synchronized AbstractThreadGroup groupOf(Checkpoint checkpoint) {
+        // Execution ids start with the thread group's source id: "/<group>/<controller>/.../<sampler>".
+        String[] path = checkpoint.samplerId().split("/");
+        AbstractThreadGroup group = path.length > 1 ? GROUPS.get(path[1]) : null;
+        if (group == null) {
+            throw new IllegalStateException("No thread group is available for this checkpoint. Run a fresh validation first.");
+        }
+        return group;
+    }
+
     public static synchronized void afterSampler(Sampler sampler, AbstractThreadGroup group, SampleResult result) {
         String groupId = group.getPropertyAsString(SOURCE_ID);
         Checkpoint checkpoint = CHECKPOINTS.get(id(sampler));
         AbstractThreadGroup sourceGroup = GROUPS.get(groupId);
         if (checkpoint != null && sourceGroup != null && !result.isIgnore()) {
             RESULTS.put(result, new ReplayTarget(checkpoint, sourceGroup));
-            while (RESULTS.size() > 256) {
-                RESULTS.remove(RESULTS.keySet().iterator().next());
-            }
         }
         if (!id(sampler).isEmpty() && !result.isSuccessful() && !result.isIgnore()) {
             FAILED_SAMPLERS.putIfAbsent(groupId, id(sampler));
@@ -168,36 +210,25 @@ public final class ValidationCheckpoints {
         return element.getPropertyAsString(ID);
     }
 
-    public static synchronized void beforeSampler(HashTree tree, Sampler sampler, JMeterContext context) {
+    public static void beforeSampler(HashTree tree, Sampler sampler, JMeterContext context) {
         String samplerId = id(sampler);
         if (!JMeterContextService.isValidationRun() || samplerId.isEmpty()) {
             return;
         }
-        LATEST.put(sampler.getPropertyAsString(SOURCE_ID), samplerId);
-        Checkpoint pending = PENDING.get(samplerId);
-        if (pending != null) {
-            try {
-                context.getVariables().clear();
-                context.getVariables().putAll(pending.variables());
-                context.setPreviousResult(pending.previous() == null ? null : new SampleResult(pending.previous()));
-                visit(tree, element -> {
-                    if (element instanceof ValidationCheckpointParticipant participant
-                            && pending.managers().containsKey(id(element))) {
-                        participant.restoreValidationState(pending.managers().get(id(element)));
-                    }
-                });
-            } catch (RuntimeException ex) {
-                PENDING.remove(samplerId);
-                throw new RestoreException("Unable to restore validation checkpoint: " + ex.getMessage(), ex);
-            }
-            String groupId = context.getThreadGroup().getPropertyAsString(SOURCE_ID);
-            String failedSampler = FAILED_SAMPLERS.get(groupId);
-            // Only retire a previous failure if this replay will execute it again.
-            if (failedSampler != null && contains(tree, failedSampler)) {
-                FAILED_SAMPLERS.remove(groupId);
-            }
-            PENDING.remove(samplerId);
+        AbstractThreadGroup threadGroup = context.getThreadGroup();
+        String groupId = threadGroup == null ? "" : threadGroup.getPropertyAsString(SOURCE_ID);
+        Checkpoint pending;
+        List<String> layout;
+        synchronized (ValidationCheckpoints.class) {
+            LATEST.computeIfAbsent(sampler.getPropertyAsString(SOURCE_ID), ignored -> new LinkedHashMap<>())
+                    .put(groupId, samplerId);
+            pending = PENDING.remove(samplerId);
+            layout = LAYOUTS.get(samplerId);
         }
+        if (pending != null) {
+            restore(tree, pending, context, groupId);
+        }
+        // The tree and the context belong to this thread, so only the shared maps need the lock.
         try {
             validateTree(tree, samplerId);
             Map<String, Object> variables = new LinkedHashMap<>();
@@ -220,18 +251,47 @@ public final class ValidationCheckpoints {
                 }
             });
             SampleResult previous = context.getPreviousResult();
-            CHECKPOINTS.remove(samplerId);
-            CHECKPOINTS.put(samplerId, new Checkpoint(samplerId, variables, managers,
-                    previous == null ? null : new SampleResult(previous), LAYOUTS.getOrDefault(samplerId, structure(tree))));
-            while (CHECKPOINTS.size() > 256) {
-                String oldest = CHECKPOINTS.keySet().iterator().next();
-                CHECKPOINTS.remove(oldest);
-                FAILURES.put(oldest, "This checkpoint was evicted from the 256-checkpoint validation history.");
+            Checkpoint checkpoint = new Checkpoint(samplerId, variables, managers,
+                    previous == null ? null : new SampleResult(previous),
+                    layout == null ? layoutFor(tree, samplerId) : layout);
+            synchronized (ValidationCheckpoints.class) {
+                CHECKPOINTS.remove(samplerId);
+                CHECKPOINTS.put(samplerId, checkpoint);
+                while (CHECKPOINTS.size() > 256) {
+                    String oldest = CHECKPOINTS.keySet().iterator().next();
+                    CHECKPOINTS.remove(oldest);
+                    FAILURES.put(oldest, "This checkpoint was evicted from the 256-checkpoint validation history.");
+                }
+                FAILURES.remove(samplerId);
             }
-            FAILURES.remove(samplerId);
         } catch (IllegalStateException ex) {
-            CHECKPOINTS.remove(samplerId);
-            FAILURES.put(samplerId, ex.getMessage());
+            synchronized (ValidationCheckpoints.class) {
+                CHECKPOINTS.remove(samplerId);
+                FAILURES.put(samplerId, ex.getMessage());
+            }
+        }
+    }
+
+    private static void restore(HashTree tree, Checkpoint pending, JMeterContext context, String groupId) {
+        try {
+            context.getVariables().clear();
+            context.getVariables().putAll(pending.variables());
+            context.setPreviousResult(pending.previous() == null ? null : new SampleResult(pending.previous()));
+            visit(tree, element -> {
+                if (element instanceof ValidationCheckpointParticipant participant
+                        && pending.managers().containsKey(id(element))) {
+                    participant.restoreValidationState(pending.managers().get(id(element)));
+                }
+            });
+        } catch (RuntimeException ex) {
+            throw new RestoreException("Unable to restore validation checkpoint: " + ex.getMessage(), ex);
+        }
+        synchronized (ValidationCheckpoints.class) {
+            String failedSampler = FAILED_SAMPLERS.get(groupId);
+            // Only retire a previous failure if this replay will execute it again.
+            if (failedSampler != null && contains(tree, failedSampler)) {
+                FAILED_SAMPLERS.remove(groupId);
+            }
         }
     }
 
@@ -239,14 +299,14 @@ public final class ValidationCheckpoints {
         visit(tree, element -> {
             String className = element.getClass().getName();
             if (className.contains(".websocket.") || className.contains(".sse.")
-                    || element instanceof org.apache.jmeter.control.ForkController
-                    || element instanceof org.apache.jmeter.control.ParallelController) {
+                    || element instanceof ForkController
+                    || element instanceof ParallelController) {
                 throw new IllegalStateException("Resume cannot restore live or concurrent execution state: "
                         + element.getName());
             }
             if (element instanceof AbstractThreadGroup group) {
                 if (group.getNumThreads() != 1
-                        || !(group.getSamplerController() instanceof org.apache.jmeter.control.LoopController loop)
+                        || !(group.getSamplerController() instanceof LoopController loop)
                         || loop.getLoops() != 1) {
                     throw new IllegalStateException("Resume validation requires one validation thread and one iteration.");
                 }
@@ -255,8 +315,8 @@ public final class ValidationCheckpoints {
             boolean httpSampler = className.equals("org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy")
                     || className.equals("org.apache.jmeter.protocol.http.sampler.HTTPSampler");
             if (!httpSampler && !(element instanceof Controller) && !(element instanceof ValidationCheckpointParticipant)
-                    && (element instanceof org.apache.jmeter.engine.event.LoopIterationListener
-                            || element instanceof org.apache.jmeter.testelement.TestIterationListener)) {
+                    && (element instanceof LoopIterationListener
+                            || element instanceof TestIterationListener)) {
                 throw new IllegalStateException("Resume cannot restore iteration state: " + element.getName());
             }
             if (element instanceof ConfigTestElement
@@ -276,8 +336,8 @@ public final class ValidationCheckpoints {
             }
             if (key instanceof Controller && !(key instanceof AbstractThreadGroup)
                     && key.getClass() != GenericController.class
-                    && key.getClass() != org.apache.jmeter.control.TransactionController.class
-                    && key.getClass() != org.apache.jmeter.control.TestFragmentController.class
+                    && key.getClass() != TransactionController.class
+                    && key.getClass() != TestFragmentController.class
                     && !key.getClass().getName().equals("org.apache.jmeter.control.ModuleController")) {
                 throw new IllegalStateException("Resume cannot restore controller state: "
                         + ((TestElement) key).getName());
@@ -300,9 +360,11 @@ public final class ValidationCheckpoints {
         }
         visit(tree, element -> {
             if (element instanceof ValidationCheckpointParticipant participant) {
-                participant.captureValidationState();
+                participant.checkResumable();
             }
         });
+        // Resume runs record new checkpoints too; give them layouts of the unpruned tree.
+        rememberStructure(tree);
         pruneGroups(tree, checkpoints);
         PENDING.clear();
         for (Checkpoint checkpoint : checkpoints) {
@@ -387,22 +449,6 @@ public final class ValidationCheckpoints {
             }
         }
         return reached;
-    }
-
-    private static List<String> structure(HashTree tree) {
-        List<String> result = new ArrayList<>();
-        appendStructure(tree, result);
-        return result;
-    }
-
-    private static void appendStructure(HashTree tree, List<String> result) {
-        for (Object key : tree.list()) {
-            if (key instanceof TestElement element && !id(element).isEmpty()) {
-                result.add(id(element));
-                appendStructure(tree.getTree(key), result);
-                result.add("/");
-            }
-        }
     }
 
     private static void visit(HashTree tree, Consumer<TestElement> consumer) {

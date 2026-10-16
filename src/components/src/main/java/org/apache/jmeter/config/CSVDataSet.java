@@ -43,6 +43,7 @@ import org.apache.jmeter.testbeans.gui.GenericTestBeanCustomizer;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.ValidationCheckpointParticipant;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.io.BomInputStream;
 import org.apache.jorphan.locale.ResourceKeyed;
@@ -81,7 +82,7 @@ import org.slf4j.LoggerFactory;
 @GUIMenuSortOrder(1)
 @TestElementMetadata(labelResource = "displayName")
 public class CSVDataSet extends ConfigTestElement
-    implements TestBean, LoopIterationListener, NoConfigMerge, org.apache.jmeter.threads.ValidationCheckpointParticipant {
+    implements TestBean, LoopIterationListener, NoConfigMerge, ValidationCheckpointParticipant {
 
     public enum ShareMode implements ResourceKeyed {
         ALL("shareMode.all"),

@@ -42,6 +42,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import org.apache.jmeter.gui.JMeterFileFilter;
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.CSVSaveService;
+import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.io.BomInputStream;
 import org.apache.jorphan.util.StringUtilities;
@@ -683,7 +684,7 @@ public class FileServer {
     }
 
     private void recordRead(FileEntry entry, boolean parsed, boolean recycle, boolean ignoreHeader, char delimiter) {
-        if (org.apache.jmeter.threads.JMeterContextService.isValidationRun() && !restoringReadPosition) {
+        if (JMeterContextService.isValidationRun() && !restoringReadPosition) {
             entry.reads = new ReadStep(entry.reads, parsed, recycle, ignoreHeader, delimiter);
         }
     }

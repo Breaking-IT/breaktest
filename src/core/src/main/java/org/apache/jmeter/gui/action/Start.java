@@ -20,6 +20,7 @@ package org.apache.jmeter.gui.action;
 import java.awt.event.ActionEvent;
 import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
@@ -42,10 +43,12 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.JMeterToolBar;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.scenario.Scenario;
 import org.apache.jmeter.scenario.ScenarioException;
 import org.apache.jmeter.scenario.ScenarioResolver;
 import org.apache.jmeter.scenario.TestFragmentsSection;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -192,13 +195,13 @@ public class Start extends AbstractAction {
             }
             GuiPackage gui = GuiPackage.getInstance();
             gui.updateCurrentNode();
-            AbstractThreadGroup[] groups = java.util.Arrays.stream(findAllValidationThreadGroups(gui.getTreeModel()))
+            AbstractThreadGroup[] groups = Arrays.stream(findAllValidationThreadGroups(gui.getTreeModel()))
                     .filter(ValidationCheckpoints::canResumeFailedSampler).toArray(AbstractThreadGroup[]::new);
             if (groups.length == 0) {
                 return;
             }
             try {
-                List<ValidationCheckpoints.Checkpoint> checkpoints = java.util.Arrays.stream(groups)
+                List<ValidationCheckpoints.Checkpoint> checkpoints = Arrays.stream(groups)
                         .map(ValidationCheckpoints::get).toList();
                 startEngine(groups, RunMode.VALIDATION, null, checkpoints, true);
             } catch (IllegalStateException ex) {
@@ -214,13 +217,17 @@ public class Start extends AbstractAction {
             try {
                 ValidationCheckpoints.Checkpoint checkpoint;
                 AbstractThreadGroup[] groups;
-                if (e.getSource() instanceof org.apache.jmeter.samplers.SampleResult result) {
+                if (e.getSource() instanceof SampleResult result) {
                     var target = ValidationCheckpoints.getReplayTarget(result);
                     checkpoint = target.checkpoint();
                     groups = new AbstractThreadGroup[]{target.group()};
                 } else {
-                    checkpoint = ValidationCheckpoints.get(gui.getCurrentElement());
                     groups = findValidationThreadGroups(new JMeterTreeNode[]{gui.getCurrentNode()});
+                    checkpoint = ValidationCheckpoints.get(gui.getCurrentElement(), groups.length == 0 ? null : groups[0]);
+                    if (groups.length == 0) {
+                        // A test fragment sampler: run the group that reached it, never the whole plan.
+                        groups = new AbstractThreadGroup[]{ValidationCheckpoints.groupOf(checkpoint)};
+                    }
                 }
                 startEngine(groups, RunMode.VALIDATION, null, checkpoint);
             } catch (IllegalStateException ex) {
@@ -263,7 +270,7 @@ public class Start extends AbstractAction {
     public static boolean canResumeAllFailed() {
         GuiPackage gui = GuiPackage.getInstance();
         return gui != null && !JMeterUtils.isTestRunning()
-                && java.util.Arrays.stream(findAllValidationThreadGroups(gui.getTreeModel()))
+                && Arrays.stream(findAllValidationThreadGroups(gui.getTreeModel()))
                         .anyMatch(ValidationCheckpoints::canResumeFailedSampler);
     }
 
@@ -288,7 +295,7 @@ public class Start extends AbstractAction {
     }
 
     static AbstractThreadGroup[] findSectionValidationThreadGroups(JMeterTreeNode section) {
-        if (!(section.getTestElement() instanceof org.apache.jmeter.scenario.ThreadGroupsSection)
+        if (!(section.getTestElement() instanceof ThreadGroupsSection)
                 || !section.isEnabled()) {
             return new AbstractThreadGroup[0];
         }

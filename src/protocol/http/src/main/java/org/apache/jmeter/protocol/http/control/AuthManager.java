@@ -162,19 +162,24 @@ public class AuthManager extends ConfigTestElement implements ValidationCheckpoi
     }
 
     @Override
-    public Object captureValidationState() {
+    public void checkResumable() {
         for (int i = 0; i < getAuthCount(); i++) {
             if (getAuthObjectAt(i).getMechanism() == Mechanism.KERBEROS) {
                 throw new IllegalStateException("Resume cannot restore a Kerberos authentication session.");
             }
         }
+    }
+
+    @Override
+    public Object captureValidationState() {
+        checkResumable();
         return true;
     }
 
     @Override
     public void restoreValidationState(Object state) {
         // Basic and digest authentication are rebuilt from the edited configuration.
-        captureValidationState();
+        checkResumable();
     }
 
     public CollectionProperty getAuthObjects() {

@@ -19,6 +19,14 @@ package org.apache.jmeter.threads;
 
 /** Runtime state which can be independently captured and restored during GUI validation. */
 public interface ValidationCheckpointParticipant {
+    /**
+     * Checked before a resume starts.
+     *
+     * @throws IllegalStateException when the current configuration cannot be resumed
+     */
+    default void checkResumable() {
+    }
+
     Object captureValidationState();
     void restoreValidationState(Object state);
 }

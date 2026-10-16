@@ -77,6 +77,7 @@ final class CurlRequest {
         }
         Set<String> headers = new HashSet<>();
         Charset encoding = StandardCharsets.UTF_8;
+        boolean charsetDeclared = false;
         long contentLength = -1;
         for (String line : result.getRequestHeaders().split("\\r?\\n")) {
             if (line.isBlank()) {
@@ -109,6 +110,7 @@ final class CurlRequest {
                 if (charset.find()) {
                     try {
                         encoding = Charset.forName(charset.group(1));
+                        charsetDeclared = true;
                     } catch (IllegalArgumentException ex) {
                         return null;
                     }
@@ -128,9 +130,12 @@ final class CurlRequest {
         if (!body.isEmpty()) {
             args.addAll(List.of("--data-binary", "@-"));
         }
+        // Without a declared charset or a Content-Length to verify against, the sent bytes of a
+        // non-ASCII body are unknown (samplers may have used ISO-8859-1), so do not guess.
         if (args.stream().anyMatch(value -> value.indexOf('\0') >= 0)
                 || cookies.indexOf('\r') >= 0 || cookies.indexOf('\n') >= 0
-                || !encoding.newEncoder().canEncode(body)) {
+                || !encoding.newEncoder().canEncode(body)
+                || !charsetDeclared && contentLength < 0 && !StandardCharsets.US_ASCII.newEncoder().canEncode(body)) {
             return null;
         }
         byte[] bytes = body.getBytes(encoding);

@@ -17,6 +17,10 @@
 
 package org.apache.jmeter.gui.action.validation;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.TreeCloner;
 import org.apache.jmeter.testelement.TestElement;
@@ -37,7 +41,7 @@ import org.slf4j.LoggerFactory;
  */
 public class TreeClonerForValidation extends TreeCloner {
 
-    private final java.util.List<String> checkpointParents = new java.util.ArrayList<>();
+    private final List<String> checkpointParents = new ArrayList<>();
 
     private static final Logger log = LoggerFactory.getLogger(TreeClonerForValidation.class);
 
@@ -115,7 +119,7 @@ public class TreeClonerForValidation extends TreeCloner {
             }
             if (node instanceof TestElement source && clonedNode instanceof TestElement clone) {
                 String executionId = ValidationCheckpoints.register(source, clone, parent);
-                if (source instanceof org.apache.jmeter.control.Controller) {
+                if (source instanceof Controller) {
                     checkpointParents.set(checkpointParents.size() - 1, executionId);
                 }
             }

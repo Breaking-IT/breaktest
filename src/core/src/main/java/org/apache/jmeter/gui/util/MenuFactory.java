@@ -76,6 +76,7 @@ import org.apache.jmeter.testelement.NonTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.Printable;
 import org.apache.jorphan.gui.GuiUtils;
@@ -478,6 +479,9 @@ public final class MenuFactory {
                 ActionNames.ADD_PARENT));
         JMenuItem resume = makeMenuItemRes("resume_validation", ActionNames.RESUME_VALIDATION);
         resume.setToolTipText(JMeterUtils.getResString("resume_validation_tooltip"));
+        GuiPackage gui = GuiPackage.getInstance();
+        resume.setEnabled(gui != null && !JMeterUtils.isTestRunning()
+                && ValidationCheckpoints.canResume(gui.getCurrentElement()));
         pop.add(resume);
         MenuFactory.addEditMenu(pop, true);
         MenuFactory.addFileMenu(pop);

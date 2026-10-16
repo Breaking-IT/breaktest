@@ -48,6 +48,7 @@ import org.apache.jmeter.gui.action.KeyStrokes;
 import org.apache.jmeter.gui.action.LoadRecentProject;
 import org.apache.jmeter.gui.action.LogLevelCommand;
 import org.apache.jmeter.gui.action.LookAndFeelCommand;
+import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.gui.plugin.MenuCreator;
 import org.apache.jmeter.gui.plugin.MenuCreator.MENU_LOCATION;
 import org.apache.jmeter.util.JMeterUtils;
@@ -461,7 +462,7 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         runMenu.addMenuListener(new MenuListener() {
             @Override
             public void menuSelected(MenuEvent event) {
-                runResumeAllFailed.setEnabled(org.apache.jmeter.gui.action.Start.canResumeAllFailed());
+                runResumeAllFailed.setEnabled(Start.canResumeAllFailed());
             }
 
             @Override
@@ -637,7 +638,7 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
     public void setEnabled(boolean enable) {
         runValidate.setEnabled(!enable);
         runValidateAll.setEnabled(!enable);
-        runResumeAllFailed.setEnabled(!enable && org.apache.jmeter.gui.action.Start.canResumeAllFailed());
+        runResumeAllFailed.setEnabled(!enable && Start.canResumeAllFailed());
         runValidateAllSequentially.setEnabled(!enable);
         runStart.setEnabled(!enable);
         runStop.setEnabled(enable);
