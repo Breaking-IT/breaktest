@@ -219,6 +219,8 @@ public class ModuleController extends GenericController implements ReplaceableCo
     private static JMeterTreeNode cloneTreeNode(JMeterTreeNode node) {
         JMeterTreeNode treeNode = (JMeterTreeNode) node.clone();
         treeNode.setUserObject(((TestElement) node.getUserObject()).clone());
+        org.apache.jmeter.threads.ValidationCheckpoints.inheritSourceIdentity(
+                node.getTestElement(), treeNode.getTestElement());
         cloneChildren(treeNode, node);
         return treeNode;
     }
@@ -230,6 +232,8 @@ public class ModuleController extends GenericController implements ReplaceableCo
             JMeterTreeNode child = (JMeterTreeNode) enumr.nextElement();
             JMeterTreeNode childClone = (JMeterTreeNode) child.clone();
             childClone.setUserObject(((TestElement) child.getUserObject()).clone());
+            org.apache.jmeter.threads.ValidationCheckpoints.inheritSourceIdentity(
+                    child.getTestElement(), childClone.getTestElement());
             to.add(childClone);
             cloneChildren((JMeterTreeNode) to.getLastChild(), child);
         }

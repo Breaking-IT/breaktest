@@ -43,6 +43,7 @@ import org.apache.jmeter.testelement.TestStateListener;
 import org.apache.jmeter.testelement.property.BooleanProperty;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.ValidationCheckpointParticipant;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
 import org.slf4j.Logger;
@@ -54,7 +55,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 /**
  * Handles HTTP Caching.
  */
-public class CacheManager extends ConfigTestElement implements TestStateListener, TestIterationListener, Serializable {
+public class CacheManager extends ConfigTestElement implements ValidationCheckpointParticipant, TestStateListener, TestIterationListener, Serializable {
 
     private static final long serialVersionUID = 236L;
 
@@ -594,6 +595,22 @@ public class CacheManager extends ConfigTestElement implements TestStateListener
     public void clear(){
         super.clear();
         clearCache();
+    }
+
+    private record ValidationState(java.util.Map<String, CacheEntry> entries, boolean useExpires) {
+    }
+
+    @Override
+    public Object captureValidationState() {
+        return new ValidationState(java.util.Map.copyOf(getCache().asMap()), useExpires);
+    }
+
+    @Override
+    public void restoreValidationState(Object state) {
+        ValidationState saved = (ValidationState) state;
+        clearCache();
+        getCache().putAll(saved.entries());
+        useExpires = saved.useExpires();
     }
 
     private void clearCache() {

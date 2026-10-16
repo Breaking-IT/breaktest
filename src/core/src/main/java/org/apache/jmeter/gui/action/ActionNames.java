@@ -119,6 +119,11 @@ public final class ActionNames {
     public static final String MOVE_TO_TEST_FRAGMENTS = "move_to_test_fragments"; // $NON-NLS-1$
     public static final String SAVE_BEFORE_RUN  = "save_before_run"; //$NON-NLS-1$
     public static final String THREAD_DUMP      = "thread_dump"; // $NON-NLS-1$
+    public static final String RESUME_VALIDATION = "resume_validation"; //$NON-NLS-1$
+
+    public static final String RESUME_ALL_FAILED = "resume_all_failed";
+    public static final String VALIDATE_ALL = "validate_all";
+    public static final String VALIDATE_ALL_SEQUENTIALLY = "validate_all_sequentially";
     public static final String VALIDATE_TG      = "validate_tg"; //$NON-NLS-1$
     public static final String ZOOM_IN          = "zoom_in"; //$NON-NLS-1$
     public static final String ZOOM_OUT         = "zoom_out"; //$NON-NLS-1$

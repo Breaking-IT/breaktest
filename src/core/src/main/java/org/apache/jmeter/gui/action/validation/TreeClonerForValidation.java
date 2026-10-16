@@ -19,9 +19,11 @@ package org.apache.jmeter.gui.action.validation;
 
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.TreeCloner;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jmeter.threads.openmodel.OpenModelThreadGroup;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.util.JMeterUtils;
@@ -34,6 +36,8 @@ import org.slf4j.LoggerFactory;
  * @since 3.0
  */
 public class TreeClonerForValidation extends TreeCloner {
+
+    private final java.util.List<String> checkpointParents = new java.util.ArrayList<>();
 
     private static final Logger log = LoggerFactory.getLogger(TreeClonerForValidation.class);
 
@@ -75,6 +79,8 @@ public class TreeClonerForValidation extends TreeCloner {
      */
     @Override
     protected Object addNodeToTree(Object node) {
+        String parent = checkpointParents.isEmpty() ? "" : checkpointParents.get(checkpointParents.size() - 1);
+        checkpointParents.add(parent);
         if((VALIDATION_IGNORE_TIMERS && node instanceof Timer) ||
                 (VALIDATION_IGNORE_BACKENDS && node instanceof Backend)) {
             return node; // don't add timer or backend
@@ -96,15 +102,31 @@ public class TreeClonerForValidation extends TreeCloner {
                 if (!tg.getPropertyAsString(AbstractThreadGroup.VALIDATION_ON_ERROR).isEmpty()) {
                     // Thread groups whose error handling is set per scenario only choose how validation reacts
                     tg.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, tg.isValidationStopOnError()
-                            ? AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTEST
+                            ? AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTHREAD
                             : AbstractThreadGroup.ON_SAMPLE_ERROR_CONTINUE);
+                }
+                // A validation failure must not stop the other groups in Validate all.
+                if (tg.getOnErrorStopTest() || tg.getOnErrorStopTestNow()) {
+                    tg.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTHREAD);
                 }
                 if(((AbstractThreadGroup)clonedNode).getSamplerController() instanceof LoopController) {
                     ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(VALIDATION_ITERATIONS);
                 }
             }
+            if (node instanceof TestElement source && clonedNode instanceof TestElement clone) {
+                String executionId = ValidationCheckpoints.register(source, clone, parent);
+                if (source instanceof org.apache.jmeter.control.Controller) {
+                    checkpointParents.set(checkpointParents.size() - 1, executionId);
+                }
+            }
             return clonedNode;
         }
+    }
+
+    @Override
+    public void subtractNode() {
+        super.subtractNode();
+        checkpointParents.remove(checkpointParents.size() - 1);
     }
 
     private static ThreadGroup convertToStandardThreadGroup(OpenModelThreadGroup source) {

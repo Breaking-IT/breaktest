@@ -31,6 +31,7 @@ import javax.swing.JPopupMenu;
 import javax.swing.JRadioButton;
 
 import org.apache.jmeter.gui.AbstractJMeterGuiComponent;
+import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.ActionNames;
 import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.KeyStrokes;
@@ -39,6 +40,7 @@ import org.apache.jmeter.gui.util.VerticalPanel;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.AbstractThreadGroupSchema;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apiguardian.api.API;
 
@@ -79,6 +81,12 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
             JMenuItem validate = createMenuItem("validate_threadgroup", ActionNames.VALIDATE_TG);
             validate.setAccelerator(KeyStrokes.VALIDATE);
             pop.add(validate);
+            GuiPackage gui = GuiPackage.getInstance();
+            if (gui != null && ValidationCheckpoints.canResumeFailedSampler(gui.getCurrentElement())) {
+                JMenuItem resume = createMenuItem("resume_validation", ActionNames.RESUME_VALIDATION);
+                resume.setToolTipText(JMeterUtils.getResString("resume_validation_threadgroup_tooltip"));
+                pop.add(resume);
+            }
         }
 
         if (!JMeterUtils.isTestRunning()) {

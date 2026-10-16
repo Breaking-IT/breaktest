@@ -476,6 +476,9 @@ public final class MenuFactory {
         pop.add(makeMenus(new String[]{CONTROLLERS},
                 JMeterUtils.getResString("insert_parent"),// $NON-NLS-1$
                 ActionNames.ADD_PARENT));
+        JMenuItem resume = makeMenuItemRes("resume_validation", ActionNames.RESUME_VALIDATION);
+        resume.setToolTipText(JMeterUtils.getResString("resume_validation_tooltip"));
+        pop.add(resume);
         MenuFactory.addEditMenu(pop, true);
         MenuFactory.addFileMenu(pop);
         return pop;

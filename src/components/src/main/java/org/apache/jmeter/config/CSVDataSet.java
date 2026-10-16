@@ -81,7 +81,7 @@ import org.slf4j.LoggerFactory;
 @GUIMenuSortOrder(1)
 @TestElementMetadata(labelResource = "displayName")
 public class CSVDataSet extends ConfigTestElement
-    implements TestBean, LoopIterationListener, NoConfigMerge {
+    implements TestBean, LoopIterationListener, NoConfigMerge, org.apache.jmeter.threads.ValidationCheckpointParticipant {
 
     public enum ShareMode implements ResourceKeyed {
         ALL("shareMode.all"),
@@ -206,6 +206,44 @@ public class CSVDataSet extends ConfigTestElement
                 threadVars.put(var, EOFVALUE);
             }
         }
+    }
+
+    private record ValidationState(List<String> variables, boolean header, Object position, List<String> settings) {
+    }
+
+    @Override
+    public Object captureValidationState() {
+        return new ValidationState(vars == null ? null : List.of(vars), firstLineIsNames,
+                alias == null ? null : FileServer.getFileServer().captureReadPosition(alias), validationSettings());
+    }
+
+    @Override
+    public void restoreValidationState(Object state) {
+        ValidationState saved = (ValidationState) state;
+        if (saved.position() == null) {
+            return;
+        }
+        if (!saved.settings().equals(validationSettings())) {
+            throw new IllegalStateException("CSV settings changed since the checkpoint. Run a fresh validation: " + getName());
+        }
+        FileServer server = FileServer.getFileServer();
+        if (alias == null) {
+            initVars(server, getThreadContext(), normalizeDelimiter());
+        }
+        try {
+            server.restoreReadPosition(alias, saved.position());
+            vars = saved.variables().toArray(String[]::new);
+            firstLineIsNames = saved.header();
+        } catch (IOException ex) {
+            throw new IllegalStateException("Unable to restore CSV position: " + getName(), ex);
+        }
+    }
+
+    private List<String> validationSettings() {
+        return List.of(String.valueOf(filename), String.valueOf(fileEncoding), String.valueOf(variableNames),
+                normalizeDelimiter(), String.valueOf(quoted), String.valueOf(randomOrder), String.valueOf(recycle),
+                String.valueOf(stopThread), String.valueOf(ignoreFirstLine), String.valueOf(shareMode),
+                String.valueOf(isUseCsvFromArchive()), getCsvArchiveEntry(), getCsvArchiveChecksum());
     }
 
     private void initVars(FileServer server, final JMeterContext context, String delim) {

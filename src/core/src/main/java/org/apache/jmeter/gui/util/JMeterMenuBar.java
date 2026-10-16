@@ -75,6 +75,9 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
     private JMenu editAdd;
     private JMenu runMenu;
     private JMenuItem runValidate;
+    private JMenuItem runValidateAll;
+    private JMenuItem runResumeAllFailed;
+    private JMenuItem runValidateAllSequentially;
     private JMenuItem runStart;
     private JMenuItem runStop;
     private JMenuItem runShut;
@@ -433,6 +436,9 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
 
         runValidate = makeMenuItemRes("validate_threadgroup", 'V', ActionNames.VALIDATE_TG, KeyStrokes.VALIDATE); //$NON-NLS-1$
 
+        runValidateAll = makeMenuItemRes("validate_all", ActionNames.VALIDATE_ALL);
+        runValidateAllSequentially = makeMenuItemRes("validate_all_sequentially", ActionNames.VALIDATE_ALL_SEQUENTIALLY);
+
         runStart = makeMenuItemRes("start", 'S', ActionNames.ACTION_START, KeyStrokes.ACTION_START); //$NON-NLS-1$
 
 
@@ -447,6 +453,25 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
         JMenuItem runClearAll = makeMenuItemRes("clear_all", 'a', ActionNames.CLEAR_ALL, KeyStrokes.CLEAR_ALL);
 
         runMenu.add(runValidate);
+        runMenu.add(runValidateAll);
+        runMenu.add(runValidateAllSequentially);
+        runResumeAllFailed = makeMenuItemRes("resume_all_failed", ActionNames.RESUME_ALL_FAILED);
+        runResumeAllFailed.setEnabled(false);
+        runMenu.add(runResumeAllFailed);
+        runMenu.addMenuListener(new MenuListener() {
+            @Override
+            public void menuSelected(MenuEvent event) {
+                runResumeAllFailed.setEnabled(org.apache.jmeter.gui.action.Start.canResumeAllFailed());
+            }
+
+            @Override
+            public void menuDeselected(MenuEvent event) {
+            }
+
+            @Override
+            public void menuCanceled(MenuEvent event) {
+            }
+        });
         runMenu.add(runStart);
         runMenu.add(runStop);
         runMenu.add(runShut);
@@ -611,6 +636,9 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
     @Override
     public void setEnabled(boolean enable) {
         runValidate.setEnabled(!enable);
+        runValidateAll.setEnabled(!enable);
+        runResumeAllFailed.setEnabled(!enable && org.apache.jmeter.gui.action.Start.canResumeAllFailed());
+        runValidateAllSequentially.setEnabled(!enable);
         runStart.setEnabled(!enable);
         runStop.setEnabled(enable);
         runShut.setEnabled(enable);

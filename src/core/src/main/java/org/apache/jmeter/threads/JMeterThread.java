@@ -1408,6 +1408,9 @@ public class JMeterThread implements Runnable, Interruptible {
             Function<? super Sampler, ? extends Sampler> sourceSampler,
             boolean recoverControllers) {
 
+        if (JMeterContextService.isValidationRun()) {
+            ValidationCheckpoints.beforeSampler(testTree, current, threadContext);
+        }
         threadContext.setCurrentSampler(current);
         // Get the sampler ready to sample
         SamplePackage pack = configureSamplerLocked(current, sourceSampler);
@@ -1469,6 +1472,9 @@ public class JMeterThread implements Runnable, Interruptible {
                     SampleIgnorePolicy.from(pack.getSampler()).apply(result);
                     // PostProcessors and the sampler policy can call setIgnore, so reevaluate here
                     if (!result.isIgnore()) {
+                        if (JMeterContextService.isValidationRun()) {
+                            ValidationCheckpoints.afterSampler(current, threadContext.getThreadGroup(), result);
+                        }
                         List<SampleListener> sampleListeners = pack.getSampleListeners();
                         int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);
                         if (needsSourceTestElementPath(metadataRequirements)) {

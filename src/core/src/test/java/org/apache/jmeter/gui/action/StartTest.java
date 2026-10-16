@@ -52,6 +52,28 @@ class StartTest {
     private final AbstractThreadGroup second = addThreadGroup();
 
     @Test
+    void validateAllSelectsOnlyEnabledGroupsInSectionOrder() {
+        JMeterTreeNode plan = (JMeterTreeNode) model.getNodeOf(first).getParent();
+        JMeterTreeNode section = addChild(new org.apache.jmeter.scenario.ThreadGroupsSection(), plan);
+        ThreadGroup alpha = new ThreadGroup();
+        ThreadGroup disabled = new ThreadGroup();
+        disabled.setEnabled(false);
+        ThreadGroup beta = new ThreadGroup();
+        addChild(alpha, section);
+        addChild(disabled, section);
+        addChild(new Arguments(), section);
+        addChild(beta, section);
+        assertArrayEquals(new AbstractThreadGroup[]{alpha, beta}, Start.findSectionValidationThreadGroups(section));
+        assertEquals(0, Start.findSectionValidationThreadGroups(plan).length);
+        assertArrayEquals(new AbstractThreadGroup[]{first, second, alpha, beta},
+                Start.findAllValidationThreadGroups(model));
+        section.setEnabled(false);
+        assertEquals(0, Start.findSectionValidationThreadGroups(section).length);
+        first.setEnabled(false);
+        assertArrayEquals(new AbstractThreadGroup[]{second}, Start.findAllValidationThreadGroups(model));
+    }
+
+    @Test
     void validationPrefersPlanResultsTreeOverGroupListener() {
         addResultsTree(model.getNodeOf(first));
         JMeterTreeNode planListener = addResultsTree((JMeterTreeNode) model.getNodeOf(first).getParent());

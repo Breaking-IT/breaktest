@@ -45,6 +45,7 @@ import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.TestElementProperty;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.ValidationCheckpointParticipant;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
 import org.slf4j.Logger;
@@ -58,7 +59,7 @@ import org.slf4j.LoggerFactory;
  * user a username to use and pass the appropriate password.
  *
  */
-public class AuthManager extends ConfigTestElement implements TestStateListener, TestIterationListener, Serializable {
+public class AuthManager extends ConfigTestElement implements ValidationCheckpointParticipant, TestStateListener, TestIterationListener, Serializable {
     private static final long serialVersionUID = 235L;
 
     private static final Logger log = LoggerFactory.getLogger(AuthManager.class);
@@ -158,6 +159,22 @@ public class AuthManager extends ConfigTestElement implements TestStateListener,
         } else {
             getAuthObjects().addItem(auth);
         }
+    }
+
+    @Override
+    public Object captureValidationState() {
+        for (int i = 0; i < getAuthCount(); i++) {
+            if (getAuthObjectAt(i).getMechanism() == Mechanism.KERBEROS) {
+                throw new IllegalStateException("Resume cannot restore a Kerberos authentication session.");
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public void restoreValidationState(Object state) {
+        // Basic and digest authentication are rebuilt from the edited configuration.
+        captureValidationState();
     }
 
     public CollectionProperty getAuthObjects() {
