@@ -13,6 +13,60 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.10.16 — OpenAPI Import, Structured Data Sets, and Resumable Validation
+
+This feature release expands how you build and debug tests: generate reusable requests from an API specification, drive iterations with JSON, XML, or YAML data, and continue validation from a failed request after editing the plan. Request replay and cURL export make individual calls easier to investigate, alongside editor improvements and a Groovy 6 upgrade.
+
+## Turn API Specifications into Reusable Requests
+
+- **Import OpenAPI 3.x and Swagger 2.0 JSON.** Use **File > Import OpenAPI JSON...** or the welcome screen to create an editable Test Fragment, with HTTP requests grouped by operation tag or path. Call the fragment from a Module Controller or copy requests into a thread group.
+- **Start with populated requests.** The importer resolves references within the file and generates query, header, cookie, and body values from examples, defaults, enums, and schemas. Generated placeholders are stable and field-specific, making repeated values easier to find and replace. JSON, text, URL-encoded, and multipart form bodies are supported.
+- **Reuse your environment settings.** Hostname, protocol, and port inherit HTTP Request Defaults; paths retain the effective server path or Swagger basePath. Configure authentication separately. Importing does not send requests.
+
+The importer accepts JSON specifications, not YAML. External references are rejected without adding a partial fragment. Unsupported body media types and multipart file fields produce warnings so you can complete those requests manually; generated values still need review against application-specific constraints.
+
+Sources: [#261](https://github.com/Breaking-IT/breaktest/pull/261).
+
+## Drive Tests with JSON, XML, and YAML
+
+- **Three new native data set configurations.** JSON Data Set Config reads objects or arrays of objects; XML Data Set Config selects records with XPath; YAML Data Set Config reads mappings, lists of mappings, and multiple documents. Each iteration receives a record as variables, with an optional prefix.
+- **Use nested data directly.** Nested fields expose dotted variable paths, arrays expose one-based indexes and match counts, and complete nested values remain available as JSON strings or XML fragments. Missing fields and counts are cleared between records so shorter records do not reuse old values.
+- **Preview and edit data inside BreakTest.** Read the first ten samples without advancing record positions, edit and validate local or archived files, create missing files, and export copies. Embed data files in the JMX archive to keep a plan and its inputs together.
+- **Control how records are shared.** Share positions across all threads, within a thread group, per thread, or by a custom identifier. Recycling and stop-on-EOF controls support finite and repeating data sets. Files are loaded once per run and shared positions reset between runs.
+
+Sources: [#258](https://github.com/Breaking-IT/breaktest/pull/258).
+
+## Fix a Request and Continue Validation
+
+- **Resume after editing.** GUI validation captures in-memory checkpoints before samplers. Use **Resume validation** on a sampler or failed thread group, or **Replay from here** on a validation result, to restore supported client state and continue with the current plan edits.
+- **Validate and repair groups in batches.** **Validate all**, **Validate all one by one**, and **Resume all failed** support working through multiple thread groups. Resume also supports requests reached through Module Controllers and restores supported HTTP manager state and CSV record positions.
+- **Inspect a single request independently.** The raw request view adds **Copy cURL** and **Replay**. Replay runs local curl and displays its response, with a 60-second timeout; curl must support the recorded HTTP version.
+
+Checkpoints belong to the latest GUI validation and are not saved in JMX files. Resume requires one validation thread and one iteration, and rejects changed execution structure or unsupported state, including parallel/fork execution and live WebSocket/SSE state. It does not roll back server-side effects. The new JSON/XML/YAML data sets do not support checkpoint restoration; run fresh validation for those plans. Local curl replay sends the captured request independently of the validation checkpoint workflow.
+
+Sources: [#262](https://github.com/Breaking-IT/breaktest/pull/262).
+
+## Editor and Runtime Reliability
+
+- **Editors fit the available space.** HTTP headers, request content, recorded tabs, and search controls use the available viewport more consistently, with recorded tabs available when their content exists.
+- **More reliable recording maintenance.** A dedicated Clean up orphans action separates unused-file cleanup from recording trimming. Cleanup reconciles stale recording references when there is one unambiguous valid version and preserves referenced data files. HLS recorded-exchange display is also improved.
+- **Correct transaction timing.** Timer pauses are measured using the transaction's clock so excluded pauses are accounted for consistently.
+- **Reliable menus and fork cleanup.** Menus remain available when lib/ext contains no BreakTest jars, and a fork SKIP race at iteration boundaries is fixed.
+
+Sources: [#259](https://github.com/Breaking-IT/breaktest/pull/259), [#260](https://github.com/Breaking-IT/breaktest/pull/260), [#263](https://github.com/Breaking-IT/breaktest/pull/263), [#264](https://github.com/Breaking-IT/breaktest/pull/264), [#266](https://github.com/Breaking-IT/breaktest/pull/266).
+
+## Upgrade Notes
+
+Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later.
+
+**Bundled Groovy moves from 5.0.4 to 6.0.0.** Replay existing scripts before production load runs. Changes include map membership, loop-variable capture, stricter generic syntax, JSON/XML parsing limits, and quoted interpolation in Groovy SQL. Scripts or plugins relying on the Ivy backend for @Grab or the classic non-invokedynamic runtime need the corresponding optional modules and dependencies. See the repository's dependency review for details.
+
+Runtime libraries also receive updates, including HttpClient 5, Jackson, Log4j, JDBC pooling, Bouncy Castle, and the desktop UI libraries.
+
+Sources: [#265](https://github.com/Breaking-IT/breaktest/pull/265).
+
+[Full changelog since 2026.10.15](https://github.com/Breaking-IT/breaktest/compare/2026.10.15...2026.10.16)
+
 # BreakTest 2026.10.15 — Guided Review, Extractor Previews, and Faster Execution
 
 This release adds step-by-step review for plan changes, more precise correlation controls, and recorded-response testers for more extractors. It also reduces scripting and HTTP execution overhead, makes long request paths easier to edit, and fixes replay storage and editor behavior.
