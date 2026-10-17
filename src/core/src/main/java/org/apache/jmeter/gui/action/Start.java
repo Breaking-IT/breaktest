@@ -43,6 +43,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.JMeterToolBar;
+import org.apache.jmeter.readiness.evidence.ReadinessEvidenceStore;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.scenario.Scenario;
 import org.apache.jmeter.scenario.ScenarioException;
@@ -131,6 +132,36 @@ public class Start extends AbstractAction {
     }
 
     /**
+     * Builds the tree a validation of the given thread groups runs, before it is cloned: enabled elements only,
+     * replaceable controllers resolved, sections flattened and other thread groups removed. Script readiness
+     * analyses and fingerprints this same tree.
+     *
+     * @param testPlan the GUI test plan, as {@link JMeterTreeModel#getTestPlan()} returns it
+     * @param threadGroups thread groups in scope
+     * @return the tree
+     */
+    public static HashTree validationTree(HashTree testPlan, AbstractThreadGroup[] threadGroups) {
+        HashTree treeToUse = JMeter.convertSubTree(testPlan, false);
+        if (threadGroups != null && threadGroups.length > 0) {
+            treeToUse = ScenarioResolver.flattenIgnoringScenarios(treeToUse);
+            keepOnlySelectedThreadGroupsInHashTree(treeToUse, threadGroups);
+        }
+        return treeToUse;
+    }
+
+    /**
+     * @param threadGroups thread groups in scope
+     * @return the scope identifiers the readiness fingerprint includes
+     */
+    public static List<String> readinessScope(AbstractThreadGroup[] threadGroups) {
+        List<String> scope = new ArrayList<>();
+        for (AbstractThreadGroup group : threadGroups) {
+            scope.add(group.getThreadGroupId());
+        }
+        return scope;
+    }
+
+    /**
      * @return original thread groups targeted by the latest validation run
      */
     public static AbstractThreadGroup[] getActiveValidationThreadGroups() {
@@ -142,6 +173,7 @@ public class Start extends AbstractAction {
      */
     public static void clearValidationThreadGroups() {
         ValidationCheckpoints.clear();
+        ReadinessEvidenceStore.clear();
         lastValidationThreadGroups = new AbstractThreadGroup[0];
         activeValidationThreadGroups = null;
     }

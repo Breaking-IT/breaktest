@@ -1,0 +1,44 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements.  See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to you under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License.  You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package org.apache.jmeter.readiness.evidence;
+
+import java.util.List;
+import java.util.Set;
+
+/**
+ * A sample executed during a readiness validation run.
+ *
+ * @param samplerId source id of the sampler
+ * @param executionId execution id of the sampler, which lists the source ids of its enclosing controllers
+ * @param groupId source id of the thread group
+ * @param thread thread name
+ * @param iteration iteration of the thread
+ * @param successful whether the sample succeeded
+ * @param responseCode response code
+ * @param failures bounded, redacted failure messages (request error, failed assertions)
+ * @param verifierIds source ids of the assertions and post-processors that ran on the sample
+ * @param redirect whether the response was a redirect (3xx)
+ */
+public record SampleObservation(String samplerId, String executionId, String groupId, String thread, int iteration,
+        boolean successful, String responseCode, List<String> failures, Set<String> verifierIds,
+        boolean redirect) {
+    public SampleObservation {
+        failures = List.copyOf(failures);
+        verifierIds = Set.copyOf(verifierIds);
+    }
+}
