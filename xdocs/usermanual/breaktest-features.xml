@@ -941,7 +941,7 @@ Start the producer in an asynchronous Fork before reaching the wait.</p>
 <section name="Script readiness" anchor="script_readiness">
 <p>Use <code>Tools &gt; Check script readiness&#x2026;</code> to check whether the thread groups of a test plan are
 ready for a performance test. The wizard has four steps: choose the scope (the selected thread groups or all of
-them), the checks and the validation settings of this run; run the checks with progress and <code>Cancel</code>;
+them), the checks and the validation settings of this run (right-click a thread group and choose <code>Check readiness&#x2026;</code>, or the <code>Thread Groups</code> section and choose <code>Check readiness of all&#x2026;</code>, to open the wizard with that scope); run the checks with progress and <code>Cancel</code>;
 review the findings grouped by check or by transaction; and read the readiness summary. Double-click a finding,
 or press Enter, to select its element in the tree. Close the wizard to edit the plan; reopening it during the GUI
 session shows the latest report, and <code>Re-run checks</code> runs them again. Distributed execution, reporting

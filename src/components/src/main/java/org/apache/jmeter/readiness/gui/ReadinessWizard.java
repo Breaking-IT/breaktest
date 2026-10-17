@@ -42,11 +42,13 @@ import org.apache.jmeter.util.JMeterUtils;
 import com.google.auto.service.AutoService;
 
 /**
- * Tools → Check script readiness…: opens the readiness wizard, or the latest report of the GUI session.
+ * Tools → Check script readiness…: opens the readiness wizard, or the latest report of the GUI session. The
+ * thread group and Thread Groups popups open it with that thread group, or all of them, in scope.
  */
 @AutoService({Command.class, MenuCreator.class})
 public final class ReadinessWizard extends AbstractAction implements MenuCreator {
-    private static final Set<String> COMMANDS = Set.of(ActionNames.CHECK_SCRIPT_READINESS);
+    private static final Set<String> COMMANDS = Set.of(ActionNames.CHECK_SCRIPT_READINESS,
+            ActionNames.CHECK_READINESS_TG, ActionNames.CHECK_READINESS_ALL);
 
     private static GuiReadinessController controller;
     private static JDialog dialog;
@@ -91,6 +93,10 @@ public final class ReadinessWizard extends AbstractAction implements MenuCreator
                     && !ReadinessWizardPanel.SETUP.equals(panel.currentStep())) {
                 panel.show(ReadinessWizardPanel.SETUP);
             }
+        }
+        if (!controller.isRunning() && !ActionNames.CHECK_SCRIPT_READINESS.equals(e.getActionCommand())) {
+            // From a popup: the right-clicked thread group, or every thread group, ready to run
+            panel.useScope(ActionNames.CHECK_READINESS_ALL.equals(e.getActionCommand()));
         }
         dialog.setVisible(true);
         dialog.toFront();

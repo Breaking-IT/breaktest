@@ -196,6 +196,52 @@ class ReadinessWizardPanelTest extends JMeterTestCase {
     }
 
     @Test
+    void popupsPresetTheScope() throws Exception {
+        FakeController controller = new FakeController();
+        ReadinessWizardPanel[] panel = new ReadinessWizardPanel[1];
+        onEdt(() -> panel[0] = new ReadinessWizardPanel(controller));
+        onEdt(() -> {
+            controller.listener.finished(report());
+            panel[0].useScope(true);
+            assertEquals(ReadinessWizardPanel.SETUP, panel[0].currentStep());
+            assertEquals(List.of("group:a", "group:b"), panel[0].request().groupIds());
+            panel[0].useScope(false);
+            assertEquals(List.of("group:a"), panel[0].request().groupIds());
+        });
+    }
+
+    @Test
+    void threadGroupAndThreadGroupsPopupsOfferReadiness() throws Exception {
+        var previous = org.apache.jmeter.gui.GuiPackage.getInstance();
+        try {
+            onEdt(() -> {
+                @SuppressWarnings("deprecation")
+                var model = new org.apache.jmeter.gui.tree.JMeterTreeModel(new Object());
+                var listener = new org.apache.jmeter.gui.tree.JMeterTreeListener(model);
+                var group = new org.apache.jmeter.threads.ThreadGroup();
+                var node = new org.apache.jmeter.gui.tree.JMeterTreeNode(group, model);
+                ((org.apache.jmeter.gui.tree.JMeterTreeNode) model.getRoot()).add(node);
+                listener.setJTree(new javax.swing.JTree(model));
+                listener.setSelectionPathWithoutEdit(new javax.swing.tree.TreePath(node.getPath()));
+                org.apache.jmeter.gui.GuiPackage.initInstance(listener, model);
+                assertTrue(hasItem(new org.apache.jmeter.threads.gui.ThreadGroupGui().createPopupMenu(),
+                        org.apache.jmeter.gui.action.ActionNames.CHECK_READINESS_TG));
+                assertTrue(hasItem(new org.apache.jmeter.scenario.gui.ThreadGroupsSectionGui().createPopupMenu(),
+                        org.apache.jmeter.gui.action.ActionNames.CHECK_READINESS_ALL));
+            });
+        } finally {
+            var field = org.apache.jmeter.gui.GuiPackage.class.getDeclaredField("guiPack");
+            field.setAccessible(true);
+            field.set(null, previous);
+        }
+    }
+
+    private static boolean hasItem(javax.swing.JPopupMenu menu, String action) {
+        return java.util.Arrays.stream(menu.getComponents()).filter(javax.swing.JMenuItem.class::isInstance)
+                .map(javax.swing.JMenuItem.class::cast).anyMatch(item -> action.equals(item.getActionCommand()));
+    }
+
+    @Test
     void refreshedReportKeepsTheSelection() throws Exception {
         FakeController controller = new FakeController();
         ReadinessWizardPanel[] panel = new ReadinessWizardPanel[1];

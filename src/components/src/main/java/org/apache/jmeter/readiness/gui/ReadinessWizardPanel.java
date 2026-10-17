@@ -313,6 +313,18 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
     }
 
     /**
+     * Opens the setup step with a preset scope, as the thread group popups do.
+     *
+     * @param all every thread group, or the thread groups selected in the tree
+     */
+    void useScope(boolean all) {
+        reloadGroups();
+        (all ? scopeAll : scopeSelected).setSelected(true);
+        groupsList.setEnabled(!all);
+        show(SETUP);
+    }
+
+    /**
      * @return the run the setup step describes
      */
     ReadinessController.RunRequest request() {

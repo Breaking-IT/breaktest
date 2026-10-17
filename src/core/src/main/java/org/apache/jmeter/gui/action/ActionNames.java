@@ -128,6 +128,8 @@ public final class ActionNames {
     public static final String VALIDATE_TG      = "validate_tg"; //$NON-NLS-1$
     public static final String VALIDATE_READINESS = "validate_readiness"; //$NON-NLS-1$
     public static final String CHECK_SCRIPT_READINESS = "check_script_readiness"; //$NON-NLS-1$
+    public static final String CHECK_READINESS_TG = "check_readiness_threadgroup"; //$NON-NLS-1$
+    public static final String CHECK_READINESS_ALL = "check_readiness_all"; //$NON-NLS-1$
     public static final String ZOOM_IN          = "zoom_in"; //$NON-NLS-1$
     public static final String ZOOM_OUT         = "zoom_out"; //$NON-NLS-1$
     public static final String PARSE_CURL       = "parse_curl"; //$NON-NLS-1$
