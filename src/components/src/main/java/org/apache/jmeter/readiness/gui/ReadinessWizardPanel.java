@@ -65,6 +65,7 @@ import javax.swing.KeyStroke;
 import javax.swing.ListSelectionModel;
 import javax.swing.SpinnerNumberModel;
 import javax.swing.UIManager;
+import javax.swing.table.DefaultTableCellRenderer;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.DefaultTreeCellRenderer;
@@ -145,6 +146,7 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
     // Summary
     private final JLabel verdict = new JLabel();
     private final JLabel counts = new JLabel();
+    private final JPanel tiles = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 4));
     private final JTextArea reasons = new JTextArea(4, 60);
     private final DefaultTableModel checksTable = new DefaultTableModel(new Object[]{"Check", "State", "Summary"}, 0) {
         private static final long serialVersionUID = 1L;
@@ -712,7 +714,12 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
         JPanel top = new JPanel();
         top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
         verdict.setFont(verdict.getFont().deriveFont(Font.BOLD, verdict.getFont().getSize2D() + 6f));
+        verdict.setIconTextGap(10);
+        verdict.setAlignmentX(LEFT_ALIGNMENT);
         top.add(verdict);
+        tiles.setAlignmentX(LEFT_ALIGNMENT);
+        top.add(tiles);
+        counts.setAlignmentX(LEFT_ALIGNMENT);
         top.add(counts);
         reasons.setEditable(false);
         reasons.setOpaque(false);
@@ -721,26 +728,39 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
         panel.add(top, BorderLayout.NORTH);
         JTable table = new JTable(checksTable);
         table.setFillsViewportHeight(true);
+        table.setRowHeight(Math.max(table.getRowHeight(), StatusIcon.SMALL + 6));
+        table.getColumnModel().getColumn(1).setCellRenderer(new StateRenderer());
+        table.getColumnModel().getColumn(0).setPreferredWidth(260);
+        table.getColumnModel().getColumn(1).setPreferredWidth(170);
+        table.getColumnModel().getColumn(2).setPreferredWidth(420);
         panel.add(new JScrollPane(table), BorderLayout.CENTER);
         return panel;
     }
 
     private void rebuildSummary() {
         checksTable.setRowCount(0);
+        tiles.removeAll();
         if (report == null) {
             verdict.setText("");
+            verdict.setIcon(null);
             counts.setText("");
             reasons.setText("");
             return;
         }
         ReadinessVerdict v = report.summary().verdict();
         verdict.setText(v.label());
-        verdict.setForeground(switch (v) {
-            case READY -> color("Actions.Green", new Color(0x2e7d32));
-            case NEEDS_ATTENTION -> color("Actions.Red", Color.RED);
-            case NOT_VERIFIED -> color("Actions.Yellow", new Color(0xb26a00));
-        });
+        verdict.setIcon(new StatusIcon(StatusIcon.kindOf(v), StatusIcon.LARGE));
+        verdict.setForeground(StatusIcon.color(StatusIcon.kindOf(v)));
         counts.setText(report.summary().countsText() + "  ·  scope: " + String.join(", ", report.scope()));
+        var summary = report.summary();
+        tile(StatusIcon.Kind.PASSED, summary.passed(), "passed");
+        tile(StatusIcon.Kind.ACCEPTED, summary.accepted(), "accepted");
+        tile(StatusIcon.Kind.FAILED, summary.blockers(), summary.blockers() == 1 ? "blocker" : "blockers");
+        tile(StatusIcon.Kind.WARNING, summary.warnings(), summary.warnings() == 1 ? "warning" : "warnings");
+        tile(StatusIcon.Kind.REVIEW, summary.reviews(), "to review");
+        tile(StatusIcon.Kind.NOT_VERIFIED, summary.notVerified(), "not verified");
+        tiles.revalidate();
+        tiles.repaint();
         StringBuilder text = new StringBuilder();
         report.summary().reasons().forEach(r -> text.append("• ").append(r).append('\n'));
         text.append(report.evidenceStatus());
@@ -750,8 +770,33 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
                     + (result.acceptedCount() > 0 && result.state() != CheckState.ACCEPTED
                             ? " · " + result.acceptedCount() + " accepted" : "");
             checksTable.addRow(new Object[]{result.checkId().title() + (result.checkId().isMandatory() ? " *" : ""),
-                    state, result.summary()});
+                    new StateCell(StatusIcon.kindOf(result), state), result.summary()});
         }
+    }
+
+    private void tile(StatusIcon.Kind kind, long count, String what) {
+        JLabel label = new JLabel(count + " " + what, StatusIcon.of(kind), JLabel.LEADING);
+        label.setName(kind.name());
+        label.setEnabled(count > 0 || kind == StatusIcon.Kind.PASSED);
+        tiles.add(label);
+    }
+
+    /**
+     * @return the status icon of the verdict, or {@code null}
+     */
+    StatusIcon verdictIcon() {
+        return (StatusIcon) verdict.getIcon();
+    }
+
+    /**
+     * @return the count tiles of the summary, such as "1 blocker"
+     */
+    List<String> tileTexts() {
+        List<String> texts = new ArrayList<>();
+        for (Component component : tiles.getComponents()) {
+            texts.add(((JLabel) component).getText());
+        }
+        return texts;
     }
 
     /**
@@ -814,24 +859,70 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
         };
     }
 
+    /**
+     * @param node a node of the findings tree
+     * @return the status icon kind it shows: its own state, or the worst state below a group
+     */
+    static StatusIcon.Kind kindOf(DefaultMutableTreeNode node) {
+        Object item = node.getUserObject();
+        if (item instanceof CheckResult result) {
+            return StatusIcon.kindOf(result);
+        } else if (item instanceof Finding finding) {
+            return StatusIcon.kindOf(finding);
+        } else if (item instanceof UnusedItem) {
+            return StatusIcon.Kind.INFO;
+        }
+        List<StatusIcon.Kind> kinds = new ArrayList<>();
+        for (int i = 0; i < node.getChildCount(); i++) {
+            kinds.add(kindOf((DefaultMutableTreeNode) node.getChildAt(i)));
+        }
+        return StatusIcon.worst(kinds);
+    }
+
     private static final class FindingRenderer extends DefaultTreeCellRenderer {
         private static final long serialVersionUID = 1L;
 
         @Override
         public Component getTreeCellRendererComponent(JTree tree, Object value, boolean selected, boolean expanded,
                 boolean leaf, int row, boolean hasFocus) {
-            Object item = ((DefaultMutableTreeNode) value).getUserObject();
+            DefaultMutableTreeNode node = (DefaultMutableTreeNode) value;
+            Object item = node.getUserObject();
             String text;
             if (item instanceof CheckResult result) {
-                text = result.checkId().title() + " — " + result.state().label()
-                        + (result.stale() ? " (stale)" : "") + " · " + result.summary();
+                text = result.checkId().title() + "  \u2014  " + result.state().label()
+                        + (result.stale() ? " (stale)" : "") + "  \u00b7  " + result.summary();
             } else if (item instanceof Finding finding) {
-                text = "[" + label(finding) + "] " + finding.message()
-                        + (finding.isAccepted() ? " — " + finding.exception().reason() : "");
+                text = finding.message() + (finding.severity() == Severity.INFO ? "" : "  \u2014  " + label(finding))
+                        + (finding.isAccepted() ? ": " + finding.exception().reason() : "");
             } else {
                 text = String.valueOf(item);
             }
-            return super.getTreeCellRendererComponent(tree, text, selected, expanded, leaf, row, hasFocus);
+            super.getTreeCellRendererComponent(tree, text, selected, expanded, leaf, row, hasFocus);
+            StatusIcon.Kind kind = kindOf(node);
+            setIcon(StatusIcon.of(kind));
+            setToolTipText(kind.description());
+            return this;
+        }
+    }
+
+    /** A check state in the summary table. */
+    record StateCell(StatusIcon.Kind kind, String text) {
+        @Override
+        public String toString() {
+            return text;
+        }
+    }
+
+    private static final class StateRenderer extends DefaultTableCellRenderer {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean selected, boolean focus,
+                int row, int column) {
+            super.getTableCellRendererComponent(table, value, selected, focus, row, column);
+            setIcon(value instanceof StateCell cell ? StatusIcon.of(cell.kind()) : null);
+            setIconTextGap(6);
+            return this;
         }
     }
 }

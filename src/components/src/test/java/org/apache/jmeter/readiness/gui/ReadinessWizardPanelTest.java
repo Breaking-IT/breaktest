@@ -180,16 +180,28 @@ class ReadinessWizardPanelTest extends JMeterTestCase {
             wizard.goTo.doClick();
             assertEquals(2, controller.navigated.size());
 
+            // Every row shows a status icon; a group shows its worst item
+            DefaultMutableTreeNode byCheck = (DefaultMutableTreeNode) wizard.findingsTree.getModel().getRoot();
+            // Checks are listed in check order: think time (accepted) before unresolved variables (blocker)
+            assertEquals(StatusIcon.Kind.ACCEPTED, ReadinessWizardPanel.kindOf(
+                    (DefaultMutableTreeNode) byCheck.getChildAt(0)));
+            assertEquals(StatusIcon.Kind.FAILED, ReadinessWizardPanel.kindOf(
+                    (DefaultMutableTreeNode) byCheck.getChildAt(1)));
             // Grouped by transaction
             wizard.setGroupByTransaction(true);
             DefaultMutableTreeNode root = (DefaultMutableTreeNode) wizard.findingsTree.getModel().getRoot();
             assertEquals("Transaction: checkout", String.valueOf(
                     ((DefaultMutableTreeNode) root.getChildAt(0)).getUserObject()));
+            assertEquals(StatusIcon.Kind.FAILED, ReadinessWizardPanel.kindOf(
+                    (DefaultMutableTreeNode) root.getChildAt(0)));
             assertEquals(2, wizard.shownFindings());
 
             wizard.next.doClick();
             assertEquals(ReadinessWizardPanel.SUMMARY, wizard.currentStep());
             assertEquals("Needs attention", wizard.verdictText());
+            assertEquals(StatusIcon.Kind.FAILED, wizard.verdictIcon().kind());
+            assertTrue(wizard.tileTexts().contains("1 blocker"), wizard.tileTexts().toString());
+            assertTrue(wizard.tileTexts().contains("1 accepted"), wizard.tileTexts().toString());
             wizard.back.doClick();
             assertEquals(ReadinessWizardPanel.FINDINGS, wizard.currentStep());
         });
