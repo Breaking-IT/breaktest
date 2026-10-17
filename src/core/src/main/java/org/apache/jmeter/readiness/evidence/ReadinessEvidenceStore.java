@@ -76,7 +76,8 @@ public final class ReadinessEvidenceStore {
      * @return whether a Resume validation would continue the latest readiness validation
      */
     public static synchronized boolean canContinueWithResume() {
-        return latest != null && latest.main().checkpointGeneration() == ValidationCheckpoints.generation();
+        return latest != null && latest.main().checkpointGeneration() == ValidationCheckpoints.generation()
+                && !ReadinessRecorder.isActive();
     }
 
     /**
@@ -95,6 +96,7 @@ public final class ReadinessEvidenceStore {
                 }
             }
         }
+        ReadinessRecorder.begin(segment);
     }
 
     /**
@@ -104,7 +106,7 @@ public final class ReadinessEvidenceStore {
      * @return the segment
      */
     public static RunSegment end(RunSegment segment) {
-        segment.finish();
+        ReadinessRecorder.end(segment);
         notifyListeners();
         return segment;
     }

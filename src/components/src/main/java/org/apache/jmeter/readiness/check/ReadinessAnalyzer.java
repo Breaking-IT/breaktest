@@ -48,8 +48,10 @@ public final class ReadinessAnalyzer {
     private static final Map<CheckId, ReadinessCheck> CHECKS = new EnumMap<>(CheckId.class);
 
     static {
-        for (ReadinessCheck check : List.of(new VerificationCoverageCheck(), new UnusedExtractionsCheck(),
-                new ThinkTimeCheck(), new UnresolvedVariablesCheck(), new FilesCheck())) {
+        for (ReadinessCheck check : List.of(new ValidationCheck(), new VerificationCoverageCheck(),
+                new UnusedExtractionsCheck(), new UnmatchedExtractionsCheck(), new ExtractionTimeCheck(),
+                new ThinkTimeCheck(), new UnresolvedVariablesCheck(), new FilesCheck(),
+                new ExerciseCoverageCheck())) {
             CHECKS.put(check.id(), check);
         }
     }

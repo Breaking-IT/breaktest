@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.readiness.gui;
 
+import java.awt.event.ActionEvent;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -27,20 +28,32 @@ import java.util.concurrent.ExecutionException;
 
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
+import javax.swing.Timer;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.action.ActionNames;
+import org.apache.jmeter.gui.action.ActionRouter;
 import org.apache.jmeter.gui.action.Start;
+import org.apache.jmeter.gui.action.validation.ValidationSettings;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.readiness.AcceptedException;
+import org.apache.jmeter.readiness.CheckId;
 import org.apache.jmeter.readiness.ElementRef;
 import org.apache.jmeter.readiness.ReadinessExceptions;
+import org.apache.jmeter.readiness.check.OfflineExtractorTimer;
 import org.apache.jmeter.readiness.check.PlanModel;
 import org.apache.jmeter.readiness.check.ReadinessAnalyzer;
 import org.apache.jmeter.readiness.check.ReadinessReport;
+import org.apache.jmeter.readiness.evidence.EvidenceSession;
 import org.apache.jmeter.readiness.evidence.ReadinessEvidenceStore;
+import org.apache.jmeter.readiness.evidence.ReadinessRecorder;
+import org.apache.jmeter.readiness.evidence.ReadinessRunListener;
+import org.apache.jmeter.readiness.evidence.RunKind;
+import org.apache.jmeter.readiness.evidence.RunSegment;
+import org.apache.jmeter.readiness.evidence.RunStatus;
 import org.apache.jmeter.scenario.Scenario;
 import org.apache.jmeter.scenario.ScenarioWorkload;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
@@ -53,9 +66,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Drives readiness runs in the GUI: commits pending editor changes and builds the report from the configuration.
- * Runtime checks stay Not verified until readiness validation runs exist.
- * Keeps the latest report for the GUI session; it is dropped when the plan is cleared or replaced.
+ * Drives readiness runs in the GUI: commits pending editor changes, runs the readiness validation through
+ * {@link Start} (the same engine path as Validate), bounds it with a time limit, measures extractors offline, and
+ * builds the report. Keeps the latest report for the GUI session; it is dropped when the plan is cleared or replaced.
  */
 final class GuiReadinessController implements ReadinessController {
     private static final Logger log = LoggerFactory.getLogger(GuiReadinessController.class);
@@ -65,11 +78,19 @@ final class GuiReadinessController implements ReadinessController {
     private ReadinessReport latest;
     private PlanModel lastModel;
     private Map<String, List<Long>> offlineTimings = Map.of();
+    private RunSegment running;
+    private Timer timeout;
     private SwingWorker<?, ?> worker;
     private boolean busy;
 
     GuiReadinessController() {
         ReadinessEvidenceStore.addClearListener(() -> SwingUtilities.invokeLater(this::forget));
+        // Resume validation runs that continue a readiness validation update the report when they end
+        ReadinessEvidenceStore.addListener(() -> SwingUtilities.invokeLater(() -> {
+            if (!busy && latest != null && !ReadinessRecorder.isActive()) {
+                refresh();
+            }
+        }));
     }
 
     private void forget() {
@@ -164,7 +185,7 @@ final class GuiReadinessController implements ReadinessController {
         if (busy) {
             return;
         }
-        if (JMeterUtils.isTestRunning()) {
+        if (JMeterUtils.isTestRunning() || ReadinessRecorder.isActive()) {
             listener.failed("A test or validation is running. Stop it before checking readiness.");
             return;
         }
@@ -172,8 +193,95 @@ final class GuiReadinessController implements ReadinessController {
         lastRequest = request;
         offlineTimings = Map.of();
         busy = true;
-        listener.progress("Checking the configuration. Runtime checks need a readiness validation and are"
-                + " shown as Not verified.");
+        boolean needsValidation = request.runValidation()
+                && request.checks().stream().anyMatch(CheckId::needsValidationRun);
+        if (needsValidation) {
+            listener.progress("Running the readiness validation (" + request.settings() + ")…");
+            validate(RunKind.MAIN, request.settings(), request.timeLimitSeconds(), this::afterMainRun);
+        } else {
+            listener.progress(request.runValidation() ? "No selected check needs a validation run."
+                    : "Using the latest readiness validation, if it still matches the plan.");
+            analyze();
+        }
+    }
+
+    private void validate(RunKind kind, ValidationSettings settings, int limitSeconds, Runnable then) {
+        AbstractThreadGroup[] groups = resolveGroups(lastRequest.groupIds());
+        ActionEvent event = Start.readinessValidationEvent(this, groups, settings, kind, new ReadinessRunListener() {
+            @Override
+            public void runStarted(RunSegment segment) {
+                SwingUtilities.invokeLater(() -> startTimeout(segment, limitSeconds));
+                running = segment;
+            }
+
+            @Override
+            public void runFinished(RunSegment segment) {
+                SwingUtilities.invokeLater(() -> {
+                    stopTimeout();
+                    running = null;
+                    listener.progress("Validation run ended: " + segment.status().label() + ", "
+                            + segment.samples().size() + " samples.");
+                    segment.statusDetails().forEach(detail -> listener.progress("  " + detail));
+                    then.run();
+                });
+            }
+
+            @Override
+            public void runNotStarted(String message) {
+                SwingUtilities.invokeLater(() -> {
+                    stopTimeout();
+                    running = null;
+                    busy = false;
+                    listener.failed("The readiness validation did not start: " + message);
+                });
+            }
+        });
+        whenIdle(() -> ActionRouter.getInstance().doActionNow(event), 300);
+    }
+
+    /**
+     * The engine reports the end of a run to its listeners before it clears its running state, so a run that
+     * follows another one (the repeatability run) waits briefly until the engine is idle.
+     */
+    private static void whenIdle(Runnable action, int attempts) {
+        if (!JMeterUtils.isTestRunning() || attempts <= 0) {
+            action.run();
+            return;
+        }
+        Timer retry = new Timer(100, e -> whenIdle(action, attempts - 1));
+        retry.setRepeats(false);
+        retry.start();
+    }
+
+    private void startTimeout(RunSegment segment, int limitSeconds) {
+        stopTimeout();
+        if (limitSeconds <= 0) {
+            return;
+        }
+        timeout = new Timer(limitSeconds * 1000, e -> {
+            if (running == segment) {
+                segment.markStatus(RunStatus.TIMED_OUT, "Exceeded the time limit of " + limitSeconds + " s");
+                listener.progress("Time limit reached; stopping the validation run.");
+                stopEngine();
+            }
+        });
+        timeout.setRepeats(false);
+        timeout.start();
+    }
+
+    private void stopTimeout() {
+        if (timeout != null) {
+            timeout.stop();
+            timeout = null;
+        }
+    }
+
+    private void stopEngine() {
+        ActionRouter.getInstance().doActionNow(new ActionEvent(this, ActionEvent.ACTION_PERFORMED,
+                ActionNames.ACTION_STOP));
+    }
+
+    private void afterMainRun() {
         analyze();
     }
 
@@ -187,10 +295,21 @@ final class GuiReadinessController implements ReadinessController {
             listener.failed("The test plan could not be prepared for analysis: " + e.getMessage());
             return;
         }
-        listener.progress("Analysing…");
+        EvidenceSession session = ReadinessEvidenceStore.latest();
+        boolean timing = lastRequest.checks().contains(CheckId.EXTRACTION_TIME) && session != null
+                && ReadinessAnalyzer.staleReason(session, build.model(), build.scope(),
+                        ValidationCheckpoints.generation()) == null;
+        int runs = lastRequest.options().offlineReruns();
+        listener.progress((timing ? "Measuring extractors offline (" + runs + " runs per response)… " : "")
+                + "Analysing…");
         SwingWorker<Void, Void> background = new SwingWorker<>() {
+            private Map<String, List<Long>> timings = Map.of();
+
             @Override
             protected Void doInBackground() {
+                if (timing) {
+                    timings = OfflineExtractorTimer.measure(session.main(), build.model(), runs, this::isCancelled);
+                }
                 return null;
             }
 
@@ -207,6 +326,7 @@ final class GuiReadinessController implements ReadinessController {
                     log.debug("Readiness background analysis failed", e.getCause());
                     listener.progress("Part of the analysis failed: " + e.getCause().getMessage());
                 }
+                offlineTimings = timings;
                 try {
                     latest = report(build);
                     busy = false;
@@ -224,6 +344,12 @@ final class GuiReadinessController implements ReadinessController {
 
     @Override
     public void cancel() {
+        RunSegment segment = running;
+        if (segment != null) {
+            segment.markStatus(RunStatus.CANCELLED, "Cancelled by the user");
+            listener.progress("Cancelling…");
+            stopEngine();
+        }
         if (worker != null) {
             worker.cancel(true);
         }
