@@ -146,7 +146,7 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
     // Summary
     private final JLabel verdict = new JLabel();
     private final JLabel counts = new JLabel();
-    private final JPanel tiles = new JPanel(new FlowLayout(FlowLayout.LEFT, 12, 4));
+    private final JPanel tiles = new JPanel();
     private final JTextArea reasons = new JTextArea(4, 60);
     private final DefaultTableModel checksTable = new DefaultTableModel(new Object[]{"Check", "State", "Summary"}, 0) {
         private static final long serialVersionUID = 1L;
@@ -711,20 +711,34 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
 
     private JComponent createSummary() {
         JPanel panel = new JPanel(new BorderLayout(4, 8));
-        JPanel top = new JPanel();
-        top.setLayout(new BoxLayout(top, BoxLayout.Y_AXIS));
+        // Everything left-aligned under the verdict, like a report heading
+        JPanel top = new JPanel(new GridBagLayout());
+        GridBagConstraints c = new GridBagConstraints();
+        c.gridx = 0;
+        c.gridy = GridBagConstraints.RELATIVE;
+        c.anchor = GridBagConstraints.WEST;
+        c.fill = GridBagConstraints.HORIZONTAL;
+        c.weightx = 1;
+        tiles.setLayout(new BoxLayout(tiles, BoxLayout.X_AXIS));
         verdict.setFont(verdict.getFont().deriveFont(Font.BOLD, verdict.getFont().getSize2D() + 6f));
         verdict.setIconTextGap(10);
-        verdict.setAlignmentX(LEFT_ALIGNMENT);
-        top.add(verdict);
-        tiles.setAlignmentX(LEFT_ALIGNMENT);
-        top.add(tiles);
-        counts.setAlignmentX(LEFT_ALIGNMENT);
-        top.add(counts);
+        verdict.setHorizontalAlignment(JLabel.LEADING);
+        c.insets = new Insets(0, 0, 6, 0);
+        top.add(verdict, c);
+        c.insets = new Insets(0, 0, 4, 0);
+        top.add(tiles, c);
+        counts.setHorizontalAlignment(JLabel.LEADING);
+        top.add(counts, c);
         reasons.setEditable(false);
+        reasons.setFocusable(false);
         reasons.setOpaque(false);
         reasons.setLineWrap(true);
-        top.add(reasons);
+        reasons.setWrapStyleWord(true);
+        reasons.setBorder(BorderFactory.createEmptyBorder());
+        reasons.setFont(counts.getFont());
+        reasons.setRows(0);
+        c.insets = new Insets(4, 0, 0, 0);
+        top.add(reasons, c);
         panel.add(top, BorderLayout.NORTH);
         JTable table = new JTable(checksTable);
         table.setFillsViewportHeight(true);
@@ -751,7 +765,7 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
         verdict.setText(v.label());
         verdict.setIcon(new StatusIcon(StatusIcon.kindOf(v), StatusIcon.LARGE));
         verdict.setForeground(StatusIcon.color(StatusIcon.kindOf(v)));
-        counts.setText(report.summary().countsText() + "  ·  scope: " + String.join(", ", report.scope()));
+        counts.setText(report.summary().countsText());
         var summary = report.summary();
         tile(StatusIcon.Kind.PASSED, summary.passed(), "passed");
         tile(StatusIcon.Kind.ACCEPTED, summary.accepted(), "accepted");
@@ -764,6 +778,9 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
         StringBuilder text = new StringBuilder();
         report.summary().reasons().forEach(r -> text.append("• ").append(r).append('\n'));
         text.append(report.evidenceStatus());
+        if (!report.scope().isEmpty()) {
+            text.append("\nScope: ").append(String.join(", ", report.scope()));
+        }
         reasons.setText(text.toString());
         for (CheckResult result : report.results()) {
             String state = result.state().label() + (result.stale() ? " (stale)" : "")
@@ -775,6 +792,9 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
     }
 
     private void tile(StatusIcon.Kind kind, long count, String what) {
+        if (tiles.getComponentCount() > 0) {
+            tiles.add(Box.createHorizontalStrut(16));
+        }
         JLabel label = new JLabel(count + " " + what, StatusIcon.of(kind), JLabel.LEADING);
         label.setName(kind.name());
         label.setEnabled(count > 0 || kind == StatusIcon.Kind.PASSED);
@@ -794,7 +814,9 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
     List<String> tileTexts() {
         List<String> texts = new ArrayList<>();
         for (Component component : tiles.getComponents()) {
-            texts.add(((JLabel) component).getText());
+            if (component instanceof JLabel label) {
+                texts.add(label.getText());
+            }
         }
         return texts;
     }
