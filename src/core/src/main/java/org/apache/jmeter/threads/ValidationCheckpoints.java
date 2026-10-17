@@ -111,6 +111,40 @@ public final class ValidationCheckpoints {
         }
     }
 
+    /**
+     * Stable identity of a test plan element for the current validation generation, the same id the validation
+     * clones of the element carry. Assigned on first use; never derived from the element's name.
+     *
+     * @param source element of the edited test plan
+     * @return its source id
+     */
+    public static synchronized String sourceIdOfSource(TestElement source) {
+        return sourceId(source);
+    }
+
+    /**
+     * @param clone element of a validation tree
+     * @return the source id of the element it was cloned from, empty when it is not a validation clone
+     */
+    public static String sourceIdOfClone(TestElement clone) {
+        return clone.getPropertyAsString(SOURCE_ID);
+    }
+
+    /**
+     * @param clone element of a validation tree
+     * @return its execution id: the source ids of its enclosing controllers and its own, separated by {@code /}
+     */
+    public static String executionIdOf(TestElement clone) {
+        return clone.getPropertyAsString(ID);
+    }
+
+    /**
+     * @return the generation of source ids; it changes whenever validation history is cleared
+     */
+    public static synchronized long generation() {
+        return generation;
+    }
+
     private static String sourceId(TestElement source) {
         if (source instanceof AbstractThreadGroup group && !group.getThreadGroupId().isEmpty()) {
             return "group:" + group.getThreadGroupId();

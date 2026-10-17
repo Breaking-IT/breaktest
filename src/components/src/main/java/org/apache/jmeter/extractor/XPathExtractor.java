@@ -148,6 +148,7 @@ public class XPathExtractor extends AbstractScopedTestElement implements
                 }
             }
             final int matchCount = matches.size();
+            ExtractorEvidence.outcome(this, matchCount > 0, getXPathQuery(), "");
             vars.put(matchNR, String.valueOf(matchCount));
             if (matchCount > 0){
                 String value = matches.get(0);

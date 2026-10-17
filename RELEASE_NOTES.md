@@ -13,6 +13,17 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# Unreleased — Script Readiness
+
+## Check Whether a Script Is Ready to Run
+
+- **Tools > Check script readiness...** opens a wizard that checks the selected or all thread groups: successful validation, transaction verification coverage, unused and unmatched extractions, extractor processing time, think time, unresolved `${...}` values sent in requests, files and configuration, validation exercise coverage, hardcoded recorded values, and optional repeatability in a fresh session.
+- **Runtime evidence from a normal validation.** The readiness validation goes through the usual validation path with per-run settings. Supported extractors report every match outcome, extractor time is measured apart from the request (also offline against captured responses), and sent URLs, headers and request data are scanned for literal and URL-encoded `${...}`.
+- **An honest verdict.** Ready, Needs attention or Not verified, with counts instead of a score. Runtime checks without current evidence are Not verified; a content fingerprint marks evidence stale after any plan edit. Running a subset of the checks never gives Ready.
+- **Accepted exceptions travel with the script.** Accept a finding with a reason, mark an extractor optional or a transaction as background activity. Exceptions are stored on the element in the JMX, are undoable, and unused ones are listed.
+
+Evidence stays in memory, is redacted and never logged at INFO or above. Large or binary request bodies may be truncated in recorded request data, so unresolved values in them are not verified. Exceptions can be dropped by the few legacy editors that rebuild their element on edit. See the user manual section *Script readiness* for details.
+
 # BreakTest 2026.10.16 — OpenAPI Import, Structured Data Sets, and Resumable Validation
 
 This feature release expands how you build and debug tests: generate reusable requests from an API specification, drive iterations with JSON, XML, or YAML data, and continue validation from a failed request after editing the plan. Request replay and cURL export make individual calls easier to investigate, alongside editor improvements and a Groovy 6 upgrade.

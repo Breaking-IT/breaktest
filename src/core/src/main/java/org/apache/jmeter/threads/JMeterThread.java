@@ -64,6 +64,7 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
+import org.apache.jmeter.readiness.evidence.ReadinessRecorder;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleIgnorePolicy;
@@ -1498,7 +1499,7 @@ public class JMeterThread implements Runnable, Interruptible {
                         }
                     }
                     threadContext.setPreviousResult(result);
-                    runPostProcessors(pack.getPostProcessors());
+                    runPostProcessors(pack.getPostProcessors(), threadContext);
                     JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
                     if (isCurrentSampleCancelledWithoutResult()) {
                         packageDone = true;
@@ -1510,6 +1511,10 @@ public class JMeterThread implements Runnable, Interruptible {
                     if (!result.isIgnore()) {
                         if (JMeterContextService.isValidationRun()) {
                             ValidationCheckpoints.afterSampler(current, threadContext.getThreadGroup(), result);
+                            if (ReadinessRecorder.isActive()) {
+                                ReadinessRecorder.sampleCompleted(current, pack.getAssertions(),
+                                        pack.getPostProcessors(), result, threadContext);
+                            }
                         }
                         List<SampleListener> sampleListeners = pack.getSampleListeners();
                         int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);
@@ -1538,6 +1543,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
                 // Explicit sampler actions still apply; thread-group error policy is main-flow only.
                 boolean mainFlowError = !isForkWorkerThread() && !result.isSuccessful() && forkIterationEndAction == null;
+                if (ReadinessRecorder.isActive()) {
+                    recordReadinessStop(threadContext, current, result, mainFlowError);
+                }
                 if (result.isStopThread() || (mainFlowError && onErrorStopThread)) {
                     stopThread();
                 }
@@ -2179,10 +2187,24 @@ public class JMeterThread implements Runnable, Interruptible {
         log.info("Stop Thread detected by thread: {}", threadName);
     }
 
-    private static void runPostProcessors(List<? extends PostProcessor> extractors) {
+    private static void runPostProcessors(List<? extends PostProcessor> extractors, JMeterContext context) {
         for (PostProcessor ex : extractors) {
             TestBeanHelper.prepare((TestElement) ex);
-            ex.process();
+            if (ReadinessRecorder.isActive()) {
+                ReadinessRecorder.runPostProcessor(ex, context);
+            } else {
+                ex.process();
+            }
+        }
+    }
+
+    private void recordReadinessStop(JMeterContext context, Sampler sampler, SampleResult result,
+            boolean mainFlowError) {
+        String name = sampler.getName();
+        if (mainFlowError && (onErrorStopThread || onErrorStopTest || onErrorStopTestNow)) {
+            ReadinessRecorder.threadStopping(context, true, "stopped after failed sampler '" + name + "'");
+        } else if (result.isStopThread() || result.isStopTest() || result.isStopTestNow()) {
+            ReadinessRecorder.threadStopping(context, false, "stopped by '" + name + "'");
         }
     }
 
