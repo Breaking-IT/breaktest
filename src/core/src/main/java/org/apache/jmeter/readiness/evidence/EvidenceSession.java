@@ -24,11 +24,12 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * The runtime evidence of the latest readiness validation: its main run and the Resume validation runs that continued
- * it.
+ * The runtime evidence of the latest readiness validation: its main run, the Resume validation runs that continued
+ * it, and an optional repeatability run.
  */
 public final class EvidenceSession {
     private final List<RunSegment> segments = new ArrayList<>();
+    private RunSegment repeatability;
 
     EvidenceSession(RunSegment main) {
         segments.add(main);
@@ -45,8 +46,16 @@ public final class EvidenceSession {
         return List.copyOf(segments);
     }
 
+    public synchronized RunSegment repeatability() {
+        return repeatability;
+    }
+
     synchronized void addResume(RunSegment resume) {
         segments.add(resume);
+    }
+
+    synchronized void setRepeatability(RunSegment segment) {
+        repeatability = segment;
     }
 
     /**

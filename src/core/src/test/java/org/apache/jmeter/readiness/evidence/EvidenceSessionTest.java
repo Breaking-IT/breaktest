@@ -108,11 +108,15 @@ class EvidenceSessionTest {
     }
 
     @Test
-    void storeKeepsTheLatestReadinessValidationUntilCleared() {
+    void storeKeepsResumesAndRepeatabilityWithTheMainRun() {
         RunSegment main = segment(RunKind.MAIN, "f", List.of("g1"));
         ReadinessEvidenceStore.begin(main);
         ReadinessEvidenceStore.end(main);
+        RunSegment repeat = segment(RunKind.REPEATABILITY, "r", List.of("g1"));
+        ReadinessEvidenceStore.begin(repeat);
+        ReadinessEvidenceStore.end(repeat);
         assertSame(main, ReadinessEvidenceStore.latest().main());
+        assertSame(repeat, ReadinessEvidenceStore.latest().repeatability());
         ReadinessEvidenceStore.clear();
         assertEquals(null, ReadinessEvidenceStore.latest());
     }

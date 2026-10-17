@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
+import org.apache.jmeter.gui.action.validation.ValidationSettings;
 import org.apache.jmeter.readiness.AcceptedException;
 import org.apache.jmeter.readiness.CheckId;
 import org.apache.jmeter.readiness.CheckResult;
@@ -50,8 +51,8 @@ public final class ReadinessAnalyzer {
     static {
         for (ReadinessCheck check : List.of(new ValidationCheck(), new VerificationCoverageCheck(),
                 new UnusedExtractionsCheck(), new UnmatchedExtractionsCheck(), new ExtractionTimeCheck(),
-                new ThinkTimeCheck(), new UnresolvedVariablesCheck(), new FilesCheck(),
-                new ExerciseCoverageCheck())) {
+                new ThinkTimeCheck(), new UnresolvedVariablesCheck(), new FilesCheck(), new ExerciseCoverageCheck(),
+                new HardcodedValuesCheck(), new RepeatabilityCheck())) {
             CHECKS.put(check.id(), check);
         }
     }
@@ -67,11 +68,12 @@ public final class ReadinessAnalyzer {
      * @param checkpointGeneration current validation checkpoint generation
      * @param options options
      * @param offlineTimings offline extractor timings
+     * @param hardcoded hardcoded value scan, or {@code null}
      * @param pacing scenario pacing per thread group id
      */
     public record Input(PlanModel model, List<String> scope, List<String> scopeNames, Set<CheckId> selected,
             EvidenceSession session, long checkpointGeneration, ReadinessOptions options,
-            Map<String, List<Long>> offlineTimings, Map<String, String> pacing) {
+            Map<String, List<Long>> offlineTimings, HardcodedValues.Scan hardcoded, Map<String, String> pacing) {
     }
 
     private ReadinessAnalyzer() {
@@ -118,21 +120,17 @@ public final class ReadinessAnalyzer {
             }
             RuntimeEvidence checkEvidence = evidence;
             String checkStale = stale;
+            if (id == CheckId.REPEATABILITY && evidence != null && session.repeatability() != null) {
+                checkStale = repeatabilityStale(session, model, input.scope(), stale);
+            }
             boolean staleEvidence = checkEvidence != null && checkStale != null;
             if (id.evidence() == CheckId.Evidence.BOTH && staleEvidence) {
                 // Configuration findings stay valid; only the runtime part becomes Not verified
                 checkEvidence = null;
             }
-            ReadinessCheck check = CHECKS.get(id);
-            if (check == null) {
-                results.add(CheckResult.notVerified(id, id.needsValidationRun()
-                        ? "Not verified — requires runtime validation"
-                        : "Not verified — not available in this version"));
-                continue;
-            }
             CheckContext context = new CheckContext(model, checkEvidence, input.options(), input.offlineTimings(),
-                    input.pacing());
-            CheckOutcome outcome = check.run(context);
+                    input.hardcoded(), input.pacing());
+            CheckOutcome outcome = CHECKS.get(id).run(context);
             CheckResult result;
             if (outcome.notVerifiedReason() != null) {
                 result = CheckResult.notVerified(id, outcome.notVerifiedReason());
@@ -160,6 +158,19 @@ public final class ReadinessAnalyzer {
                 PlanFingerprint.compute(model.tree(), session == null ? null : session.main().settings(),
                         input.scope()),
                 input.scopeNames(), ReadinessAggregator.aggregate(results), evidenceStatus, unused);
+    }
+
+    private static String repeatabilityStale(EvidenceSession session, PlanModel model, List<String> scope,
+            String mainStale) {
+        if (mainStale != null) {
+            return mainStale;
+        }
+        RunSegment run = session.repeatability();
+        ValidationSettings settings = run.settings();
+        if (!PlanFingerprint.compute(model.tree(), settings, scope).equals(run.fingerprint())) {
+            return "The plan changed after the repeatability run";
+        }
+        return null;
     }
 
     private static String usedKey(String sourceId, CheckId id, String key) {

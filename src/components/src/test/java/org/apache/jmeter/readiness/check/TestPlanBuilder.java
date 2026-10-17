@@ -115,7 +115,7 @@ final class TestPlanBuilder {
      * @return the context a check runs with, without runtime evidence
      */
     CheckContext context(AbstractThreadGroup... groups) {
-        return new CheckContext(model(groups), null, ReadinessOptions.defaults(), Map.of(), Map.of());
+        return new CheckContext(model(groups), null, ReadinessOptions.defaults(), Map.of(), null, Map.of());
     }
 
     ReadinessReport analyze(Set<CheckId> checks, ReadinessOptions options, AbstractThreadGroup... groups) {
@@ -127,7 +127,7 @@ final class TestPlanBuilder {
         PlanModel model = model(groups);
         return ReadinessAnalyzer.analyze(new ReadinessAnalyzer.Input(model, Start.readinessScope(groups),
                 List.of(), checks, ReadinessEvidenceStore.latest(), ValidationCheckpoints.generation(), options,
-                offline, Map.of()));
+                offline, null, Map.of()));
     }
 
     static Set<CheckId> all() {

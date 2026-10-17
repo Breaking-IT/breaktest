@@ -94,6 +94,11 @@ public final class ReadinessEvidenceStore {
                         latest.addResume(segment);
                     }
                 }
+                case REPEATABILITY -> {
+                    if (latest != null) {
+                        latest.setRepeatability(segment);
+                    }
+                }
             }
         }
         ReadinessRecorder.begin(segment);

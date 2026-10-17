@@ -32,10 +32,11 @@ import org.apache.jmeter.readiness.Severity;
  * @param evidence runtime evidence, or {@code null} without a readiness validation
  * @param options options
  * @param offlineTimings extractor source id to offline processing times in nanoseconds
+ * @param hardcoded candidate hardcoded recorded values, or {@code null} when the correlation tooling is unavailable
  * @param pacing thread group id to a description of the iteration pacing a scenario workload configures for it
  */
 public record CheckContext(PlanModel model, RuntimeEvidence evidence, ReadinessOptions options,
-        Map<String, List<Long>> offlineTimings, Map<String, String> pacing) {
+        Map<String, List<Long>> offlineTimings, HardcodedValues.Scan hardcoded, Map<String, String> pacing) {
 
     public CheckContext {
         offlineTimings = offlineTimings == null ? Map.of() : Map.copyOf(offlineTimings);

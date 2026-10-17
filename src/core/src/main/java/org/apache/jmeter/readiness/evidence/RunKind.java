@@ -24,5 +24,7 @@ public enum RunKind {
     /** A fresh readiness validation of the scope */
     MAIN,
     /** Resume validation continuing a readiness validation from a checkpoint */
-    RESUME
+    RESUME,
+    /** The optional repeatability run: more iterations in a fresh session */
+    REPEATABILITY
 }

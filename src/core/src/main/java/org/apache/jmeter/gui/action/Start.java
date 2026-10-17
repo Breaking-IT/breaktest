@@ -161,7 +161,8 @@ public class Start extends AbstractAction {
      * @param source action source
      * @param threadGroupsToRun thread groups in scope
      * @param settings validation settings for this run only
-     * @param kind {@link RunKind#MAIN} for a fresh readiness validation
+     * @param kind {@link RunKind#MAIN} for a fresh readiness validation, {@link RunKind#REPEATABILITY} for the
+     *     repeatability run that follows it
      * @param listener notified when the run starts and ends
      * @return the event
      */
@@ -508,7 +509,9 @@ public class Start extends AbstractAction {
                 && JMeterUtils.getPropDefault("testplan_validation.jump_to_visual_tree", true)) {
             resultsTree = findValidationResultsTree(gui.getTreeModel(), threadGroupsToRun);
         }
-        if (runMode == RunMode.VALIDATION && checkpoints == null) {
+        // A repeatability run keeps the source ids of the readiness validation it repeats
+        if (runMode == RunMode.VALIDATION && checkpoints == null
+                && (readiness == null || readiness.kind() != RunKind.REPEATABILITY)) {
             ValidationCheckpoints.clear();
         }
         HashTree testTree = gui.getTreeModel().getTestPlan();

@@ -43,6 +43,7 @@ import org.apache.jmeter.readiness.AcceptedException;
 import org.apache.jmeter.readiness.CheckId;
 import org.apache.jmeter.readiness.ElementRef;
 import org.apache.jmeter.readiness.ReadinessExceptions;
+import org.apache.jmeter.readiness.check.HardcodedValues;
 import org.apache.jmeter.readiness.check.OfflineExtractorTimer;
 import org.apache.jmeter.readiness.check.PlanModel;
 import org.apache.jmeter.readiness.check.ReadinessAnalyzer;
@@ -78,10 +79,12 @@ final class GuiReadinessController implements ReadinessController {
     private ReadinessReport latest;
     private PlanModel lastModel;
     private Map<String, List<Long>> offlineTimings = Map.of();
+    private HardcodedValues.Scan hardcoded;
     private RunSegment running;
     private Timer timeout;
     private SwingWorker<?, ?> worker;
     private boolean busy;
+    private boolean cancelled;
 
     GuiReadinessController() {
         ReadinessEvidenceStore.addClearListener(() -> SwingUtilities.invokeLater(this::forget));
@@ -98,6 +101,7 @@ final class GuiReadinessController implements ReadinessController {
         lastModel = null;
         lastRequest = null;
         offlineTimings = Map.of();
+        hardcoded = null;
     }
 
     @Override
@@ -192,6 +196,8 @@ final class GuiReadinessController implements ReadinessController {
         GuiPackage.getInstance().updateCurrentNode();
         lastRequest = request;
         offlineTimings = Map.of();
+        hardcoded = null;
+        cancelled = false;
         busy = true;
         boolean needsValidation = request.runValidation()
                 && request.checks().stream().anyMatch(CheckId::needsValidationRun);
@@ -282,7 +288,18 @@ final class GuiReadinessController implements ReadinessController {
     }
 
     private void afterMainRun() {
-        analyze();
+        EvidenceSession session = ReadinessEvidenceStore.latest();
+        if (!cancelled && lastRequest.options().isRepeatabilityConfigured()
+                && lastRequest.checks().contains(CheckId.REPEATABILITY)
+                && session != null && session.main().status().isComplete()) {
+            int iterations = lastRequest.options().repeatabilityIterations();
+            listener.progress("Running the repeatability check: a fresh session, " + iterations
+                    + " iterations…");
+            validate(RunKind.REPEATABILITY, lastRequest.settings().withIterations(iterations),
+                    lastRequest.options().repeatabilityTimeLimitSeconds(), this::analyze);
+        } else {
+            analyze();
+        }
     }
 
     private void analyze() {
@@ -299,16 +316,22 @@ final class GuiReadinessController implements ReadinessController {
         boolean timing = lastRequest.checks().contains(CheckId.EXTRACTION_TIME) && session != null
                 && ReadinessAnalyzer.staleReason(session, build.model(), build.scope(),
                         ValidationCheckpoints.generation()) == null;
+        boolean scanHardcoded = lastRequest.checks().contains(CheckId.HARDCODED_VALUES);
+        List<TestElement> groups = new ArrayList<>(List.of(resolveGroups(lastRequest.groupIds())));
         int runs = lastRequest.options().offlineReruns();
         listener.progress((timing ? "Measuring extractors offline (" + runs + " runs per response)… " : "")
-                + "Analysing…");
+                + (scanHardcoded ? "Looking for hardcoded recorded values…" : "Analysing…"));
         SwingWorker<Void, Void> background = new SwingWorker<>() {
             private Map<String, List<Long>> timings = Map.of();
+            private HardcodedValues.Scan scan;
 
             @Override
             protected Void doInBackground() {
                 if (timing) {
                     timings = OfflineExtractorTimer.measure(session.main(), build.model(), runs, this::isCancelled);
+                }
+                if (scanHardcoded && !isCancelled()) {
+                    scan = HardcodedValues.scan(groups);
                 }
                 return null;
             }
@@ -327,6 +350,7 @@ final class GuiReadinessController implements ReadinessController {
                     listener.progress("Part of the analysis failed: " + e.getCause().getMessage());
                 }
                 offlineTimings = timings;
+                hardcoded = scan;
                 try {
                     latest = report(build);
                     busy = false;
@@ -344,6 +368,7 @@ final class GuiReadinessController implements ReadinessController {
 
     @Override
     public void cancel() {
+        cancelled = true;
         RunSegment segment = running;
         if (segment != null) {
             segment.markStatus(RunStatus.CANCELLED, "Cancelled by the user");
@@ -407,7 +432,7 @@ final class GuiReadinessController implements ReadinessController {
     private ReadinessReport report(PlanBuild build) {
         return ReadinessAnalyzer.analyze(new ReadinessAnalyzer.Input(build.model(), build.scope(), build.names(),
                 lastRequest.checks(), ReadinessEvidenceStore.latest(), ValidationCheckpoints.generation(),
-                lastRequest.options(), offlineTimings, build.pacing()));
+                lastRequest.options(), offlineTimings, hardcoded, build.pacing()));
     }
 
     private static void index(JMeterTreeNode node, IdentityHashMap<TestElement, JMeterTreeNode> nodes) {

@@ -350,6 +350,28 @@ class RuntimeChecksTest extends JMeterTestCase {
     }
 
     @Test
+    void repeatabilityRunsInAFreshSessionAndFailsOnASecondIterationProblem() throws Exception {
+        var create = sampler("create user", "/users");
+        create.setProperty("response", "created ok");
+        create.setProperty("code.2", "409");
+        flow.add(create).add(assertion());
+        plan.run(RunKind.MAIN, ONCE, group);
+        CheckResult notConfigured = result(analyze(Set.of(CheckId.REPEATABILITY), group), CheckId.REPEATABILITY);
+        assertEquals(CheckState.NOT_VERIFIED, notConfigured.state());
+        assertTrue(notConfigured.summary().contains("not configured"));
+
+        RunSegment repeat = plan.run(RunKind.REPEATABILITY, ONCE.withIterations(2), group);
+        assertEquals(RunKind.REPEATABILITY, repeat.kind());
+        ReadinessReport report = plan.analyze(Set.of(CheckId.REPEATABILITY, CheckId.VALIDATION),
+                new ReadinessOptions(ReadinessOptions.DEFAULT_BUDGET_NANOS, 0, 2, 60), group);
+        CheckResult repeatability = result(report, CheckId.REPEATABILITY);
+        assertEquals(CheckState.BLOCKER, repeatability.state(), repeatability.findings().toString());
+        assertTrue(repeatability.findings().get(0).evidence().stream().anyMatch(l -> l.contains("iteration 2")));
+        assertEquals(CheckState.PASSED, result(report, CheckId.VALIDATION).state(),
+                "The main validation stays separate from the repeatability run");
+    }
+
+    @Test
     void instrumentationIsOffOutsideReadinessRuns() {
         assertFalse(ReadinessRecorder.isActive());
     }
