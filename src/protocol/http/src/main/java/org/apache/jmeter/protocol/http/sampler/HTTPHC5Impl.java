@@ -733,10 +733,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                 }
             };
             owner.registerThreadCleanup(HTTPHC5Impl.class, cleanup);
-            // New users keep warm pools when httpclient.reset_state_on_thread_group_iteration=false.
-            if (RESET_STATE_ON_THREAD_GROUP_ITERATION) {
-                owner.registerUserCleanup(HTTPHC5Impl.class, cleanup);
-            }
+            // A new user never reuses the previous user's connections or TLS sessions.
+            owner.registerUserCleanup(HTTPHC5Impl.class, cleanup);
             return new HashMap<>(5);
         });
     }

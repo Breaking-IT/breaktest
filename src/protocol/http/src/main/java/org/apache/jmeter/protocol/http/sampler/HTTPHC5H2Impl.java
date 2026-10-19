@@ -517,9 +517,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         if (cacheKey instanceof JMeterThread jMeterThread) {
             Runnable cleanup = () -> closeThreadLocalConnections(cacheKey);
             jMeterThread.registerThreadCleanup(HTTPHC5H2Impl.class, cleanup);
-            if (RESET_STATE_ON_THREAD_GROUP_ITERATION) {
-                jMeterThread.registerUserCleanup(HTTPHC5H2Impl.class, cleanup);
-            }
+            jMeterThread.registerUserCleanup(HTTPHC5H2Impl.class, cleanup);
         } else if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
             org.apache.jmeter.protocol.sse.SseSessions.current().registerTransportCleanup(
                     cacheKey, () -> closeThreadLocalConnections(cacheKey));

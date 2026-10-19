@@ -103,10 +103,6 @@ public class JsseSSLManager extends SSLManager {
 
     private final Map<JMeterThread, UserContext> userContexts = new ConcurrentHashMap<>();
 
-    // New-user iterations keep TLS sessions when HTTP state reset is disabled.
-    private static final boolean RESET_STATE_FOR_NEW_USER =
-            JMeterUtils.getPropDefault("httpclient.reset_state_on_thread_group_iteration", true);
-
     private static final class UserContext {
         private SSLContext context;
     }
@@ -188,9 +184,8 @@ public class JsseSSLManager extends SSLManager {
             UserContext state = userContexts.computeIfAbsent(owner, ignored -> {
                 Runnable cleanup = () -> userContexts.remove(owner);
                 owner.registerThreadCleanup(this, cleanup);
-                if (RESET_STATE_FOR_NEW_USER) {
-                    owner.registerUserCleanup(this, cleanup);
-                }
+                // A new user never reuses the previous user's TLS sessions.
+                owner.registerUserCleanup(this, cleanup);
                 return new UserContext();
             });
             synchronized (state) {

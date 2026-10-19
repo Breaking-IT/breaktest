@@ -654,9 +654,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     private static void registerCleanup(JMeterThread owner) {
         Runnable cleanup = () -> removeUserClients(owner);
         owner.registerThreadCleanup(HTTPJavaHttp3Impl.class, cleanup);
-        if (RESET_STATE_ON_THREAD_GROUP_ITERATION) {
-            owner.registerUserCleanup(HTTPJavaHttp3Impl.class, cleanup);
-        }
+        owner.registerUserCleanup(HTTPJavaHttp3Impl.class, cleanup);
     }
 
     private static void removeUserClients(Object key) {
