@@ -37,6 +37,127 @@ test-plan model, use the official Apache JMeter documentation.
   <li>JMeter-compatible names are retained where they are part of file formats, APIs, plugins, scripts, or automation.</li>
 </ul>
 
+<h2>HTTP Request Defaults Layout</h2>
+<p>
+Default contains the URL, parameters, body and headers. Protocol &amp; Connections groups the wire
+protocol, HTTP/1.1 keep-alive and pool limits, timeouts, and source address. Proxy contains the proxy
+endpoint, credentials and destination host filters. Advanced contains embedded-resource downloads
+and response processing.
+</p>
+<p>
+Keep-alive can be Not set, Enabled, Disabled, or an expression. Not set leaves the property absent;
+Disabled closes the HTTP/1.1 connection after the response, even if a custom Connection header
+requests keep-alive. The current request may still borrow an already-idle connection; it is not
+returned to the idle pool afterwards. As with other defaults,
+explicit sampler settings take precedence. Existing configurations are not changed on opening.
+The sampler's Browser-compatible multipart option affects only multipart form uploads: multipart
+part headers and their encoding. It does not emulate browser headers or browser execution. Redirect
+handling and multipart body options remain on individual samplers.
+</p>
+
+<h2>Automatic HTTPS Protocol Selection</h2>
+<p>
+With a blank HTTP protocol on Java 27 or later, HTTPS requests start over TCP and negotiate
+HTTP/2 through TLS ALPN, falling back to HTTP/1.1. A same-host, same-port Alt-Svc advertisement enables HTTP/3
+for subsequent requests through the same virtual user's client, including parallel requests.
+Without an advertisement, requests continue over TCP. Explicit HTTP/1.1 and HTTP/2 selections
+never upgrade. Each virtual user maintains its own discovery state. TCP connect time includes
+connection establishment and the TLS handshake; reused TCP connections report zero. The automatic
+path currently accepts alternatives at the original host and port only. Advertisements for another
+host or port stay on TCP because the JDK direct-HTTP/3 API cannot preserve the original authority
+while routing to another endpoint. Expired or cleared advertisements return subsequent requests to
+TCP. A failed HTTP/3 sample clears discovery for the next request without replaying that sample.
+</p>
+<p>
+New HTTP Request Defaults enable <code>Upgrade to HTTP/3 when advertised</code> under
+<code>Protocol &amp; Connections</code> for Automatic protocol selection. The saved checkbox overrides
+legacy global preferences. Unchecking it keeps all requests on HC5 TCP, even after another sampler
+has discovered HTTP/3. Explicit HTTP/1.1 and HTTP/2 ignore the checkbox. New explicit HTTP/3 profiles
+are HTTP/3-only on Java 27+; older runtimes fall back to HTTP/2 negotiation with a warning.
+Existing scripts keep absent settings absent when edited. They retain
+<code>httpsampler.http3.prefer_for_default</code> and the older-runtime fallback. The deprecated
+<code>httpsampler.http3.force_http3=false</code> now selects HC5 Automatic negotiation with Alt-Svc
+upgrade for legacy scripts, instead of JDK TCP fallback. All HTTP/2 requests use HC5. Older runtimes, multipart uploads, proxies and SSE use
+HttpClient5's HTTP/2-or-HTTP/1.1 path. HTTP/3 remains a beta transport.
+</p>
+
+<h2>Connection Timing</h2>
+<p>
+Connect time is empty when no connection was established for the request (reuse), or when
+the transport cannot measure setup time (currently JDK HTTP/3). Only actual measurements contribute
+to connection-time averages. A genuinely measured zero milliseconds remains a numeric zero.
+CSV results use an empty Connect field; XML results omit the connect-time attribute. Older numeric
+values, including zero, remain readable without reinterpretation. The Java API retains a negative
+sentinel for missing values for compatibility. Response latency is never substituted for connect time.
+</p>
+<p>
+HTTP/1.1 requests waiting for a connection-pool slot start their measured time window after a
+successful initial lease. Start time, elapsed time and latency exclude that pool wait; connection
+establishment still counts. Availability-timeout and cancelled lease failures retain their original
+start and wait duration. The surrounding transaction still measures its full wall-clock duration.
+</p>
+
+<h2>HTTP/2 Connection Coalescing</h2>
+<p>
+HTTP Request Defaults &gt; Protocol &amp; Connections includes
+<strong>Reuse HTTP/2 connections across eligible hosts</strong>. It is enabled for new defaults.
+Existing scripts without the property also enable coalescing. Explicitly disabling the checkbox
+keeps separate connections per origin.
+The setting applies to HTTP/2 and the HTTP/2 part of Automatic protocol selection.
+</p>
+<p>
+Within a virtual user, another host may reuse an established HTTP/2 connection when its DNS addresses
+include the connected peer address, its port matches, and the certificate covers both hostnames.
+TLS/client-certificate identities must match. Proxy routes, explicitly bound source addresses, and
+domain credentials for connection-bound authentication retain separate connections. Requests retain their own authority, cookies, and authentication.
+Different virtual users never share these connections.
+</p>
+<p>
+A coalesced response with status 421 disables coalescing for that destination in the current client.
+Repeatable requests retry once on a dedicated connection; non-repeatable bodies are not replayed.
+Coalesced requests have an empty connect time because no connection was established for that request.
+This implements DNS-based coalescing; HTTP/2 ORIGIN-frame discovery is not implemented.
+</p>
+
+<h2>HTTP/1.1 Connection Limits</h2>
+<p>
+In HTTP Request Defaults, open Protocol &amp; Connections &gt; HTTP/1.1 connections. Maximum connections per host
+limits the connections available to each virtual user for an origin (scheme, hostname and port).
+Sequential requests, parallel controllers and embedded-resource downloads share the user's pool.
+Excess requests wait for a free connection; the parallel controller's concurrency setting does not
+increase this limit. Configure the limit consistently in the profile's HTTP Request Defaults.
+Selecting HTTP/1.1 in a new defaults configuration fills in 6. A blank or unset limit also uses 6,
+including for existing scripts. Explicit positive limits override this default.
+</p>
+<p>
+Connection availability timeout is the time in milliseconds to wait for a free pooled connection.
+A positive value bounds the wait, 0 waits indefinitely, and blank keeps the HTTP client's default.
+A timed-out request reports Connection availability timeout without making a new connection.
+Successful initial pool waits are excluded from the request time window; failed leases retain their wait. Both fields accept
+variables and functions. These controls apply to the HTTP/1.1 transport, not HTTP/2 or HTTP/3 streams.
+</p>
+
+<p>
+HTTP/1.1 TLS contexts and session caches are shared by sequential and parallel workers of the same
+virtual user. New connections can resume an earlier TLS session when the server and available tickets
+allow it; existing open connections need no new handshake. A cold parallel wave is not guaranteed to
+resume sessions. Contexts are released at user cleanup and replaced on SSL-state reset. Different
+virtual users remain isolated, including when <code>https.sessioncontext.shared=true</code>; that
+legacy option now applies only outside virtual users.
+</p>
+
+<p>
+HTTP/2 also shares TLS session contexts between a virtual user's clients with the same resolved
+certificate identity. This includes forced HTTP/2 and negotiating clients. User changes discard
+both connections and their bound TLS contexts, so new users cannot resume previous users' sessions.
+</p>
+<p>
+HTTP/3 also shares TLS session contexts between a virtual user's clients, including parallel
+requests with different timeout or redirect settings. Certificate identities and certificate-retry
+origins keep separate contexts. New QUIC connections can resume sessions when the server provides
+usable tickets. User cleanup discards both clients and TLS sessions without affecting other users.
+</p>
+
 <h2>Native Dummy Sampler</h2>
 <p>
 Add <code>Sampler &gt; Dummy Sampler</code> to produce configurable results without network activity.
@@ -480,7 +601,7 @@ from variables. Reconnecting reevaluates the alias. Transport clients are shared
 within the same SSL Manager, certificate stores and selected client alias, preventing
 TLS session reuse across identities. User sessions, headers and cookies remain isolated.
 Transport tasks use virtual threads; the last session releases its shared client.
-Unlike HTTP's default per-thread SSL contexts, WebSocket clients share TLS session
+Unlike HTTP/1.1's per-user SSL contexts, WebSocket clients share TLS session
 caches across users with the same identity. This can reduce full TLS handshake load
 and is independent of <code>https.sessioncontext.shared</code>. For mutual TLS,
 use a certificate-alias variable to select the same identity explicitly in HTTP

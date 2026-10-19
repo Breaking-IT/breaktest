@@ -53,6 +53,15 @@ public class CsvSampleReaderTest extends JMeterTestCase {
     }
 
     @Test
+    public void connectTimeDistinguishesMissingAndNumericZero() {
+        SampleMetadata connect = new SampleMetadata(',', "Connect");
+        assertEquals(-1, new Sample(0, connect, "").getConnectTime());
+        assertEquals(0, new Sample(0, connect, "0").getConnectTime());
+        assertEquals(25, new Sample(0, connect, "25").getConnectTime());
+        assertEquals(-1, new Sample(0, new SampleMetadata(',', "elapsed"), "5").getConnectTime());
+    }
+
+    @Test
     public void testConstructorWithInvalidFile() {
         assertThrows(
                 IllegalArgumentException.class,

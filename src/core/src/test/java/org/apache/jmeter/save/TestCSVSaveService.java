@@ -193,6 +193,34 @@ public class TestCSVSaveService extends JMeterTestCase {
     }
 
     @Test
+    public void missingConnectTimeRoundTrips(@TempDir Path directory) throws Exception {
+        SampleSaveConfiguration config = new SampleSaveConfiguration();
+        SampleResult sample = transactionTestSample("quic", config);
+        sample.setConnectTime(SampleResult.CONNECT_TIME_UNAVAILABLE);
+        String missing = CSVSaveService.resultToDelimitedString(new SampleEvent(sample, ""), ",");
+        assertTrue(missing.endsWith(","), "Missing Connect is an empty field, not a numeric sentinel");
+        sample.setConnectTime(0);
+        String zero = CSVSaveService.resultToDelimitedString(new SampleEvent(sample, ""), ",");
+        Path file = Files.write(directory.resolve("unknown.csv"), List.of(
+                CSVSaveService.printableFieldNamesToString(config), missing, zero));
+        List<SampleResult> read = new ArrayList<>();
+        CSVSaveService.processSamples(file.toString(), new Visualizer() {
+            @Override
+            public void add(SampleResult result) {
+                read.add(result);
+            }
+
+            @Override
+            public boolean isStats() {
+                return false;
+            }
+        }, new ResultCollector());
+        assertEquals(2, read.size());
+        assertEquals(SampleResult.CONNECT_TIME_UNAVAILABLE, read.get(0).getConnectTime());
+        assertEquals(0, read.get(1).getConnectTime());
+    }
+
+    @Test
     public void testTransactionIdsRoundTrip(@TempDir Path directory) throws Exception {
         SampleSaveConfiguration config = new SampleSaveConfiguration();
         config.setTransactionIds(true);
