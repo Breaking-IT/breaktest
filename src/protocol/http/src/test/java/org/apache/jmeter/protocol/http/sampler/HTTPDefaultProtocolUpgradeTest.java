@@ -81,6 +81,8 @@ class HTTPDefaultProtocolUpgradeTest {
                     assertNotEquals(first.getResponseDataAsString(), fresh.getResponseDataAsString());
                     assertConnectTime(fresh);
                 }
+                assertEquals(subsequent, sampleResult(user, port, "", "", true, true).getProtocolVersion(),
+                        "A full HTTPS URL path must upgrade even when the sampler protocol field is HTTP");
                 CyclicBarrier start = new CyclicBarrier(5);
                 var results = new ArrayList<Future<String>>();
                 for (int i = 0; i < 5; i++) {
@@ -132,14 +134,19 @@ class HTTPDefaultProtocolUpgradeTest {
 
     private static HTTPSampleResult sampleResult(JMeterThread user, int port, String protocol,
             String localAddress, boolean upgrade) {
+        return sampleResult(user, port, protocol, localAddress, upgrade, false);
+    }
+
+    private static HTTPSampleResult sampleResult(JMeterThread user, int port, String protocol,
+            String localAddress, boolean upgrade, boolean fullUrl) {
         JMeterContextService.getContext().setThread(user);
         JMeterContextService.getContext().setVariables(new JMeterVariables());
         try {
             HTTPSamplerProxy sampler = new HTTPSamplerProxy();
-            sampler.setProtocol("https");
+            sampler.setProtocol(fullUrl ? "http" : "https");
             sampler.setDomain("localhost");
             sampler.setPort(port);
-            sampler.setPath("/");
+            sampler.setPath(fullUrl ? "https://localhost:" + port + "/" : "/");
             sampler.setMethod("GET");
             sampler.setHttpProtocol(protocol);
             sampler.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, upgrade);

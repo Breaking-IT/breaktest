@@ -58,6 +58,83 @@ import org.junit.jupiter.params.provider.ValueSource;
 public class TestHTTPJavaHttp3Impl {
 
     @Test
+    void cooldownWinsOverLateParallelAdvertisement() throws Exception {
+        var alternativesMethod = HTTPJavaHttp3Impl.class.getDeclaredMethod("alternatives");
+        var brokenMethod = HTTPJavaHttp3Impl.class.getDeclaredMethod("brokenAlternatives");
+        var selectMethod = HTTPJavaHttp3Impl.class.getDeclaredMethod("hasHttp3Alternative", URL.class);
+        alternativesMethod.setAccessible(true);
+        brokenMethod.setAccessible(true);
+        selectMethod.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var alternatives = (java.util.Map<String, Long>) alternativesMethod.invoke(null);
+        @SuppressWarnings("unchecked")
+        var broken = (java.util.Map<String, Long>) brokenMethod.invoke(null);
+        URL origin = new URI("https://cooldown.test/").toURL();
+        URL other = new URI("https://unaffected.test/").toURL();
+        String key = HTTPJavaHttp3Impl.trustedOrigin(origin);
+        String otherKey = HTTPJavaHttp3Impl.trustedOrigin(other);
+        var publish = new java.util.concurrent.CountDownLatch(1);
+        var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            long expiry = System.currentTimeMillis() + 300_000;
+            alternatives.put(key, expiry);
+            alternatives.put(otherKey, expiry);
+            assertTrue((boolean) selectMethod.invoke(null, origin));
+            // Model a response that already passed the cooldown check, but whose
+            // advertisement is published after the failure handler removes the entry.
+            var lateResponse = worker.submit(() -> {
+                assertTrue(publish.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                alternatives.put(key, expiry);
+                return null;
+            });
+            broken.put(key, expiry);
+            alternatives.remove(key);
+            publish.countDown();
+            lateResponse.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertFalse((boolean) selectMethod.invoke(null, origin), "Late Alt-Svc must not bypass cooldown");
+            assertTrue((boolean) selectMethod.invoke(null, other), "Cooldown is scoped to one origin");
+            broken.put(key, System.currentTimeMillis() - 1);
+            assertTrue((boolean) selectMethod.invoke(null, origin), "Upgrade is eligible after cooldown expires");
+        } finally {
+            publish.countDown();
+            worker.shutdownNow();
+            alternatives.remove(key);
+            alternatives.remove(otherKey);
+            broken.remove(key);
+        }
+    }
+
+    @Test
+    void automaticWrapperKeepsPlainHttpOnHc5() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            exchange.getResponseHeaders().add("Alt-Svc", "h3=\":443\"");
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setProtocol("http");
+        sampler.setDomain("127.0.0.1");
+        sampler.setPort(server.getAddress().getPort());
+        sampler.setPath("/");
+        sampler.setConnectTimeout("5000");
+        sampler.setResponseTimeout("5000");
+        HTTPAbstractImpl impl = HTTPSamplerFactory.getImplementation("", sampler, true, true);
+        try {
+            assertEquals(HTTPJavaHttp3Impl.class, impl.getClass());
+            for (int i = 0; i < 2; i++) {
+                HTTPSampleResult result = impl.sample(sampler.getUrl(), HTTPConstants.GET, false, 0);
+                assertEquals("200", result.getResponseCode(), result.getResponseMessage());
+                assertEquals("HTTP/1.1", result.getProtocolVersion(), "Plain HTTP must not upgrade from Alt-Svc");
+            }
+        } finally {
+            impl.threadFinished();
+            server.stop(0);
+        }
+    }
+
+    @Test
     public void authenticationFallbackIsScopedToEachRequest() throws Exception {
         HTTPSamplerProxy sampler = new HTTPSamplerProxy();
         AuthManager manager = new AuthManager();

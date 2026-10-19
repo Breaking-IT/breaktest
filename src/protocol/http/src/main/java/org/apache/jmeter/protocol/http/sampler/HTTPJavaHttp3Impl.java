@@ -293,8 +293,8 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             if (discovery == Http3Discovery.ALT_SVC_UPGRADE) {
                 // Do not replay a potentially delivered request. Like browsers, keep the origin
                 // on TCP for a while instead of failing again after every re-advertisement.
-                alternatives().remove(trustedOrigin(url));
                 brokenAlternatives().put(trustedOrigin(url), System.currentTimeMillis() + BROKEN_ALTERNATIVE_MILLIS);
+                alternatives().remove(trustedOrigin(url));
             }
             Throwable cause = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
             if (e instanceof InterruptedException) {
@@ -333,8 +333,16 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     }
 
     private static boolean hasHttp3Alternative(URL url) {
-        Long expiry = alternatives().get(trustedOrigin(url));
-        return expiry != null && expiry > System.currentTimeMillis();
+        String origin = trustedOrigin(url);
+        long now = System.currentTimeMillis();
+        // A parallel response can publish an advertisement after failure removed it.
+        // The cooldown remains authoritative even when that stale entry survives.
+        Long broken = brokenAlternatives().get(origin);
+        if (broken != null && broken > now) {
+            return false;
+        }
+        Long expiry = alternatives().get(origin);
+        return expiry != null && expiry > now;
     }
 
     private static void rememberAlternative(HTTPSampleResult result) {

@@ -611,7 +611,8 @@ public class TestHTTPHC5Impl {
 
         HTTPSamplerProxy defaultProtocol = new HTTPSamplerProxy();
         assertEquals(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT, defaultProtocol.getHttpProtocol());
-        assertEquals(HTTPHC5H2Impl.class,
+        defaultProtocol.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, true);
+        assertEquals(Http3RuntimeSupport.isHttp3Supported() ? HTTPJavaHttp3Impl.class : HTTPHC5H2Impl.class,
                 HTTPSamplerFactory.getImplementation(defaultProtocol.getImplementation(), defaultProtocol).getClass());
 
         HTTPSamplerProxy http2 = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
