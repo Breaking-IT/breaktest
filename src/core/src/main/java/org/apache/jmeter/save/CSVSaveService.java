@@ -384,7 +384,7 @@ public final class CSVSaveService {
             if (saveConfig.saveConnectTime()) {
                 field = CSV_CONNECT_TIME;
                 text = parts[i++];
-                result.setConnectTime(Long.parseLong(text));
+                result.setConnectTime(text.isEmpty() ? SampleResult.CONNECT_TIME_UNAVAILABLE : Long.parseLong(text));
             }
 
             if (saveConfig.saveTransactionIds()) {
@@ -1003,7 +1003,7 @@ public final class CSVSaveService {
         }
 
         if (saveConfig.saveConnectTime()) {
-            text.append(sample.getConnectTime());
+            text.append(sample.getConnectTime() < 0 ? "" : Long.toString(sample.getConnectTime()));
         }
 
         if (saveConfig.saveTransactionIds()) {

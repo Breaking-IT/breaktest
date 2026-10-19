@@ -481,7 +481,8 @@ public abstract class SamplerResultTab implements ResultRenderer {
                 .append(result.getTime()).append(NL);
         statsBuff
                 .append(JMeterUtils.getResString("view_results_connect_time")).append(SPACE) //$NON-NLS-1$
-                .append(result.getConnectTime()).append(NL);
+                .append(result.getConnectTime() < 0 ? ""
+                        : result.getConnectTime()).append(NL);
         statsBuff
                 .append(JMeterUtils.getResString("view_results_latency")).append(SPACE) //$NON-NLS-1$
                 .append(result.getLatency()).append(NL);
@@ -564,7 +565,8 @@ public abstract class SamplerResultTab implements ResultRenderer {
         }
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_sample_start"), startTime)); //$NON-NLS-1$
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_load_time"), result.getTime())); //$NON-NLS-1$
-        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_connect_time"), result.getConnectTime())); //$NON-NLS-1$
+        resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_connect_time"),
+                result.getConnectTime() < 0 ? "" : result.getConnectTime())); //$NON-NLS-1$
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_latency"), result.getLatency())); //$NON-NLS-1$
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_size_in_bytes"), formatSizeInBytes(result))); //$NON-NLS-1$
         resultModel.addRow(new RowResult(JMeterUtils.getParsedLabel("view_results_sent_bytes"), result.getSentBytes())); //$NON-NLS-1$

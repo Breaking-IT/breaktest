@@ -30,6 +30,16 @@ public class StatisticalSampleResult extends SampleResult implements
     private static final long serialVersionUID = 240L;
 
     private int errorCount;
+    private int connectTimeCount;
+
+    /** Number of connection measurements, excluding reused/unmeasured requests. */
+    public int getConnectTimeCount() {
+        return connectTimeCount == 0 && getConnectTime() >= 0 ? getSampleCount() : connectTimeCount;
+    }
+
+    public void setConnectTimeCount(int count) {
+        connectTimeCount = count;
+    }
 
     // Need to maintain our own elapsed timer to ensure more accurate aggregation
     private long elapsed;
@@ -89,7 +99,11 @@ public class StatisticalSampleResult extends SampleResult implements
         this.setEndTime(Math.max(getEndTime(), res.getEndTime()));
 
         setLatency(getLatency()+ res.getLatency());
-        setConnectTime(getConnectTime()+ res.getConnectTime());
+        if (res.getConnectTime() >= 0) {
+            connectTimeCount += res instanceof StatisticalSampleResult statistical
+                    ? statistical.getConnectTimeCount() : res.getSampleCount();
+        }
+        addConnectTime(res.getConnectTime());
 
         elapsed += res.getTime();
     }

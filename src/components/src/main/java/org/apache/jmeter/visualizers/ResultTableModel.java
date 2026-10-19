@@ -150,7 +150,7 @@ class ResultTableModel extends AbstractTableModel {
         // Running samples and inferred transaction groups have no final measurements
         case TIME -> unmeasured ? null : sample.getTime();
         case LATENCY -> unmeasured ? null : sample.getLatency();
-        case CONNECT_TIME -> unmeasured ? null : sample.getConnectTime();
+        case CONNECT_TIME -> unmeasured || sample.getConnectTime() < 0 ? null : sample.getConnectTime();
         case REQUEST_SIZE -> unmeasured ? null : sample.getSentBytes();
         case RECEIVED_BYTES -> unmeasured ? null : sample.getBytesAsLong();
         case HTTP_CODE -> unmeasured ? null : sample.getResponseCode();

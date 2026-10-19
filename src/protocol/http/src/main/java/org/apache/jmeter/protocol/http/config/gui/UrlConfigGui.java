@@ -237,7 +237,16 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
         }
     }
 
+    // These settings are edited in Defaults, but explicit sampler overrides must
+    // survive editing and copying through HTTP, GraphQL and SSE sampler editors.
+    private static final List<String> CONNECTION_PROPERTIES = List.of(
+            HTTPSamplerBase.HTTP2_COALESCING, HTTPSamplerBase.HTTP3_UPGRADE,
+            HTTPSamplerBase.CONNECTION_REUSE, "HTTPSampler.max_connections_per_host",
+            "HTTPSampler.connection_availability_timeout");
+    private final List<JMeterProperty> connectionProperties = new ArrayList<>();
+
     public void clear() {
+        connectionProperties.clear();
         argsPanel.clear();
         if (headersPanel != null) {
             headersPanel.clear();
@@ -270,6 +279,12 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
     public void modifyTestElement(TestElement element) {
         bindingGroup.updateElement(element);
         if (notConfigOnly) {
+            for (String name : CONNECTION_PROPERTIES) {
+                element.removeProperty(name);
+            }
+            for (JMeterProperty property : connectionProperties) {
+                element.setProperty(property.clone());
+            }
             HTTPSamplerBaseSchema schema = HTTPSamplerBaseSchema.INSTANCE;
             element.set(schema.getFollowRedirects(), redirectHandling.isFollowRedirects() ? true : null);
             element.set(schema.getAutoRedirects(), redirectHandling.isAutomaticRedirects() ? true : null);
@@ -353,6 +368,15 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
      *            contains the data to be displayed
      */
     public void configure(TestElement el) {
+        connectionProperties.clear();
+        if (notConfigOnly) {
+            for (String name : CONNECTION_PROPERTIES) {
+                JMeterProperty property = el.getPropertyOrNull(name);
+                if (property != null) {
+                    connectionProperties.add(property.clone());
+                }
+            }
+        }
         setName(el.getName());
         updatingUiFromElement = true;
         try {
@@ -777,6 +801,8 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
                     HTTPSamplerBaseSchema.INSTANCE.getUseBrowserCompatibleMultipart(),
                     "use_multipart_mode_browser",
                     JMeterUtils::getResString);
+            useBrowserCompatibleMultipartMode.setToolTipText(
+                    JMeterUtils.getResString("use_multipart_mode_browser_help"));
             JFactory.small(useBrowserCompatibleMultipartMode);
             useBrowserCompatibleMultipartMode.setVisible(getUrlConfigDefaults().isUseBrowserCompatibleMultipartModeVisible());
         }

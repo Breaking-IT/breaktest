@@ -1211,7 +1211,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         columns.getColumn(ResultTableModel.LABEL).setPreferredWidth(180);
         columns.getColumn(ResultTableModel.TIME).setPreferredWidth(70);
         columns.getColumn(ResultTableModel.LATENCY).setPreferredWidth(70);
-        columns.getColumn(ResultTableModel.CONNECT_TIME).setPreferredWidth(80);
+        columns.getColumn(ResultTableModel.CONNECT_TIME).setPreferredWidth(100);
+        columns.getColumn(ResultTableModel.CONNECT_TIME).setCellRenderer(new ConnectTimeRenderer());
         columns.getColumn(ResultTableModel.REQUEST_SIZE).setPreferredWidth(85);
         columns.getColumn(ResultTableModel.RECEIVED_BYTES).setPreferredWidth(90);
         columns.getColumn(ResultTableModel.HTTP_CODE).setPreferredWidth(85);

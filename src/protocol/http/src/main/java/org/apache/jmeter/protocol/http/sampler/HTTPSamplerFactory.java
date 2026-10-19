@@ -77,15 +77,9 @@ public final class HTTPSamplerFactory {
         return new String[]{IMPL_HTTP_CLIENT5};
     }
 
-    /**
-     * When true and the runtime supports HTTP/3 (Java 27+), samplers with a blank/default
-     * protocol use the JDK HTTP/3 client with Alt-Svc discovery (HTTP/3 preferred, falling
-     * back to HTTP/2 or HTTP/1.1 per request) instead of HttpClient5 negotiation.
-     * Samplers using features the HTTP/3 implementation does not support (multipart,
-     * proxies) keep using HttpClient5.
-     */
+    /** Compatibility preference used only when the script has no saved upgrade choice. */
     private static final boolean PREFER_HTTP3_FOR_DEFAULT =
-            JMeterUtils.getPropDefault("httpsampler.http3.prefer_for_default", false); //$NON-NLS-1$
+            JMeterUtils.getPropDefault("httpsampler.http3.prefer_for_default", true); //$NON-NLS-1$
 
     public static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base){
         return getImplementation(impl, base, Http3RuntimeSupport.isHttp3Supported(), PREFER_HTTP3_FOR_DEFAULT);
@@ -115,10 +109,14 @@ public final class HTTPSamplerFactory {
             if (http3Supported) {
                 return new HTTPJavaHttp3Impl(base);
             }
+            // The upgrade checkbox may come from unrelated Defaults; it cannot mark a strict profile.
             Http3RuntimeSupport.warnHttp3FallbackOnce();
-            return new HTTPHC5H2Impl(base); // isHttp2Protocol() is false, so the impl negotiates
+            return new HTTPHC5H2Impl(base);
         }
-        if (preferHttp3ForDefault && http3Supported
+        boolean upgrade = base.getPropertyAsBoolean(HTTPSamplerBase.HTTP3_UPGRADE, preferHttp3ForDefault);
+        // The scheme may come from a full URL path or a variable and the impl is cached, so the
+        // implementation checks each request's scheme; plain HTTP stays on HC5.
+        if (upgrade && http3Supported
                 && StringUtilities.isBlank(base.getHttpProtocol())
                 && supportedByJavaHttp3Client(base)) {
             // Browser-like: first request per origin over TCP, upgrade to HTTP/3 on Alt-Svc
