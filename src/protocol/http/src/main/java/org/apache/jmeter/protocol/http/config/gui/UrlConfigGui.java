@@ -777,6 +777,8 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
                     HTTPSamplerBaseSchema.INSTANCE.getUseBrowserCompatibleMultipart(),
                     "use_multipart_mode_browser",
                     JMeterUtils::getResString);
+            useBrowserCompatibleMultipartMode.setToolTipText(
+                    JMeterUtils.getResString("use_multipart_mode_browser_help"));
             JFactory.small(useBrowserCompatibleMultipartMode);
             useBrowserCompatibleMultipartMode.setVisible(getUrlConfigDefaults().isUseBrowserCompatibleMultipartModeVisible());
         }

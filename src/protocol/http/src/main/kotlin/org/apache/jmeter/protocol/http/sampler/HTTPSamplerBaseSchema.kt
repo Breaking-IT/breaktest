@@ -98,6 +98,19 @@ public abstract class HTTPSamplerBaseSchema : TestElementSchema() {
     public val httpProtocol: StringPropertyDescriptor<HTTPSamplerBaseSchema>
         by string("HTTPSampler.http_protocol", default = HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT)
 
+    public val http2Coalescing: BooleanPropertyDescriptor<HTTPSamplerBaseSchema>
+        by boolean(HTTPSamplerBase.HTTP2_COALESCING, default = true)
+
+    public val http3Upgrade: BooleanPropertyDescriptor<HTTPSamplerBaseSchema>
+        by boolean(HTTPSamplerBase.HTTP3_UPGRADE)
+
+    // Absent properties retain the client's legacy pool and lease-timeout defaults.
+    public val maxConnectionsPerHost: IntegerPropertyDescriptor<HTTPSamplerBaseSchema>
+        by int("HTTPSampler.max_connections_per_host")
+
+    public val connectionAvailabilityTimeout: IntegerPropertyDescriptor<HTTPSamplerBaseSchema>
+        by int("HTTPSampler.connection_availability_timeout", default = -1)
+
     public val connectTimeout: IntegerPropertyDescriptor<HTTPSamplerBaseSchema>
         by int("HTTPSampler.connect_timeout")
 

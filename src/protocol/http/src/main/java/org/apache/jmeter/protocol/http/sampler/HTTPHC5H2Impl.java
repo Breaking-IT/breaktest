@@ -209,6 +209,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final ConcurrentMap<Object, Map<HttpClientKey, HttpClientState>>
             HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
 
+    // HTTP client settings do not change TLS session compatibility. Keep contexts
+    // with their owner, separated by the resolved certificate/trust identity.
+    private static final ConcurrentMap<Object, Map<AsyncClientIdentity, SSLContext>> TLS_CONTEXTS_PER_OWNER =
+            new ConcurrentHashMap<>();
+
     // Package-private snapshot for connection lifecycle tests; no timing changes to sampling.
     static org.apache.hc.core5.pool.PoolStats connectionPoolStats(int targetPort) {
         for (var clients : HTTPCLIENTS_CACHE_PER_JMETER_THREAD.values()) {
@@ -270,6 +275,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         log.debug("Start HTTP/2 sample {} method {} followingRedirect {} depth {}",
                 url, method, areFollowingRedirect, frameDepth);
         int attempt = 0;
+        boolean retriedMisdirected = false;
         for (;;) {
             HTTPSampleResult res = createSampleResult(url, method);
             HttpClientContext clientContext = HttpClientContext.create();
@@ -317,6 +323,14 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     fillSampleResult(res, httpRequest, clientContext, clientState, httpResponse);
                     return null;
                 });
+                if ("421".equals(res.getResponseCode()) && !retriedMisdirected
+                        && clientContext.getAttribute(H2ConnectionCoalescing.USED) instanceof HttpRoute rejected) {
+                    clientState.connectionManager.coalescing.reject(rejected);
+                    if (httpRequest.getEntity() == null || httpRequest.getEntity().isRepeatable()) {
+                        retriedMisdirected = true;
+                        continue;
+                    }
+                }
                 updateUrlAfterRedirect(clientContext, res);
                 HttpResponse response = clientContext.getResponse();
                 if (cacheManager != null && response != null) {
@@ -501,7 +515,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 ? proxy.getSseTransportKey() : getJMeterThreadCacheKey();
         jMeterThreadCacheKey = cacheKey;
         if (cacheKey instanceof JMeterThread jMeterThread) {
-            jMeterThread.registerThreadCleanup(
+            jMeterThread.registerUserCleanup(
                     HTTPHC5H2Impl.class,
                     () -> closeThreadLocalConnections(cacheKey));
         } else if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
@@ -573,7 +587,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         return JMeterUtils.getPropDefault("httpsampler.http2.virtual_reactor_threads", javaVersion >= 25);
     }
 
-    private static H2RouteReuseConnectionManager createConnectionManager(
+    private H2RouteReuseConnectionManager createConnectionManager(
             DnsResolver resolver,
             HttpClientKey key)
             throws GeneralSecurityException {
@@ -589,7 +603,17 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                                 .build())
                         .setMessageMultiplexing(true)
                         .build();
-        return new H2RouteReuseConnectionManager(poolingConnectionManager, key.toString());
+        H2RouteReuseConnectionManager manager = new H2RouteReuseConnectionManager(poolingConnectionManager, key.toString());
+        if (key.coalescing && !key.hasProxy) {
+            Map<HttpClientKey, HttpClientState> clients = getThreadLocalClients();
+            manager.coalescing = new H2ConnectionCoalescing(key.clientIdentity, resolver, () -> {
+                synchronized (clients) {
+                    return clients.values().stream().map(value -> value.connectionManager.coalescing)
+                            .filter(Objects::nonNull).toList();
+                }
+            }, manager, manager::leaseOwn);
+        }
+        return manager;
     }
 
     private static final class JMeterPoolingAsyncClientConnectionManagerBuilder
@@ -668,6 +692,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private static final class H2RouteReuseConnectionManager implements AsyncClientConnectionManager {
         private final PoolingAsyncClientConnectionManager delegate;
         private final String authority;
+        private H2ConnectionCoalescing coalescing;
         private final Map<HttpRoute, EndpointLease> activeLeases = new HashMap<>();
         private final ConcurrentMap<HttpRoute, RouteLeaseState> routeStates = new ConcurrentHashMap<>();
         private final ConcurrentMap<AsyncConnectionEndpoint, HttpRoute> endpointRoutes = new ConcurrentHashMap<>();
@@ -682,6 +707,17 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
         @Override
         public Future<AsyncConnectionEndpoint> lease(String id, HttpRoute route, Object state,
+                Timeout requestTimeout, FutureCallback<AsyncConnectionEndpoint> callback) {
+            if (coalescing != null) {
+                Future<AsyncConnectionEndpoint> shared = coalescing.tryLease(id, route, state, requestTimeout, callback);
+                if (shared != null) {
+                    return shared;
+                }
+            }
+            return leaseOwn(id, route, state, requestTimeout, callback);
+        }
+
+        private Future<AsyncConnectionEndpoint> leaseOwn(String id, HttpRoute route, Object state,
                 Timeout requestTimeout, FutureCallback<AsyncConnectionEndpoint> callback) {
             synchronized (activeLeases) {
                 EndpointLease active = activeLeases.get(route);
@@ -765,6 +801,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     "manager release authority={} route={} endpoint={} state={} keepAlive={} thread={}",
                     authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), state, keepAlive,
                     Thread.currentThread().getName());
+            if (endpoint instanceof H2ConnectionCoalescing.BorrowedEndpoint borrowed) {
+                borrowed.release(state, keepAlive);
+                return;
+            }
             HttpRoute route = endpointRoutes.remove(endpoint);
             if (endpoint instanceof EndpointLease lease) {
                 synchronized (activeLeases) {
@@ -789,6 +829,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     "manager connect-start authority={} route={} endpoint={} connectTimeout={} attachment={} thread={}",
                     authority, route, endpointIdentity(endpoint), connectTimeout, attachment,
                     Thread.currentThread().getName());
+            if (coalescing != null && context != null) {
+                context.setAttribute(H2ConnectionCoalescing.CONNECTING_ROUTE, route);
+            }
             return delegate.connect(unwrap(endpoint), connectionInitiator, connectTimeout, attachment, context,
                     new FutureCallback<>() {
                         @Override
@@ -1023,10 +1066,15 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         Object manager = context == null ? null : context.getAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER);
         if (manager instanceof H2RouteReuseConnectionManager connectionManager) {
             connectionManager.trackConnection(connection);
+            HttpRoute route = (HttpRoute) context.getAttribute(H2ConnectionCoalescing.CONNECTING_ROUTE);
+            if (connectionManager.coalescing != null && route != null && route.getProxyHost() == null) {
+                connectionManager.coalescing.track(connection,
+                        new HttpRoute(route.getTargetHost(), route.getLocalAddress(), route.isSecure()));
+            }
         }
     }
 
-    private static void rememberNetworkEndpoint(
+    static void rememberNetworkEndpoint(
             HttpHost endpointHost,
             HttpContext context,
             ManagedAsyncClientConnection connection) {
@@ -1366,9 +1414,17 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         };
     }
 
-    private static TlsStrategy createTlsStrategy(AsyncClientIdentity identity) throws GeneralSecurityException {
-        SSLContext sslContext = identity == null ? ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity().createContext()
-                : identity.createContext();
+    private TlsStrategy createTlsStrategy(AsyncClientIdentity identity) throws GeneralSecurityException {
+        AsyncClientIdentity resolved = identity == null
+                ? ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity() : identity;
+        // Client construction holds the owner client map's lock, including parallel workers.
+        Map<AsyncClientIdentity, SSLContext> contexts = TLS_CONTEXTS_PER_OWNER.computeIfAbsent(
+                jMeterThreadCacheKey, ignored -> new HashMap<>(3));
+        SSLContext sslContext = contexts.get(resolved);
+        if (sslContext == null) {
+            sslContext = resolved.createContext();
+            contexts.put(resolved, sslContext);
+        }
         ClientTlsStrategyBuilder builder = ClientTlsStrategyBuilder.create()
                 .setSslContext(sslContext)
                 .setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
@@ -1454,8 +1510,18 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     private HttpClientKey createHttpClientKey(URL url, HttpVersionPolicy versionPolicy, HttpContext context)
             throws GeneralSecurityException {
         ProxySettings proxy = resolveProxy(url, context);
+        boolean coalescing = testElement.getPropertyAsBoolean(HTTPSamplerBase.HTTP2_COALESCING, true);
+        Authorization authorization = getAuthManager() == null ? null : getAuthManager().getAuthForURL(url);
+        // Domain credentials can negotiate connection-bound NTLM authentication.
+        if (authorization != null && StringUtilities.isNotEmpty(authorization.getDomain())) {
+            coalescing = false;
+        }
+        AsyncClientIdentity identity = clientCertificateIdentity(url);
+        if (coalescing && identity == null) {
+            identity = ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity();
+        }
         return new HttpClientKey(url, proxy.enabled(), proxy.scheme(), proxy.host(), proxy.port(),
-                proxy.username(), proxy.password(), versionPolicy, clientCertificateIdentity(url));
+                proxy.username(), proxy.password(), versionPolicy, identity, coalescing);
     }
 
     private HttpUriRequestBase createHttpRequest(URI uri, String method, boolean areFollowingRedirect) {
@@ -1670,7 +1736,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             kerberosClient.threadFinished();
         }
         Object cacheKey = jMeterThreadCacheKey;
-        if (cacheKey != null) {
+        if (cacheKey != null && !(cacheKey instanceof JMeterThread)) {
             closeThreadLocalConnections(cacheKey);
             jMeterThreadCacheKey = null;
         }
@@ -1680,20 +1746,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         if (!RESET_STATE_ON_THREAD_GROUP_ITERATION) {
             return;
         }
-        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD.get(getJMeterThreadCacheKey());
-        if (clients == null) {
-            return;
-        }
-        synchronized (clients) {
-            for (HttpClientState clientState : clients.values()) {
-                // A new visitor starts: release all of the previous visitor's connections,
-                // including any still-open SSE streams.
-                clientState.getConnectionManager().closeConnections(CloseMode.IMMEDIATE);
-            }
-        }
+        // Replacing clients is essential: their TLS strategies bind the previous
+        // visitor's context, so closing sockets alone would still allow resumption.
+        closeThreadLocalConnections(getJMeterThreadCacheKey());
     }
 
     private static void closeThreadLocalConnections(Object cacheKey) {
+        TLS_CONTEXTS_PER_OWNER.remove(cacheKey);
         Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(cacheKey);
         if (clients == null) {
             return;
@@ -1788,10 +1847,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         private final String proxyPass;
         private final HttpVersionPolicy versionPolicy;
         private final int hashCode;
+        private final boolean coalescing;
 
         private HttpClientKey(URL url, boolean hasProxy, String proxyScheme, String proxyHost,
-                int proxyPort, String proxyUser, String proxyPass, HttpVersionPolicy versionPolicy, AsyncClientIdentity clientIdentity) {
+                int proxyPort, String proxyUser, String proxyPass, HttpVersionPolicy versionPolicy, AsyncClientIdentity clientIdentity, boolean coalescing) {
             this.clientIdentity = clientIdentity;
+            this.coalescing = coalescing;
             this.protocol = url.getProtocol();
             this.authority = url.getAuthority();
             this.hasProxy = hasProxy;
@@ -1802,7 +1863,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             this.proxyPass = proxyPass;
             this.versionPolicy = versionPolicy;
             this.hashCode = Objects.hash(protocol, authority, hasProxy, proxyScheme, proxyHost, proxyPort,
-                    proxyUser, proxyPass, versionPolicy, clientIdentity);
+                    proxyUser, proxyPass, versionPolicy, clientIdentity, coalescing);
         }
 
         @Override
@@ -1813,7 +1874,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             if (!(obj instanceof HttpClientKey other)) {
                 return false;
             }
-            return hasProxy == other.hasProxy
+            return coalescing == other.coalescing && hasProxy == other.hasProxy
                     && proxyPort == other.proxyPort
                     && Objects.equals(protocol, other.protocol)
                     && Objects.equals(authority, other.authority)

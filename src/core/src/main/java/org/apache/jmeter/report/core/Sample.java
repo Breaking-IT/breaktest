@@ -242,13 +242,14 @@ public class Sample {
     /**
      * Gets the connect time stored in the sample.
      *
-     * @return the connect time stored in the sample or 0 is column is not in results
+     * @return the connect time stored in the sample or -1 if the measurement is absent
      */
     public long getConnectTime() {
         if(metadata.indexOf(CSVSaveService.CSV_CONNECT_TIME) >= 0) {
-            return getData(long.class, CSVSaveService.CSV_CONNECT_TIME);
+            String value = getData(String.class, CSVSaveService.CSV_CONNECT_TIME);
+            return value.isEmpty() ? -1L : Long.parseLong(value);
         } else {
-            return 0L;
+            return -1L;
         }
     }
 

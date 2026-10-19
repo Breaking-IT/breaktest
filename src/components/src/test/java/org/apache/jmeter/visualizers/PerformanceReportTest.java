@@ -168,7 +168,22 @@ public class PerformanceReportTest extends JMeterTestCase {
     }
 
     @Test
-    public void averageConnectTimeIgnoresUnmeasuredZeroValues() {
+    public void statisticalBatchesCountOnlyConnectionMeasurements() {
+        SampleResult reused = new SampleResult();
+        reused.setStampAndTime(1000, 10);
+        SampleResult connected = new SampleResult();
+        connected.setStampAndTime(1100, 100);
+        connected.setConnectTime(80);
+        var batch = new org.apache.jmeter.samplers.StatisticalSampleResult(reused);
+        batch.add(reused);
+        batch.add(connected);
+        PerformanceReport.PerformanceReportData row = new PerformanceReport.PerformanceReportData("connect");
+        row.addSample(batch);
+        assertEquals(80L, row.getAverageConnectTime());
+    }
+
+    @Test
+    public void averageConnectTimeIgnoresMissingValuesButIncludesMeasuredZero() {
         PerformanceReport.PerformanceReportData row = new PerformanceReport.PerformanceReportData("connect");
         SampleResult withoutConnectionMeasurement = new SampleResult();
         withoutConnectionMeasurement.setSuccessful(true);
@@ -179,9 +194,13 @@ public class PerformanceReportTest extends JMeterTestCase {
         withConnectionMeasurement.setConnectTime(80);
 
         row.addSample(withoutConnectionMeasurement);
+        assertNull(row.getAverageConnectTime());
         row.addSample(withConnectionMeasurement);
-
         assertEquals(80L, row.getAverageConnectTime());
+        SampleResult measuredZero = new SampleResult();
+        measuredZero.setConnectTime(0);
+        row.addSample(measuredZero);
+        assertEquals(40L, row.getAverageConnectTime());
     }
 
     @Test

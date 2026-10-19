@@ -28,10 +28,11 @@ val liveHttp3 = providers.environmentVariable("BREAKTEST_HTTP3_LIVE").orElse("")
 extensions.configure<TestEnvironmentInputs> {
     listOf(
         "BREAKTEST_HTTP2_LIVE", "BREAKTEST_HTTP_LIVE", "BREAKTEST_HTTP3_LIVE",
-        "BREAKTEST_HTTP3_CERT_LIVE", "BREAKTEST_HC5_LIFECYCLE_BENCHMARK"
+        "BREAKTEST_HTTP3_CERT_LIVE", "BREAKTEST_HTTP3_COALESCING_LIVE", "BREAKTEST_HC5_LIFECYCLE_BENCHMARK"
     ).forEach { flags.put(it, providers.environmentVariable(it).orElse("")) }
     listOf(
-        "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR"
+        "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR",
+        "BREAKTEST_HTTP3_RESUMPTION_SERVER"
     ).forEach { paths.put(it, providers.environmentVariable(it).orElse("")) }
 }
 
@@ -52,6 +53,14 @@ fun Test.excludeLiveHttp3() {
 }
 
 tasks.test {
+    if (providers.environmentVariable("BREAKTEST_HTTP3_COALESCING_LIVE").orElse("").get() == "true") {
+        // Read native connection identities in the opt-in diagnostic, without production hooks.
+        jvmArgs(
+            "--add-opens=java.net.http/jdk.internal.net.http=ALL-UNNAMED",
+            "--add-opens=java.net.http/jdk.internal.net.http.quic=ALL-UNNAMED",
+            "--add-opens=java.base/jdk.internal.net.quic=ALL-UNNAMED"
+        )
+    }
     require(httpTestForks.get() > 0) { "httpTestForks must be positive" }
     if (httpTestForks.get() > 1) {
         maxParallelForks = httpTestForks.get()

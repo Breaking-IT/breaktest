@@ -54,6 +54,7 @@ import java.util.function.Predicate;
 import java.util.regex.PatternSyntaxException;
 
 import org.apache.hc.client5.http.ConnectTimeoutException;
+import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
 import org.apache.hc.core5.util.Timeout;
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
@@ -146,6 +147,10 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             ));
 
     //+ JMX names - do not change
+    public static final String HTTP2_COALESCING = "HTTPSampler.http2_coalescing";
+
+    public static final String HTTP3_UPGRADE = "HTTPSampler.http3_upgrade";
+
     public static final String ARGUMENTS = "HTTPsampler.Arguments"; // $NON-NLS-1$
 
     public static final String AUTH_MANAGER = "HTTPSampler.auth_manager"; // $NON-NLS-1$
@@ -1128,6 +1133,22 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         return getString(getSchema().getDomain());
     }
 
+    public int getMaxConnectionsPerHost() {
+        return get(getSchema().getMaxConnectionsPerHost());
+    }
+
+    public void setMaxConnectionsPerHost(String value) {
+        set(getSchema().getMaxConnectionsPerHost(), value);
+    }
+
+    public int getConnectionAvailabilityTimeout() {
+        return get(getSchema().getConnectionAvailabilityTimeout());
+    }
+
+    public void setConnectionAvailabilityTimeout(String value) {
+        set(getSchema().getConnectionAvailabilityTimeout(), value);
+    }
+
     public void setConnectTimeout(String value) {
         set(getSchema().getConnectTimeout(), value);
     }
@@ -1463,6 +1484,13 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * @return the modified sampling result containing details of the Exception.
      */
     protected HTTPSampleResult errorResult(Throwable e, HTTPSampleResult res) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConnectionRequestTimeoutException) {
+                String message = "Connection availability timeout waiting for a free HTTP/1.1 connection: "
+                        + formatNetworkPath(res);
+                return normalizedErrorResult(res, "Connection availability timeout", message, message);
+            }
+        }
         ConnectTimeoutException connectTimeout = findConnectTimeout(e);
         if (connectTimeout != null) {
             String message = formatConnectTimeout(connectTimeout, res);
