@@ -26,8 +26,10 @@ import java.net.Socket;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
@@ -40,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -290,13 +293,18 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             }
             return resultProcessing(areFollowingRedirect, frameDepth, res);
         } catch (Exception e) {
-            if (discovery == Http3Discovery.ALT_SVC_UPGRADE) {
+            Throwable cause = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
+            // A slow response or a stopped test says nothing about whether QUIC works.
+            boolean http3Unusable = !(e instanceof InterruptedException
+                    || cause instanceof CancellationException
+                    || cause instanceof HttpTimeoutException
+                            && !(cause instanceof HttpConnectTimeoutException));
+            if (discovery == Http3Discovery.ALT_SVC_UPGRADE && http3Unusable) {
                 // Do not replay a potentially delivered request. Like browsers, keep the origin
                 // on TCP for a while instead of failing again after every re-advertisement.
                 brokenAlternatives().put(trustedOrigin(url), System.currentTimeMillis() + BROKEN_ALTERNATIVE_MILLIS);
                 alternatives().remove(trustedOrigin(url));
             }
-            Throwable cause = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
@@ -322,7 +330,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     private static ConcurrentMap<String, Long> alternatives() {
         Object owner = getJMeterThreadCacheKey();
         if (owner instanceof JMeterThread thread) {
-            thread.registerUserCleanup(HTTPJavaHttp3Impl.class, () -> removeUserClients(owner));
+            registerCleanup(thread);
         }
         return ALT_SVC_PER_USER.computeIfAbsent(owner, ignored -> new ConcurrentHashMap<>());
     }
@@ -633,7 +641,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     private static Map<Http3ClientKey, Http3ClientState> currentClientCache() {
         Object key = getJMeterThreadCacheKey();
         if (key instanceof JMeterThread owner) {
-            owner.registerUserCleanup(HTTPJavaHttp3Impl.class, () -> removeUserClients(owner));
+            registerCleanup(owner);
         }
         return HTTPCLIENTS_CACHE_PER_JMETER_THREAD.computeIfAbsent(key, ignored -> new HashMap<>(3));
     }
@@ -641,6 +649,14 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     // Accessed while holding the owning client map's lock.
     private static Map<Http3TlsKey, SSLContext> currentTlsContexts() {
         return TLS_CONTEXTS_PER_USER.computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new HashMap<>(3));
+    }
+
+    private static void registerCleanup(JMeterThread owner) {
+        Runnable cleanup = () -> removeUserClients(owner);
+        owner.registerThreadCleanup(HTTPJavaHttp3Impl.class, cleanup);
+        if (RESET_STATE_ON_THREAD_GROUP_ITERATION) {
+            owner.registerUserCleanup(HTTPJavaHttp3Impl.class, cleanup);
+        }
     }
 
     private static void removeUserClients(Object key) {

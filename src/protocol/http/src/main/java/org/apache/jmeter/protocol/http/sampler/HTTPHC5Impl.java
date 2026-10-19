@@ -726,13 +726,17 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             return HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
         }
         return HTTPCLIENTS_CACHE_PER_USER.computeIfAbsent(owner, ignored -> {
-            // Like the HTTP/2 and HTTP/3 pools, end with the user identity, not the thread.
-            owner.registerUserCleanup(HTTPHC5Impl.class, () -> {
+            Runnable cleanup = () -> {
                 Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_USER.remove(owner);
                 if (clients != null) {
                     closeConnections(clients);
                 }
-            });
+            };
+            owner.registerThreadCleanup(HTTPHC5Impl.class, cleanup);
+            // New users keep warm pools when httpclient.reset_state_on_thread_group_iteration=false.
+            if (RESET_STATE_ON_THREAD_GROUP_ITERATION) {
+                owner.registerUserCleanup(HTTPHC5Impl.class, cleanup);
+            }
             return new HashMap<>(5);
         });
     }

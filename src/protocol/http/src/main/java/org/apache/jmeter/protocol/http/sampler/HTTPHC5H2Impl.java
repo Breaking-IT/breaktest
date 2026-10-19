@@ -515,9 +515,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 ? proxy.getSseTransportKey() : getJMeterThreadCacheKey();
         jMeterThreadCacheKey = cacheKey;
         if (cacheKey instanceof JMeterThread jMeterThread) {
-            jMeterThread.registerUserCleanup(
-                    HTTPHC5H2Impl.class,
-                    () -> closeThreadLocalConnections(cacheKey));
+            Runnable cleanup = () -> closeThreadLocalConnections(cacheKey);
+            jMeterThread.registerThreadCleanup(HTTPHC5H2Impl.class, cleanup);
+            if (RESET_STATE_ON_THREAD_GROUP_ITERATION) {
+                jMeterThread.registerUserCleanup(HTTPHC5H2Impl.class, cleanup);
+            }
         } else if (testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()) {
             org.apache.jmeter.protocol.sse.SseSessions.current().registerTransportCleanup(
                     cacheKey, () -> closeThreadLocalConnections(cacheKey));
@@ -826,6 +828,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         public Future<AsyncConnectionEndpoint> connect(AsyncConnectionEndpoint endpoint,
                 ConnectionInitiator connectionInitiator, Timeout connectTimeout, Object attachment,
                 HttpContext context, FutureCallback<AsyncConnectionEndpoint> callback) {
+            if (endpoint instanceof H2ConnectionCoalescing.BorrowedEndpoint) {
+                // The shared connection closed before use. Never reconnect another origin's pool
+                // entry here; fail so the retry leases this route's own connection.
+                BasicFuture<AsyncConnectionEndpoint> closed = new BasicFuture<>(callback);
+                closed.failed(new ConnectionClosedException("Coalesced HTTP/2 connection closed before use"));
+                return closed;
+            }
             HttpRoute route = endpointRoutes.get(endpoint);
             RouteLeaseState routeState = route == null ? null : routeStates.get(route);
             logConnectionClosureDebug(
