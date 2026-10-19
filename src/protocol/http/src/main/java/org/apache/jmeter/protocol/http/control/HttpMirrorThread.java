@@ -112,7 +112,6 @@ public class HttpMirrorThread implements Runnable {
                 positionOfBody = getPositionOfBody(headers.toString());
             }
 
-            baos.close();
             final String headerString = headers.toString();
             if(headerString.isEmpty() || headerString.indexOf('\r') < 0) {
                 log.error("Invalid request received:'{}'", headerString);
@@ -169,6 +168,22 @@ public class HttpMirrorThread implements Runnable {
                 responseStatusValue = parameters.get(STATUS);
             }
 
+            // Check if we have found a content-length header
+            String contentLengthHeaderValue = getRequestHeaderValue(headerString, HTTPConstants.HEADER_CONTENT_LENGTH);
+            if(contentLengthHeaderValue != null) {
+                contentLength = Integer.parseInt(contentLengthHeaderValue);
+            }
+            // Read a known-length body before sending a final response. Async clients can
+            // stop uploading as soon as they receive it, leaving both sides waiting forever.
+            if (contentLength > 0) {
+                int totalReadBytes = headerString.length() - positionOfBody - 2;
+                while (totalReadBytes < contentLength
+                        && (length = in.read(buffer, 0, Math.min(buffer.length, contentLength - totalReadBytes))) != -1) {
+                    baos.write(buffer, 0, length);
+                    totalReadBytes += length;
+                }
+            }
+
             log.debug("Write headers");
             out = new BufferedOutputStream(clientSocket.getOutputStream());
             // The headers are written using ISO_8859_1 encoding
@@ -220,11 +235,6 @@ public class HttpMirrorThread implements Runnable {
             } else {
                 out.write(baos.toByteArray());
             }
-            // Check if we have found a content-length header
-            String contentLengthHeaderValue = getRequestHeaderValue(headerString, HTTPConstants.HEADER_CONTENT_LENGTH);
-            if(contentLengthHeaderValue != null) {
-                contentLength = Integer.parseInt(contentLengthHeaderValue);
-            }
             // Look for special Sleep request
             String sleepHeaderValue = getRequestHeaderValue(headerString, "X-Sleep"); //$NON-NLS-1$
             if(sleepHeaderValue != null) {
@@ -239,29 +249,8 @@ public class HttpMirrorThread implements Runnable {
                 }
             }
 
-            // If we know the content length, we can allow the reading of
-            // the request to block until more data arrives.
-            // If it is chunked transfer, we cannot allow the reading to
-            // block, because we do not know when to stop reading, because
-            // the chunked transfer is not properly supported yet
-            length = 0;
-            if(contentLength > 0) {
-                // Check how much of the body we have already read as part of reading
-                // the headers
-                // We subtract two bytes for the crlf divider between header and body
-                int totalReadBytes = headerString.length() - positionOfBody - 2;
-
-                // We know when to stop reading, so we can allow the read method to block
-                log.debug("Reading, {} < {}", totalReadBytes, contentLength);
-                while((totalReadBytes < contentLength) && ((length = in.read(buffer)) != -1)) {
-                    log.debug("Read bytes: {}", length);
-                    out.write(buffer, 0, length);
-
-                    totalReadBytes += length;
-                    log.debug("totalReadBytes: {}", totalReadBytes);
-                }
-            }
-            else if (isChunked) {
+            // Chunked requests are still handled on a best-effort, non-blocking basis.
+            if (contentLength <= 0 && isChunked) {
                 // It is chunked transfer encoding, which we do not really support yet.
                 // So we just read without blocking, because we do not know when to
                 // stop reading, so we cannot block
@@ -273,7 +262,7 @@ public class HttpMirrorThread implements Runnable {
                     out.write(buffer, 0, length);
                 }
             }
-            else {
+            else if (contentLength <= 0) {
                 // The request has no body, or it has a transfer encoding we do not support.
                 // In either case, we read any data available
                 log.debug("Other");
