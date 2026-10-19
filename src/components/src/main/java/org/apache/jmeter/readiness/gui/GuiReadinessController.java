@@ -20,6 +20,7 @@ package org.apache.jmeter.readiness.gui;
 import java.awt.event.ActionEvent;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -412,6 +413,17 @@ final class GuiReadinessController implements ReadinessController {
             throw new IllegalStateException("None of the thread groups in scope is enabled any more.");
         }
         JMeterTreeModel treeModel = gui.getTreeModel();
+        // Copies made while flattening sections keep the identity of the element they copy until the model is built
+        PlanModel model = ValidationCheckpoints.withSourceIdentity(() -> buildModel(treeModel, groups));
+        lastModel = model;
+        List<String> names = new ArrayList<>();
+        for (AbstractThreadGroup group : groups) {
+            names.add(group.getName());
+        }
+        return new PlanBuild(model, Start.readinessScope(groups), names, scenarioPacing(treeModel));
+    }
+
+    private static PlanModel buildModel(JMeterTreeModel treeModel, AbstractThreadGroup[] groups) {
         HashTree tree;
         int registered = StandardJMeterEngine.registeredListenerCount();
         try {
@@ -422,13 +434,9 @@ final class GuiReadinessController implements ReadinessController {
         }
         IdentityHashMap<TestElement, JMeterTreeNode> nodes = new IdentityHashMap<>();
         index((JMeterTreeNode) treeModel.getRoot(), nodes);
-        PlanModel model = PlanModel.build(tree, element -> ref(element, nodes));
-        lastModel = model;
-        List<String> names = new ArrayList<>();
-        for (AbstractThreadGroup group : groups) {
-            names.add(group.getName());
-        }
-        return new PlanBuild(model, Start.readinessScope(groups), names, scenarioPacing(treeModel));
+        Map<String, JMeterTreeNode> bySourceId = new HashMap<>();
+        nodes.forEach((element, node) -> bySourceId.putIfAbsent(ValidationCheckpoints.sourceIdOfSource(element), node));
+        return PlanModel.build(tree, element -> ref(element, nodes, bySourceId));
     }
 
     private ReadinessReport report(PlanBuild build) {
@@ -445,22 +453,21 @@ final class GuiReadinessController implements ReadinessController {
         }
     }
 
-    private static ElementRef ref(TestElement element, IdentityHashMap<TestElement, JMeterTreeNode> nodes) {
+    private static ElementRef ref(TestElement element, IdentityHashMap<TestElement, JMeterTreeNode> nodes,
+            Map<String, JMeterTreeNode> bySourceId) {
+        String sourceId = ValidationCheckpoints.sourceIdOfSource(element);
         JMeterTreeNode node = nodes.get(element);
-        if (node == null && element instanceof AbstractThreadGroup group && !group.getThreadGroupId().isEmpty()) {
-            // Sections are flattened with copies of thread groups that carry their id
-            node = nodes.entrySet().stream()
-                    .filter(e -> e.getKey() instanceof AbstractThreadGroup g
-                            && g.getThreadGroupId().equals(group.getThreadGroupId()))
-                    .map(Map.Entry::getValue).findFirst().orElse(null);
+        if (node == null) {
+            // A copy made while flattening sections (profile configuration, the test plan, thread groups): it has
+            // the identity of the element it copies, which is the one to show, navigate to and record exceptions on
+            node = bySourceId.get(sourceId);
         }
         List<Integer> path = new ArrayList<>();
         for (JMeterTreeNode n = node; n != null && n.getParent() != null; n = (JMeterTreeNode) n.getParent()) {
             path.add(n.getParent().getIndex(n));
         }
         Collections.reverse(path);
-        return new ElementRef(ValidationCheckpoints.sourceIdOfSource(element), element.getName(),
-                element.getClass().getSimpleName(), path);
+        return new ElementRef(sourceId, element.getName(), element.getClass().getSimpleName(), path);
     }
 
     private static Map<String, String> scenarioPacing(JMeterTreeModel model) {

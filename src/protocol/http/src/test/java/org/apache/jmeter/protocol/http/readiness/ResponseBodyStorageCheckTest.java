@@ -44,6 +44,9 @@ import org.apache.jmeter.readiness.check.PlanModel;
 import org.apache.jmeter.readiness.check.ReadinessAnalyzer;
 import org.apache.jmeter.readiness.check.ReadinessOptions;
 import org.apache.jmeter.reporters.ResultSaver;
+import org.apache.jmeter.scenario.Profile;
+import org.apache.jmeter.scenario.ProfilesSection;
+import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -232,6 +235,31 @@ class ResponseBodyStorageCheckTest extends JMeterTestCase {
         Finding keep = finding(run(), "keep");
         assertEquals("search", keep.element().name());
         assertEquals(Severity.SUGGESTION, keep.severity());
+    }
+
+    @Test
+    void defaultsInAProfileAreReportedOnTheProfileElementNotOnItsCopy() {
+        // With sections, the default profile's configuration is copied into each thread group when flattening
+        ListedHashTree tree = new ListedHashTree();
+        HashTree planTree = tree.add(plan);
+        HashTree groups = planTree.add(new ThreadGroupsSection());
+        HashTree groupTree = groups.add(group);
+        groupTree.add(request("a"));
+        groupTree.add(request("b"));
+        Profile profile = new Profile("acceptance");
+        profile.setDefault(true);
+        planTree.add(new ProfilesSection()).add(profile).add(defaults);
+        AbstractThreadGroup[] scope = {group};
+        CheckOutcome outcome = ValidationCheckpoints.withSourceIdentity(() -> {
+            PlanModel model = PlanModel.build(Start.validationTree(tree, scope));
+            assertTrue(model.nodes().stream().noneMatch(node -> node.element() == defaults),
+                    "The flattened tree holds a copy of the defaults");
+            return new ResponseBodyStorageCheck().run(new CheckContext(model, null, ReadinessOptions.defaults(),
+                    Map.of(), null, Map.of()));
+        });
+        Finding suggestion = finding(outcome, "defaults");
+        assertEquals(ValidationCheckpoints.sourceIdOfSource(defaults), suggestion.element().sourceId(),
+                "The finding must point at the defaults in the profile, so the wizard can select it");
     }
 
     @Test
