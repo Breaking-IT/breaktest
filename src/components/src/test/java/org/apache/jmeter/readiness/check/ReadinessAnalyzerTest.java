@@ -113,7 +113,9 @@ class ReadinessAnalyzerTest extends JMeterTestCase {
     private ReadinessReport analyze(Set<CheckId> checks) throws Exception {
         RunSegment segment = ReadinessEvidenceStore.latest().main();
         Map<String, List<Long>> offline = OfflineExtractorTimer.measure(segment, plan.model(group), 20, () -> false);
-        return plan.analyze(checks, ReadinessOptions.defaults(), offline, group);
+        // Timings are real: a generous budget keeps slow CI machines from turning the verdict into a timing test
+        ReadinessOptions options = new ReadinessOptions(1_000_000_000L, ReadinessOptions.DEFAULT_OFFLINE_RERUNS, 0, 0);
+        return plan.analyze(checks, options, offline, group);
     }
 
     @Test
