@@ -20,17 +20,17 @@ package org.apache.jmeter.protocol.http.readiness;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.config.ConfigElement;
 import org.apache.jmeter.config.ConfigTestElement;
-import org.apache.jmeter.control.Controller;
-import org.apache.jmeter.control.WhileController;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
@@ -60,14 +60,18 @@ import org.apache.jmeter.util.ScriptingTestElement;
 import com.google.auto.service.AutoService;
 
 /**
- * Response body storage: suggests <code>Store on error only</code> for HTTP requests whose successful response bodies
- * nothing needs, to save memory under load. Only a suggestion; it never affects readiness.
- * <p>
- * Assertions and post-processors applying to a request are not a reason to keep <code>Store response</code>: the
- * sampler keeps the body automatically while they apply, and validation always keeps bodies. Bodies must stay
- * stored when embedded resources are retrieved from them, when something outside the request's own package reads them
- * (the next sampler's pre-processors and timers, a following script sampler, or controller conditions, through
- * <code>prev</code> or the previous result), or when a listener saves successful response data.
+ * Response body storage of HTTP requests.
+ * <ul>
+ *     <li>A script that reads the previous response body (a JSR223 or BeanShell sampler, pre-processor or timer, or
+ *     a scripting function such as <code>__groovy</code> in a field or a controller condition) is a Warning when any
+ *     HTTP request of its thread group discards successful bodies: which request runs just before the script depends
+ *     on the flow (If controllers, loops), and validation always keeps bodies, so only a test run shows the script
+ *     reading an empty body. Requests that keep their bodies because assertions or post-processors apply to them do
+ *     not count.</li>
+ *     <li>Without such scripts, it suggests <code>Store on error only</code> for requests whose successful bodies
+ *     nothing needs, to save memory under load. Suggestions never affect readiness. Bodies stay needed when embedded
+ *     resources are retrieved from them or a listener saves successful response data.</li>
+ * </ul>
  */
 @AutoService(ReadinessCheck.class)
 public final class ResponseBodyStorageCheck implements ReadinessCheck {
@@ -76,7 +80,11 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
     private static final Pattern BODY_READ = Pattern.compile(
             "(?:\\bprev|getPreviousResult\\(\\s*\\))\\s*\\??\\.\\s*(?:get)?[rR]esponseData"); // $NON-NLS-1$
     private static final Pattern PREVIOUS_RESULT = Pattern.compile(
-            "\\bprev\\s*\\??\\.|getPreviousResult"); // $NON-NLS-1$
+            "\\bprev\\b|getPreviousResult"); // $NON-NLS-1$
+    /** Scripting functions, whose code can use the previous result */
+    private static final Pattern SCRIPT_FUNCTION = Pattern.compile(
+            "\\$\\{__(?:groovy|javaScript|jexl2|jexl3|BeanShell)\\("); // $NON-NLS-1$
+    private static final int MAX_LISTED = 10;
 
     /** What happens to a request's successful bodies with a discarding mode. */
     enum Use {
@@ -101,13 +109,30 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
         boolean inherited(PlanNode sampler) {
             return source != sampler;
         }
+
+        boolean discards() {
+            return mode == ResponseProcessingMode.STORE_ON_ERROR || mode == ResponseProcessingMode.FETCH_AND_DISCARD;
+        }
+
+        String describe(PlanNode sampler) {
+            String name = mode == ResponseProcessingMode.FETCH_AND_DISCARD ? "Fetch and discard"
+                    : mode == ResponseProcessingMode.STORE_ON_ERROR ? "Store on error only" : "Store response";
+            return inherited(sampler) && source != null ? name + " from '" + source.name() + "'" : name;
+        }
     }
 
     /**
      * @param use what happens to the bodies
      * @param reasons why
+     * @param ownConsumers whether assertions or post-processors apply to the request, so it keeps its bodies anyway
      */
-    record Assessment(Use use, List<String> reasons) {
+    record Assessment(Use use, List<String> reasons, boolean ownConsumers) {
+    }
+
+    /** Scripts of a thread group that use the previous result. */
+    private static final class Readers {
+        private final Set<PlanNode> body = new LinkedHashSet<>();
+        private final Set<PlanNode> possible = new LinkedHashSet<>();
     }
 
     @Override
@@ -135,90 +160,192 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
             modes.put(sampler, resolve(sampler));
             uses.put(sampler, assess(sampler));
         }
+        Map<PlanNode, Readers> readers = readers(context);
         List<Finding> findings = new ArrayList<>();
+        warnReaders(samplers, modes, uses, readers, findings);
+        suggest(samplers, modes, uses, readers, evidence, findings);
+        long reading = readers.values().stream().mapToLong(r -> r.body.size()).sum();
+        return CheckOutcome.of(findings, true, samplers.size() + " HTTP requests · " + reading
+                + " script(s) reading the previous response body");
+    }
+
+    /**
+     * A Warning on each script reading the previous response body, when requests of its thread group discard
+     * successful bodies.
+     */
+    private void warnReaders(List<PlanNode> samplers, Map<PlanNode, Resolved> modes, Map<PlanNode, Assessment> uses,
+            Map<PlanNode, Readers> readers, List<Finding> findings) {
+        Set<String> reported = new HashSet<>();
+        readers.forEach((group, groupReaders) -> {
+            List<String> discarding = new ArrayList<>();
+            for (PlanNode sampler : samplers) {
+                if (sampler.threadGroup() == group && modes.get(sampler).discards()
+                        && !uses.get(sampler).ownConsumers()) {
+                    discarding.add("'" + sampler.name() + "' (" + modes.get(sampler).describe(sampler) + ")");
+                }
+            }
+            if (discarding.isEmpty()) {
+                return;
+            }
+            String listed = list(discarding);
+            for (PlanNode reader : groupReaders.body) {
+                if (reported.add(reader.sourceId())) {
+                    findings.add(CheckContext.finding(id(), reader, "reads-previous-body", Severity.WARNING,
+                            "'" + reader.name() + "' reads the previous response body, but " + discarding.size()
+                                    + (discarding.size() == 1 ? " request" : " requests") + " of '" + group.name()
+                                    + "' discard successful bodies",
+                            List.of("Requests that can run before it: " + listed,
+                                    "Which request runs just before the script depends on the flow (If controllers,"
+                                            + " loops), so every request of the thread group counts. Set them, or the"
+                                            + " HTTP Request Defaults, to Store response.",
+                                    "Validation always keeps response bodies, so it does not show this; in a test"
+                                            + " run the script reads an empty body.")));
+                }
+            }
+            for (PlanNode reader : groupReaders.possible) {
+                if (reported.add(reader.sourceId())) {
+                    findings.add(CheckContext.finding(id(), reader, "may-read-previous-body", Severity.SUGGESTION,
+                            "'" + reader.name() + "' uses the previous result while requests of '" + group.name()
+                                    + "' discard successful bodies: review whether it reads the body",
+                            List.of("Requests that can run before it: " + listed)));
+                }
+            }
+        });
+    }
+
+    /**
+     * Suggests Store on error only for requests whose successful bodies nothing needs, outside thread groups with
+     * scripts that read the previous response body.
+     */
+    private void suggest(List<PlanNode> samplers, Map<PlanNode, Resolved> modes, Map<PlanNode, Assessment> uses,
+            Map<PlanNode, Readers> readers, RuntimeEvidence evidence, List<Finding> findings) {
         List<PlanNode> inherited = samplers.stream().filter(s -> modes.get(s).mode()
                 == ResponseProcessingMode.STORE_COMPRESSED && modes.get(s).inherited(s)).toList();
-        int discard = 0;
         int automatic = 0;
         List<String> keep = new ArrayList<>();
         List<String> review = new ArrayList<>();
         List<PlanNode> discarding = new ArrayList<>();
+        Set<PlanNode> readingGroups = new LinkedHashSet<>();
+        Set<String> possibleReaders = new LinkedHashSet<>();
         for (PlanNode sampler : inherited) {
+            Readers groupReaders = readers.get(sampler.threadGroup());
+            if (groupReaders != null && !groupReaders.body.isEmpty()) {
+                readingGroups.add(sampler.threadGroup());
+                continue;
+            }
             Assessment assessment = uses.get(sampler);
+            if (groupReaders != null) {
+                groupReaders.possible.forEach(reader -> possibleReaders.add("'" + reader.name() + "'"));
+            }
             switch (assessment.use()) {
-                case DISCARD -> {
-                    discard++;
-                    discarding.add(sampler);
-                }
+                case DISCARD -> discarding.add(sampler);
                 case AUTOMATIC -> automatic++;
                 case KEEP -> keep.add(sampler.name() + " (" + String.join("; ", assessment.reasons()) + ")");
                 case UNCERTAIN -> review.add(sampler.name() + " (" + String.join("; ", assessment.reasons()) + ")");
             }
         }
         boolean most = inherited.size() * 2 > samplers.size();
-        if (most && discard > 0) {
-            PlanNode anchor = anchor(inherited, modes);
+        if (most && !discarding.isEmpty()) {
             List<String> details = new ArrayList<>();
             details.add(automatic + (automatic == 1 ? " request keeps its body" : " requests keep their bodies")
                     + " automatically while assertions or extractors apply to them.");
+            for (PlanNode group : readingGroups) {
+                details.add("Keep Store response for '" + group.name() + "': scripts there read the previous"
+                        + " response body (" + list(readers.get(group).body.stream().map(PlanNode::name)
+                                .map(n -> "'" + n + "'").toList()) + ")");
+            }
             if (!keep.isEmpty()) {
-                details.add("Set explicitly to Store response: " + String.join(", ", keep));
+                details.add("Set explicitly to Store response: " + list(keep));
             }
             if (!review.isEmpty()) {
-                details.add("Possibly reads the body, review before changing: " + String.join(", ", review));
+                details.add("Possibly reads the body, review before changing: " + list(review));
+            }
+            if (!possibleReaders.isEmpty()) {
+                details.add("Check first that these scripts using the previous result do not read its body: "
+                        + list(new ArrayList<>(possibleReaders)));
             }
             sizeEstimate(evidence, discarding, details);
             details.add("Store on error only keeps error bodies for triage; Fetch and discard saves the same in steady"
                     + " state but drops them too.");
-            findings.add(CheckContext.finding(id(), anchor, "defaults", Severity.SUGGESTION,
-                    "Set Processing mode to Store on error only to save memory: " + discard + " of "
+            findings.add(CheckContext.finding(id(), anchor(discarding, modes), "defaults", Severity.SUGGESTION,
+                    "Set Processing mode to Store on error only to save memory: " + discarding.size() + " of "
                             + samplers.size() + " requests would discard successful bodies", details));
         }
         for (PlanNode sampler : samplers) {
             Resolved resolved = modes.get(sampler);
             Assessment assessment = uses.get(sampler);
-            boolean store = resolved.mode() == ResponseProcessingMode.STORE_COMPRESSED;
-            boolean discardsBodies = resolved.mode() == ResponseProcessingMode.STORE_ON_ERROR
-                    || resolved.mode() == ResponseProcessingMode.FETCH_AND_DISCARD;
-            if (store && assessment.use() == Use.DISCARD && (!resolved.inherited(sampler) || !most)) {
+            Readers groupReaders = readers.get(sampler.threadGroup());
+            boolean groupReads = groupReaders != null && !groupReaders.body.isEmpty();
+            if (resolved.mode() == ResponseProcessingMode.STORE_COMPRESSED && assessment.use() == Use.DISCARD
+                    && !groupReads && (!resolved.inherited(sampler) || !most)) {
                 List<String> details = new ArrayList<>();
                 sizeEstimate(evidence, List.of(sampler), details);
                 findings.add(CheckContext.finding(id(), sampler, "store", Severity.SUGGESTION,
                         "'" + sampler.name() + "' stores successful bodies nothing reads: Store on error only would"
                                 + " save memory", details));
-            } else if (discardsBodies && assessment.use() == Use.KEEP) {
-                // Validation always stores bodies, so a run would not show the problem
+            } else if (resolved.discards() && assessment.use() == Use.KEEP) {
                 findings.add(CheckContext.finding(id(), sampler, "keep", Severity.SUGGESTION,
-                        "'" + sampler.name() + "' discards successful bodies that are needed: set Processing mode"
-                                + " to Store response", assessment.reasons()));
+                        "'" + sampler.name() + "' discards successful bodies (" + resolved.describe(sampler)
+                                + ") that are needed: set Processing mode to Store response", assessment.reasons()));
             }
         }
-        long kept = samplers.stream().filter(s -> uses.get(s).use() == Use.KEEP).count();
-        return CheckOutcome.of(findings, true, samplers.size() + " HTTP requests · "
-                + samplers.stream().filter(s -> uses.get(s).use() == Use.DISCARD).count()
-                + " with bodies nothing reads · " + kept + " need stored bodies");
     }
 
-    private static PlanNode anchor(List<PlanNode> inherited, Map<PlanNode, Resolved> modes) {
-        for (PlanNode sampler : inherited) {
-            if (modes.get(sampler).source() != null) {
-                return modes.get(sampler).source();
-            }
+    private static String list(List<String> items) {
+        if (items.size() <= MAX_LISTED) {
+            return String.join(", ", items);
         }
-        for (PlanNode config : inherited.get(0).applicable(ConfigTestElement.class)) {
-            if (isHttpDefaults(config.element())) {
-                return config;
-            }
-        }
-        PlanNode group = inherited.get(0).threadGroup();
-        return group != null ? group : inherited.get(0).ancestors().get(inherited.get(0).ancestors().size() - 1);
+        return String.join(", ", items.subList(0, MAX_LISTED)) + " and " + (items.size() - MAX_LISTED) + " more";
     }
 
-    private static boolean isHttpDefaults(TestElement element) {
-        return element.getClass() == ConfigTestElement.class
-                && (element.getPropertyAsString(TestElement.GUI_CLASS).endsWith("HttpDefaultsGui") // $NON-NLS-1$
-                        || element.getPropertyOrNull(MODE) != null
-                        || element.getPropertyOrNull("HTTPSampler.domain") != null); // $NON-NLS-1$
+    /**
+     * @return per thread group, the scripts that read the previous response body or may use the previous result.
+     *     Elements outside thread groups (test plan level pre-processors and timers) count for every thread group.
+     */
+    private static Map<PlanNode, Readers> readers(CheckContext context) {
+        Map<PlanNode, Readers> result = new LinkedHashMap<>();
+        List<PlanNode> planLevel = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (PlanNode node : context.model().nodes()) {
+            if (!seen.add(node.sourceId() + "@" + node.threadGroup()) || !mayUsePreviousResult(node.element())) {
+                continue;
+            }
+            Use use = reads(node.element());
+            if (use == Use.DISCARD) {
+                continue;
+            }
+            if (node.threadGroup() == null) {
+                planLevel.add(node);
+            } else {
+                add(result.computeIfAbsent(node.threadGroup(), ignored -> new Readers()), node, use);
+            }
+        }
+        if (!planLevel.isEmpty()) {
+            for (PlanNode group : context.model().threadGroups()) {
+                Readers groupReaders = result.computeIfAbsent(group, ignored -> new Readers());
+                planLevel.forEach(node -> add(groupReaders, node, reads(node.element())));
+            }
+        }
+        return result;
+    }
+
+    private static void add(Readers readers, PlanNode node, Use use) {
+        (use == Use.KEEP ? readers.body : readers.possible).add(node);
+    }
+
+    /**
+     * Elements whose code runs before a sample, when the result of the sample before is the previous result.
+     * Post-processors and assertions read their own sample, which keeps its body for them.
+     */
+    private static boolean mayUsePreviousResult(TestElement element) {
+        return !(element instanceof PostProcessor) && !(element instanceof Assertion)
+                && !(element instanceof AbstractThreadGroup) && !isListenerOnly(element);
+    }
+
+    private static boolean isListenerOnly(TestElement element) {
+        return element instanceof SampleListener && !(element instanceof PreProcessor) && !(element instanceof Timer)
+                && !(element instanceof ConfigElement) && !(element instanceof org.apache.jmeter.samplers.Sampler)
+                && !(element instanceof org.apache.jmeter.control.Controller);
     }
 
     /**
@@ -265,7 +392,8 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
     }
 
     /**
-     * What happens to the successful bodies of a request if they were discarded.
+     * What a request itself needs: embedded resource retrieval and listeners saving successful responses need its
+     * bodies; scripts reading the previous result are handled per thread group.
      */
     static Assessment assess(PlanNode sampler) {
         List<String> keep = new ArrayList<>();
@@ -273,18 +401,9 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
         if (embeddedResources(sampler)) {
             keep.add("retrieves embedded resources from its body");
         }
-        for (PlanNode reader : readersAfter(sampler)) {
-            switch (reads(reader.element())) {
-                case KEEP -> keep.add("read by " + describe(reader));
-                case UNCERTAIN -> uncertain.add("previous result used by " + describe(reader));
-                default -> {
-                }
-            }
-        }
         for (PlanNode listener : sampler.applicable(SampleListener.class)) {
             TestElement element = listener.element();
-            if (element instanceof PostProcessor || element instanceof Assertion || element instanceof Timer
-                    || element instanceof PreProcessor || element instanceof ConfigElement) {
+            if (!isListenerOnly(element)) {
                 continue;
             }
             if (element instanceof ResultSaver) {
@@ -299,15 +418,15 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
                 uncertain.add("listener '" + listener.name() + "' (" + element.getClass().getSimpleName() + ")");
             }
         }
-        if (!keep.isEmpty()) {
-            return new Assessment(Use.KEEP, keep);
-        }
-        if (!uncertain.isEmpty()) {
-            return new Assessment(Use.UNCERTAIN, uncertain);
-        }
         boolean ownConsumers = !sampler.applicable(Assertion.class).isEmpty()
                 || !sampler.applicable(PostProcessor.class).isEmpty();
-        return new Assessment(ownConsumers ? Use.AUTOMATIC : Use.DISCARD, List.of());
+        if (!keep.isEmpty()) {
+            return new Assessment(Use.KEEP, keep, ownConsumers);
+        }
+        if (!uncertain.isEmpty()) {
+            return new Assessment(Use.UNCERTAIN, uncertain, ownConsumers);
+        }
+        return new Assessment(ownConsumers ? Use.AUTOMATIC : Use.DISCARD, List.of(), ownConsumers);
     }
 
     private static boolean savesResponseData(ResultCollector collector) {
@@ -321,71 +440,63 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
         return saveConfig.saveResponseData();
     }
 
+    private static boolean isScriptElement(TestElement element) {
+        String name = element.getClass().getSimpleName();
+        return element instanceof ScriptingTestElement || name.contains("JSR223") || name.contains("BeanShell"); // $NON-NLS-1$
+    }
+
     /**
-     * Elements that see this request's result as the previous result: the next sampler's pre-processors, timers and
-     * own script, controllers evaluated before it, and While controllers re-evaluated after the request.
+     * Whether an element's code reads the previous response body ({@link Use#KEEP}), may use the previous result
+     * ({@link Use#UNCERTAIN}) or neither ({@link Use#DISCARD}). Scripts are read whole; other elements only inside
+     * scripting functions, so a path such as <code>/prev.html</code> is not mistaken for code.
      */
-    private static List<PlanNode> readersAfter(PlanNode sampler) {
-        List<PlanNode> readers = new ArrayList<>();
-        PlanNode group = sampler.threadGroup();
-        List<PlanNode> flow = group == null ? List.of() : group.subtree();
-        int end = sampler.subtree().get(sampler.subtree().size() - 1).order();
-        PlanNode next = null;
-        for (PlanNode node : flow) {
-            if (node.order() > end && node.isSampler()) {
-                next = node;
-                break;
+    static Use reads(TestElement element) {
+        StringBuilder code = new StringBuilder();
+        if (isScriptElement(element)) {
+            PropertyTexts.of(element).values().forEach(value -> code.append(value).append('\n'));
+            if (element instanceof ScriptingTestElement script) {
+                ScriptingTestElement prepared = Beans.prepared(script);
+                if (prepared.getScript() != null) {
+                    code.append(prepared.getScript());
+                }
+                if (prepared.getFilename() != null && !prepared.getFilename().isEmpty()) {
+                    return Use.UNCERTAIN;
+                }
+            }
+        } else {
+            for (String value : PropertyTexts.of(element).values()) {
+                Matcher function = SCRIPT_FUNCTION.matcher(value);
+                if (function.find()) {
+                    code.append(value.substring(function.start())).append('\n');
+                }
             }
         }
-        for (PlanNode node : flow) {
-            if (node.order() > end && (next == null || node.order() <= next.order()) && node.isController()) {
-                readers.add(node);
-            }
-        }
-        for (PlanNode ancestor : sampler.ancestors()) {
-            if (ancestor.element() instanceof WhileController) {
-                readers.add(ancestor);
-            }
-            if (ancestor.element() instanceof AbstractThreadGroup) {
-                break;
-            }
-        }
-        if (next != null) {
-            if (isScriptSampler(next.element())) {
-                readers.add(next);
-            }
-            readers.addAll(next.applicable(PreProcessor.class));
-            readers.addAll(next.applicable(Timer.class));
-        }
-        return readers;
-    }
-
-    private static boolean isScriptSampler(TestElement sampler) {
-        String name = sampler.getClass().getSimpleName();
-        return sampler instanceof ScriptingTestElement || name.contains("JSR223") || name.contains("BeanShell"); // $NON-NLS-1$
-    }
-
-    private static Use reads(TestElement element) {
-        StringBuilder text = new StringBuilder();
-        PropertyTexts.of(element).values().forEach(value -> text.append(value).append('\n'));
-        if (element instanceof ScriptingTestElement script) {
-            ScriptingTestElement prepared = Beans.prepared(script);
-            if (prepared.getScript() != null) {
-                text.append(prepared.getScript());
-            }
-            if (prepared.getFilename() != null && !prepared.getFilename().isEmpty()) {
-                return Use.UNCERTAIN;
-            }
-        }
-        if (BODY_READ.matcher(text).find()) {
+        if (BODY_READ.matcher(code).find()) {
             return Use.KEEP;
         }
-        return PREVIOUS_RESULT.matcher(text).find() ? Use.UNCERTAIN : Use.DISCARD;
+        return PREVIOUS_RESULT.matcher(code).find() ? Use.UNCERTAIN : Use.DISCARD;
     }
 
-    private static String describe(PlanNode node) {
-        String type = node.element() instanceof Controller ? "condition of" : "";
-        return (type.isEmpty() ? "" : type + " ") + "'" + node.name() + "'";
+    private static PlanNode anchor(List<PlanNode> requests, Map<PlanNode, Resolved> modes) {
+        for (PlanNode sampler : requests) {
+            if (modes.get(sampler).source() != null) {
+                return modes.get(sampler).source();
+            }
+        }
+        for (PlanNode config : requests.get(0).applicable(ConfigTestElement.class)) {
+            if (isHttpDefaults(config.element())) {
+                return config;
+            }
+        }
+        PlanNode group = requests.get(0).threadGroup();
+        return group != null ? group : requests.get(0).ancestors().get(requests.get(0).ancestors().size() - 1);
+    }
+
+    private static boolean isHttpDefaults(TestElement element) {
+        return element.getClass() == ConfigTestElement.class
+                && (element.getPropertyAsString(TestElement.GUI_CLASS).endsWith("HttpDefaultsGui") // $NON-NLS-1$
+                        || element.getPropertyOrNull(MODE) != null
+                        || element.getPropertyOrNull("HTTPSampler.domain") != null); // $NON-NLS-1$
     }
 
     private static void sizeEstimate(RuntimeEvidence evidence, List<PlanNode> samplers, List<String> details) {

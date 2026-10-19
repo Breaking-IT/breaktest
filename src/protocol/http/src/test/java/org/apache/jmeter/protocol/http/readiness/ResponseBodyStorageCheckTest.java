@@ -175,17 +175,6 @@ class ResponseBodyStorageCheckTest extends JMeterTestCase {
     }
 
     @Test
-    void nextRequestReadingThePreviousBodyMustKeepStoreResponse() {
-        add(request("search"));
-        add(request("details"), preProcessor("def html = prev.getResponseDataAsString()"));
-        add(request("other"));
-        add(request("more"));
-        Finding suggestion = finding(run(), "defaults");
-        assertTrue(suggestion.evidence().stream().anyMatch(line -> line.startsWith("Set explicitly to Store response:")
-                && line.contains("search (read by 'pre')")), suggestion.evidence().toString());
-    }
-
-    @Test
     void embeddedResourcesMustKeepStoreResponse() {
         HTTPSamplerProxy page = add(request("page"));
         page.setImageParser(true);
@@ -215,29 +204,6 @@ class ResponseBodyStorageCheckTest extends JMeterTestCase {
     }
 
     @Test
-    void scriptsUsingThePreviousResultAreReviewedNotCounted() {
-        add(request("a"));
-        add(request("b"), preProcessor("log.info(prev.getSampleLabel())"));
-        add(request("c"));
-        Finding suggestion = finding(run(), "defaults");
-        assertTrue(suggestion.evidence().stream().anyMatch(line -> line.startsWith("Possibly reads the body")
-                && line.contains("a (previous result used by 'pre')")), suggestion.evidence().toString());
-        // Only "a" is in doubt: "b" and "c" still discard
-        assertTrue(suggestion.message().contains("2 of 3"), suggestion.message());
-    }
-
-    @Test
-    void discardingARequestWhoseBodyIsReadIsFlagged() {
-        defaults.setProperty("HTTPSampler.responseProcessingMode",
-                ResponseProcessingMode.FETCH_AND_DISCARD.getResourceKey());
-        add(request("search"));
-        add(request("details"), preProcessor("vars.put('html', prev.getResponseDataAsString())"));
-        Finding keep = finding(run(), "keep");
-        assertEquals("search", keep.element().name());
-        assertEquals(Severity.SUGGESTION, keep.severity());
-    }
-
-    @Test
     void defaultsInAProfileAreReportedOnTheProfileElementNotOnItsCopy() {
         // With sections, the default profile's configuration is copied into each thread group when flattening
         ListedHashTree tree = new ListedHashTree();
@@ -260,6 +226,93 @@ class ResponseBodyStorageCheckTest extends JMeterTestCase {
         Finding suggestion = finding(outcome, "defaults");
         assertEquals(ValidationCheckpoints.sourceIdOfSource(defaults), suggestion.element().sourceId(),
                 "The finding must point at the defaults in the profile, so the wizard can select it");
+    }
+
+    private void discardOnDefaults(ResponseProcessingMode mode) {
+        defaults.setProperty("HTTPSampler.responseProcessingMode", mode.getResourceKey());
+    }
+
+    @Test
+    void scriptReadingThePreviousBodyWarnsWhenRequestsDiscardBodies() {
+        discardOnDefaults(ResponseProcessingMode.FETCH_AND_DISCARD);
+        add(request("search"));
+        add(request("details"), preProcessor("log.info(\"Previous response body: \" + prev.getResponseDataAsString())"));
+        Finding warning = finding(run(), "reads-previous-body");
+        assertEquals("pre", warning.element().name(), "The warning points at the script");
+        assertEquals(Severity.WARNING, warning.severity());
+        assertTrue(warning.message().contains("2 requests of 'users' discard successful bodies"), warning.message());
+        assertTrue(warning.evidence().get(0).contains("'search' (Fetch and discard from 'HTTP Request Defaults')"),
+                warning.evidence().toString());
+
+        var report = ReadinessAnalyzer.analyze(new ReadinessAnalyzer.Input(model(), Start.readinessScope(
+                new AbstractThreadGroup[]{group}), List.of("users"), Set.of(CheckId.RESPONSE_BODY_STORAGE), null,
+                ValidationCheckpoints.generation(), ReadinessOptions.defaults(), Map.of(), null, Map.of()));
+        assertEquals(CheckState.WARNING, report.result(CheckId.RESPONSE_BODY_STORAGE).orElseThrow().state());
+        assertEquals(1, report.summary().warnings());
+    }
+
+    @Test
+    void anyRequestOfTheThreadGroupMayRunBeforeTheScript() {
+        // With an If controller between them, the request just before the script depends on the flow
+        discardOnDefaults(ResponseProcessingMode.STORE_ON_ERROR);
+        add(request("login"));
+        add(request("optional"));
+        add(request("report"), preProcessor("def html = prev.responseDataAsString"));
+        Finding warning = finding(run(), "reads-previous-body");
+        assertTrue(warning.message().contains("3 requests"), warning.message());
+        // A thread group level pre-processor runs before every request, the first one included
+        flow.clear();
+        add(request("only"));
+        assertEquals(Severity.WARNING, finding(run(preProcessor("prev.getResponseDataAsString()")),
+                "reads-previous-body").severity());
+    }
+
+    @Test
+    void scriptingFunctionsInFieldsReadThePreviousBodyToo() {
+        discardOnDefaults(ResponseProcessingMode.FETCH_AND_DISCARD);
+        add(request("search"));
+        HTTPSamplerProxy next = add(request("next"));
+        next.setPath("/next?size=${__groovy(prev.getResponseDataAsString().length())}");
+        assertEquals("next", finding(run(), "reads-previous-body").element().name());
+        // A path that merely contains "prev" is not code (setPath moves the query into the arguments)
+        flow.clear();
+        add(request("search"));
+        add(request("plain")).setPath("/prev.html?getResponseData=1");
+        CheckOutcome plain = run();
+        assertTrue(plain.findings().stream().noneMatch(f -> f.severity() == Severity.WARNING),
+                plain.findings().toString());
+    }
+
+    @Test
+    void requestsKeepingTheirBodiesForTheirOwnExtractorsDoNotCount() {
+        discardOnDefaults(ResponseProcessingMode.FETCH_AND_DISCARD);
+        add(request("search"), extractor());
+        add(request("details"), extractor(), preProcessor("log.info(prev.getResponseDataAsString())"));
+        assertTrue(run().findings().stream().noneMatch(f -> f.severity() == Severity.WARNING),
+                "Both requests keep their bodies while their extractors apply");
+    }
+
+    @Test
+    void aScriptReadingThePreviousBodyStopsTheStoreOnErrorAdviceForItsThreadGroup() {
+        add(request("search"));
+        add(request("details"), preProcessor("def html = prev.getResponseDataAsString()"));
+        add(request("other"));
+        CheckOutcome outcome = run();
+        assertTrue(outcome.findings().isEmpty(), "Bodies are stored, nothing to warn about or advise: "
+                + outcome.findings());
+    }
+
+    @Test
+    void scriptsThatMayReadThePreviousBodyAreListedForReview() {
+        add(request("a"));
+        add(request("b"), preProcessor("def previous = prev; log.info(previous.getSampleLabel())"));
+        add(request("c"));
+        Finding suggestion = finding(run(), "defaults");
+        assertTrue(suggestion.message().contains("3 of 3"), suggestion.message());
+        assertTrue(suggestion.evidence().stream().anyMatch(line -> line.startsWith("Check first that these scripts")
+                && line.contains("'pre'")), suggestion.evidence().toString());
+        discardOnDefaults(ResponseProcessingMode.FETCH_AND_DISCARD);
+        assertEquals(Severity.SUGGESTION, finding(run(), "may-read-previous-body").severity());
     }
 
     @Test
