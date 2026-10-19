@@ -52,6 +52,8 @@ import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ValidationCheckpoints;
+import org.apache.jmeter.visualizers.JSR223Listener;
+import org.apache.jmeter.visualizers.backend.BackendListener;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
@@ -312,6 +314,95 @@ class ResponseBodyStorageCheckTest extends JMeterTestCase {
         assertTrue(suggestion.evidence().stream().anyMatch(line -> line.startsWith("Check first that these scripts")
                 && line.contains("'pre'")), suggestion.evidence().toString());
         discardOnDefaults(ResponseProcessingMode.FETCH_AND_DISCARD);
+        assertEquals(Severity.SUGGESTION, finding(run(), "may-read-previous-body").severity());
+    }
+
+    private static BackendListener backend(String client) {
+        BackendListener listener = new BackendListener();
+        listener.setName("Backend Listener");
+        listener.setClassname(client);
+        return listener;
+    }
+
+    /** Puts listeners at test plan level, where they apply to every request */
+    private CheckOutcome runWithPlanLevel(TestElement... planLevel) {
+        ListedHashTree tree = new ListedHashTree();
+        HashTree planTree = tree.add(plan);
+        for (TestElement element : planLevel) {
+            planTree.add(element);
+        }
+        HashTree groupTree = planTree.add(group);
+        groupTree.add(defaults);
+        for (TestElement[] entry : flow) {
+            HashTree samplerTree = groupTree.add(entry[0]);
+            for (int i = 1; i < entry.length; i++) {
+                samplerTree.add(entry[i]);
+            }
+        }
+        return new ResponseBodyStorageCheck().run(new CheckContext(
+                PlanModel.build(Start.validationTree(tree, new AbstractThreadGroup[]{group})), null,
+                ReadinessOptions.defaults(), Map.of(), null, Map.of()));
+    }
+
+    @Test
+    void builtInBackendListenerClientsDoNotStopTheAdvice() {
+        add(request("a"));
+        add(request("b"));
+        for (String client : List.of(
+                "org.apache.jmeter.visualizers.backend.influxdb.InfluxdbBackendListenerClient",
+                "org.apache.jmeter.visualizers.backend.influxdb.InfluxDBRawBackendListenerClient",
+                "org.apache.jmeter.visualizers.backend.graphite.GraphiteBackendListenerClient")) {
+            Finding suggestion = finding(runWithPlanLevel(backend(client)), "defaults");
+            assertTrue(suggestion.message().contains("2 of 2"), client + ": " + suggestion.message());
+            assertTrue(suggestion.evidence().stream().noneMatch(line -> line.contains("Backend Listener")),
+                    suggestion.evidence().toString());
+        }
+    }
+
+    @Test
+    void customBackendClientsAreListedForReviewWithoutSilencingTheAdvice() {
+        add(request("a"));
+        add(request("b"));
+        Finding suggestion = finding(runWithPlanLevel(backend("com.example.BodyArchiver")), "defaults");
+        assertTrue(suggestion.message().contains("2 of 2"), suggestion.message());
+        assertTrue(suggestion.evidence().contains("Review before changing, these listeners may need successful"
+                + " response bodies: 'Backend Listener' (backend listener with client com.example.BodyArchiver)"),
+                suggestion.evidence().toString());
+    }
+
+    @Test
+    void scriptedListenersAreListedForReviewWithoutSilencingTheAdvice() {
+        add(request("a"));
+        add(request("b"));
+        JSR223Listener script = new JSR223Listener();
+        script.setName("log bodies");
+        script.setProperty("script", "log.info(sampleResult.getResponseDataAsString())");
+        Finding suggestion = finding(runWithPlanLevel(script), "defaults");
+        assertTrue(suggestion.message().contains("2 of 2"), suggestion.message());
+        assertTrue(suggestion.evidence().stream().anyMatch(line -> line.contains("'log bodies' (JSR223Listener)")),
+                suggestion.evidence().toString());
+        // An explicitly pinned request gets the same review note
+        flow.clear();
+        add(request("pinned")).setResponseProcessingMode(ResponseProcessingMode.STORE_COMPRESSED);
+        discardOnDefaults(ResponseProcessingMode.STORE_ON_ERROR);
+        Finding pinned = finding(runWithPlanLevel(script), "store");
+        assertTrue(pinned.evidence().stream().anyMatch(line -> line.contains("'log bodies'")),
+                pinned.evidence().toString());
+    }
+
+    @Test
+    void groovyPropertySyntaxForThePreviousResultIsRecognized() {
+        discardOnDefaults(ResponseProcessingMode.FETCH_AND_DISCARD);
+        add(request("search"));
+        add(request("details"), preProcessor("def html = ctx.previousResult.responseDataAsString"));
+        assertEquals(Severity.WARNING, finding(run(), "reads-previous-body").severity());
+        flow.clear();
+        add(request("search"));
+        add(request("details"), preProcessor("log.info(ctx.previousResult?.getResponseDataAsString())"));
+        assertEquals(Severity.WARNING, finding(run(), "reads-previous-body").severity());
+        flow.clear();
+        add(request("search"));
+        add(request("details"), preProcessor("def r = ctx.previousResult"));
         assertEquals(Severity.SUGGESTION, finding(run(), "may-read-previous-body").severity());
     }
 

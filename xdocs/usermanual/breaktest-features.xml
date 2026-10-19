@@ -1036,6 +1036,10 @@ suggestion on the HTTP Request Defaults (or the thread group) says how many requ
 which ones must keep <code>Store response</code> (embedded resources, a Save Responses to a file listener saving
 successful responses, a results file saving response data) and which scripts using the previous result to check
 first; requests explicitly set to <code>Store response</code> whose bodies nothing reads get a suggestion each.
+Backend Listeners with the built-in InfluxDB, InfluxDB raw or Graphite clients only send metrics and do not need
+bodies; custom backend clients and other listeners such as a JSR223 Listener are listed for review, without stopping
+the suggestion. Scripts are recognized in Java and Groovy forms: <code>prev.getResponseDataAsString()</code>,
+<code>ctx.getPreviousResult()</code>, <code>ctx.previousResult.responseDataAsString</code>.
 Assertions and post-processors applying to a request are no reason to keep <code>Store response</code>, because the
 request keeps its bodies while they apply. <code>Fetch and discard</code> saves the same in steady state but also drops
 error bodies. With a current readiness validation, the suggestion estimates the successful body bytes per iteration

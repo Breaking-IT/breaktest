@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.readiness;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -56,6 +57,7 @@ import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.util.ScriptingTestElement;
+import org.apache.jmeter.visualizers.backend.BackendListener;
 
 import com.google.auto.service.AutoService;
 
@@ -78,13 +80,18 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
     private static final String MODE = HTTPSamplerBaseSchema.INSTANCE.getResponseProcessingMode().getName();
     private static final String EMBEDDED = HTTPSamplerBaseSchema.INSTANCE.getRetrieveEmbeddedResources().getName();
     private static final Pattern BODY_READ = Pattern.compile(
-            "(?:\\bprev|getPreviousResult\\(\\s*\\))\\s*\\??\\.\\s*(?:get)?[rR]esponseData"); // $NON-NLS-1$
+            "(?:\\bprev|getPreviousResult\\(\\s*\\)|\\bpreviousResult)\\s*\\??\\.\\s*(?:get)?[rR]esponseData"); // $NON-NLS-1$
     private static final Pattern PREVIOUS_RESULT = Pattern.compile(
-            "\\bprev\\b|getPreviousResult"); // $NON-NLS-1$
+            "\\bprev\\b|getPreviousResult|\\bpreviousResult\\b"); // $NON-NLS-1$
     /** Scripting functions, whose code can use the previous result */
     private static final Pattern SCRIPT_FUNCTION = Pattern.compile(
             "\\$\\{__(?:groovy|javaScript|jexl2|jexl3|BeanShell)\\("); // $NON-NLS-1$
     private static final int MAX_LISTED = 10;
+    /** Backend listener clients shipped with BreakTest, which send metrics and never read response bodies */
+    private static final Set<String> BUILT_IN_BACKEND_CLIENTS = Set.of(
+            "org.apache.jmeter.visualizers.backend.influxdb.InfluxdbBackendListenerClient", // $NON-NLS-1$
+            "org.apache.jmeter.visualizers.backend.influxdb.InfluxDBRawBackendListenerClient", // $NON-NLS-1$
+            "org.apache.jmeter.visualizers.backend.graphite.GraphiteBackendListenerClient"); // $NON-NLS-1$
 
     /** What happens to a request's successful bodies with a discarding mode. */
     enum Use {
@@ -94,7 +101,7 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
         AUTOMATIC,
         /** They must stay stored: set Store response explicitly */
         KEEP,
-        /** Something may read them */
+        /** Something may read them (scripts using the previous result) */
         UNCERTAIN
     }
 
@@ -125,8 +132,10 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
      * @param use what happens to the bodies
      * @param reasons why
      * @param ownConsumers whether assertions or post-processors apply to the request, so it keeps its bodies anyway
+     * @param listenersToReview listeners that may need successful bodies (custom listeners, backend listeners with a
+     *     custom client); they are listed for review and do not stop the suggestion
      */
-    record Assessment(Use use, List<String> reasons, boolean ownConsumers) {
+    record Assessment(Use use, List<String> reasons, boolean ownConsumers, List<String> listenersToReview) {
     }
 
     /** Scripts of a thread group that use the previous result. */
@@ -223,7 +232,7 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
                 == ResponseProcessingMode.STORE_COMPRESSED && modes.get(s).inherited(s)).toList();
         int automatic = 0;
         List<String> keep = new ArrayList<>();
-        List<String> review = new ArrayList<>();
+        Set<String> listeners = new LinkedHashSet<>();
         List<PlanNode> discarding = new ArrayList<>();
         Set<PlanNode> readingGroups = new LinkedHashSet<>();
         Set<String> possibleReaders = new LinkedHashSet<>();
@@ -238,10 +247,12 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
                 groupReaders.possible.forEach(reader -> possibleReaders.add("'" + reader.name() + "'"));
             }
             switch (assessment.use()) {
-                case DISCARD -> discarding.add(sampler);
+                case DISCARD, UNCERTAIN -> {
+                    discarding.add(sampler);
+                    listeners.addAll(assessment.listenersToReview());
+                }
                 case AUTOMATIC -> automatic++;
                 case KEEP -> keep.add(sampler.name() + " (" + String.join("; ", assessment.reasons()) + ")");
-                case UNCERTAIN -> review.add(sampler.name() + " (" + String.join("; ", assessment.reasons()) + ")");
             }
         }
         boolean most = inherited.size() * 2 > samplers.size();
@@ -257,8 +268,8 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
             if (!keep.isEmpty()) {
                 details.add("Set explicitly to Store response: " + list(keep));
             }
-            if (!review.isEmpty()) {
-                details.add("Possibly reads the body, review before changing: " + list(review));
+            if (!listeners.isEmpty()) {
+                details.add(listenersLine(listeners));
             }
             if (!possibleReaders.isEmpty()) {
                 details.add("Check first that these scripts using the previous result do not read its body: "
@@ -279,6 +290,9 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
             if (resolved.mode() == ResponseProcessingMode.STORE_COMPRESSED && assessment.use() == Use.DISCARD
                     && !groupReads && (!resolved.inherited(sampler) || !most)) {
                 List<String> details = new ArrayList<>();
+                if (!assessment.listenersToReview().isEmpty()) {
+                    details.add(listenersLine(assessment.listenersToReview()));
+                }
                 sizeEstimate(evidence, List.of(sampler), details);
                 findings.add(CheckContext.finding(id(), sampler, "store", Severity.SUGGESTION,
                         "'" + sampler.name() + "' stores successful bodies nothing reads: Store on error only would"
@@ -289,6 +303,11 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
                                 + ") that are needed: set Processing mode to Store response", assessment.reasons()));
             }
         }
+    }
+
+    private static String listenersLine(Collection<String> listeners) {
+        return "Review before changing, these listeners may need successful response bodies: "
+                + list(new ArrayList<>(listeners));
     }
 
     private static String list(List<String> items) {
@@ -393,7 +412,8 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
 
     /**
      * What a request itself needs: embedded resource retrieval and listeners saving successful responses need its
-     * bodies; scripts reading the previous result are handled per thread group.
+     * bodies; custom listeners may, and are listed for review; scripts reading the previous result are handled per
+     * thread group. Backend listeners with a built-in client only send metrics.
      */
     static Assessment assess(PlanNode sampler) {
         List<String> keep = new ArrayList<>();
@@ -414,19 +434,21 @@ public final class ResponseBodyStorageCheck implements ReadinessCheck {
                 if (savesResponseData(collector)) {
                     keep.add("'" + listener.name() + "' saves response data");
                 }
+            } else if (element instanceof BackendListener backend) {
+                String client = backend.getClassname() == null ? "" : backend.getClassname().trim();
+                if (!BUILT_IN_BACKEND_CLIENTS.contains(client)) {
+                    uncertain.add("'" + listener.name() + "' (backend listener with client " + client + ")");
+                }
             } else {
-                uncertain.add("listener '" + listener.name() + "' (" + element.getClass().getSimpleName() + ")");
+                uncertain.add("'" + listener.name() + "' (" + element.getClass().getSimpleName() + ")");
             }
         }
         boolean ownConsumers = !sampler.applicable(Assertion.class).isEmpty()
                 || !sampler.applicable(PostProcessor.class).isEmpty();
         if (!keep.isEmpty()) {
-            return new Assessment(Use.KEEP, keep, ownConsumers);
+            return new Assessment(Use.KEEP, keep, ownConsumers, uncertain);
         }
-        if (!uncertain.isEmpty()) {
-            return new Assessment(Use.UNCERTAIN, uncertain, ownConsumers);
-        }
-        return new Assessment(ownConsumers ? Use.AUTOMATIC : Use.DISCARD, List.of(), ownConsumers);
+        return new Assessment(ownConsumers ? Use.AUTOMATIC : Use.DISCARD, List.of(), ownConsumers, uncertain);
     }
 
     private static boolean savesResponseData(ResultCollector collector) {
