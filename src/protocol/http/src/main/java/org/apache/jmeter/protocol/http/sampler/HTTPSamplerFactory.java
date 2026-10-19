@@ -109,14 +109,14 @@ public final class HTTPSamplerFactory {
             if (http3Supported) {
                 return new HTTPJavaHttp3Impl(base);
             }
-            if (base.getPropertyOrNull(HTTPSamplerBase.HTTP3_UPGRADE) == null) {
-                Http3RuntimeSupport.warnHttp3FallbackOnce();
-                return new HTTPHC5H2Impl(base);
-            }
-            throw new IllegalArgumentException("HTTP/3 requires Java 27 or later; select Automatic for TCP fallback");
+            // The upgrade checkbox may come from unrelated Defaults; it cannot mark a strict profile.
+            Http3RuntimeSupport.warnHttp3FallbackOnce();
+            return new HTTPHC5H2Impl(base);
         }
         boolean upgrade = base.getPropertyAsBoolean(HTTPSamplerBase.HTTP3_UPGRADE, preferHttp3ForDefault);
-        if (upgrade && http3Supported && "https".equalsIgnoreCase(base.getProtocol())
+        // The scheme may come from a full URL path or a variable and the impl is cached, so the
+        // implementation checks each request's scheme; plain HTTP stays on HC5.
+        if (upgrade && http3Supported
                 && StringUtilities.isBlank(base.getHttpProtocol())
                 && supportedByJavaHttp3Client(base)) {
             // Browser-like: first request per origin over TCP, upgrade to HTTP/3 on Alt-Svc

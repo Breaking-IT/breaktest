@@ -151,6 +151,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
     public static final String HTTP3_UPGRADE = "HTTPSampler.http3_upgrade";
 
+    /** Defaults-only keep-alive override; samplers always save their own use_keepalive. */
+    public static final String CONNECTION_REUSE = "HTTPSampler.connection_reuse";
+
     public static final String ARGUMENTS = "HTTPsampler.Arguments"; // $NON-NLS-1$
 
     public static final String AUTH_MANAGER = "HTTPSampler.auth_manager"; // $NON-NLS-1$
@@ -703,6 +706,11 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     public boolean getUseKeepAlive() {
+        // Config merge cannot override the sampler's saved use_keepalive, so Defaults use their own key.
+        JMeterProperty reuse = getPropertyOrNull(CONNECTION_REUSE);
+        if (reuse != null && !reuse.getStringValue().isBlank()) {
+            return Boolean.parseBoolean(reuse.getStringValue().trim());
+        }
         return get(getSchema().getUseKeepalive());
     }
 

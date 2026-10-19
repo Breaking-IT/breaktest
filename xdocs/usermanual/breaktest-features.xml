@@ -73,7 +73,7 @@ New HTTP Request Defaults enable <code>Upgrade to HTTP/3 when advertised</code> 
 <code>Protocol &amp; Connections</code> for Automatic protocol selection. The saved checkbox overrides
 legacy global preferences. Unchecking it keeps all requests on HC5 TCP, even after another sampler
 has discovered HTTP/3. Explicit HTTP/1.1 and HTTP/2 ignore the checkbox. New explicit HTTP/3 profiles
-require Java 27+ and fail rather than silently negotiate TCP.
+are HTTP/3-only on Java 27+; older runtimes fall back to HTTP/2 negotiation with a warning.
 Existing scripts keep absent settings absent when edited. They retain
 <code>httpsampler.http3.prefer_for_default</code> and the older-runtime fallback. The deprecated
 <code>httpsampler.http3.force_http3=false</code> now selects HC5 Automatic negotiation with Alt-Svc

@@ -147,6 +147,12 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     private static final ConcurrentMap<Object, ConcurrentMap<String, Long>> ALT_SVC_PER_USER =
             new ConcurrentHashMap<>();
 
+    // Origins whose advertised HTTP/3 failed (e.g. UDP blocked) stay on TCP until this time.
+    private static final ConcurrentMap<Object, ConcurrentMap<String, Long>> BROKEN_ALT_SVC_PER_USER =
+            new ConcurrentHashMap<>();
+
+    private static final long BROKEN_ALTERNATIVE_MILLIS = 5 * 60 * 1000L;
+
     private volatile @Nullable CompletableFuture<HttpResponse<InputStream>> currentCall;
 
     /** How the client should establish HTTP/3 exchanges. */
@@ -285,8 +291,10 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             return resultProcessing(areFollowingRedirect, frameDepth, res);
         } catch (Exception e) {
             if (discovery == Http3Discovery.ALT_SVC_UPGRADE) {
-                // Re-discover on the next sample; do not replay a potentially delivered request.
+                // Do not replay a potentially delivered request. Like browsers, keep the origin
+                // on TCP for a while instead of failing again after every re-advertisement.
                 alternatives().remove(trustedOrigin(url));
+                brokenAlternatives().put(trustedOrigin(url), System.currentTimeMillis() + BROKEN_ALTERNATIVE_MILLIS);
             }
             Throwable cause = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
             if (e instanceof InterruptedException) {
@@ -319,6 +327,11 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         return ALT_SVC_PER_USER.computeIfAbsent(owner, ignored -> new ConcurrentHashMap<>());
     }
 
+    private static ConcurrentMap<String, Long> brokenAlternatives() {
+        alternatives(); // registers the user's cleanup
+        return BROKEN_ALT_SVC_PER_USER.computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new ConcurrentHashMap<>());
+    }
+
     private static boolean hasHttp3Alternative(URL url) {
         Long expiry = alternatives().get(trustedOrigin(url));
         return expiry != null && expiry > System.currentTimeMillis();
@@ -330,7 +343,8 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             return;
         }
         Long expiry = Http3Alternative.expiry(url, result.getResponseHeaders(), System.currentTimeMillis());
-        if (expiry != null) {
+        Long broken = brokenAlternatives().get(trustedOrigin(url));
+        if (expiry != null && (broken == null || broken <= System.currentTimeMillis())) {
             alternatives().put(trustedOrigin(url), expiry);
         }
         for (var child : result.getSubResults()) {
@@ -623,6 +637,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     private static void removeUserClients(Object key) {
         ALT_SVC_PER_USER.remove(key);
+        BROKEN_ALT_SVC_PER_USER.remove(key);
         TLS_CONTEXTS_PER_USER.remove(key);
         closeClients(HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(key));
     }

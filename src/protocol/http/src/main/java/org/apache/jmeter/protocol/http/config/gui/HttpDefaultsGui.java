@@ -185,13 +185,13 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         // Explicit false must remain distinct from an unset default.
         String reuse = keepAlive.getEditor().getItem().toString().trim();
         if (reuse.isEmpty() || reuse.equals(keepAlive.getItemAt(0))) {
-            config.removeProperty(HTTPSamplerBase.USE_KEEPALIVE);
+            config.removeProperty(HTTPSamplerBase.CONNECTION_REUSE);
         } else if (reuse.equals(keepAlive.getItemAt(1))) {
-            config.setProperty(HTTPSamplerBase.USE_KEEPALIVE, true);
+            config.setProperty(HTTPSamplerBase.CONNECTION_REUSE, true);
         } else if (reuse.equals(keepAlive.getItemAt(2))) {
-            config.setProperty(HTTPSamplerBase.USE_KEEPALIVE, false);
+            config.setProperty(HTTPSamplerBase.CONNECTION_REUSE, false);
         } else {
-            config.setProperty(HTTPSamplerBase.USE_KEEPALIVE, reuse);
+            config.setProperty(HTTPSamplerBase.CONNECTION_REUSE, reuse);
         }
 
         String text = sourceIpAddr.getText();
@@ -266,7 +266,7 @@ public class HttpDefaultsGui extends AbstractConfigGui {
             if (legacyHttpProtocol != null) {
                 legacyHttpProtocol = legacyHttpProtocol.clone();
             }
-            JMeterProperty reuse = el.getPropertyOrNull(HTTPSamplerBase.USE_KEEPALIVE);
+            JMeterProperty reuse = el.getPropertyOrNull(HTTPSamplerBase.CONNECTION_REUSE);
             if (reuse == null) {
                 keepAlive.setSelectedIndex(0);
             } else if ("true".equals(reuse.getStringValue())) {

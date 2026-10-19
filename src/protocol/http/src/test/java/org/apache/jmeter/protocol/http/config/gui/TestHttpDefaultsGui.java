@@ -31,6 +31,7 @@ import org.apache.jmeter.protocol.http.gui.HeaderTablePanel;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBaseSchema;
+import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jorphan.locale.LocalizedValue;
 import org.apache.jorphan.locale.ResourceKeyed;
 import org.junit.jupiter.api.Assertions;
@@ -213,30 +214,40 @@ public class TestHttpDefaultsGui {
         ConfigTestElement config = (ConfigTestElement) gui.createTestElement();
         gui.configure(config);
         gui.modifyTestElement(config);
-        Assertions.assertNull(config.getPropertyOrNull(HTTPSamplerBase.USE_KEEPALIVE));
+        Assertions.assertNull(config.getPropertyOrNull(HTTPSamplerBase.CONNECTION_REUSE));
 
         for (boolean enabled : new boolean[] {false, true}) {
-            config.setProperty(HTTPSamplerBase.USE_KEEPALIVE, enabled);
+            config.setProperty(HTTPSamplerBase.CONNECTION_REUSE, enabled);
             gui.configure(config);
             gui.modifyTestElement(config);
-            Assertions.assertNotNull(config.getPropertyOrNull(HTTPSamplerBase.USE_KEEPALIVE));
-            Assertions.assertEquals(enabled, config.getPropertyAsBoolean(HTTPSamplerBase.USE_KEEPALIVE));
+            Assertions.assertNotNull(config.getPropertyOrNull(HTTPSamplerBase.CONNECTION_REUSE));
+            Assertions.assertEquals(enabled, config.getPropertyAsBoolean(HTTPSamplerBase.CONNECTION_REUSE));
         }
         Field field = HttpDefaultsGui.class.getDeclaredField("keepAlive");
         field.setAccessible(true);
         JComboBox<?> editor = (JComboBox<?>) field.get(gui);
         editor.setSelectedIndex(2);
         gui.modifyTestElement(config);
-        Assertions.assertNotNull(config.getPropertyOrNull(HTTPSamplerBase.USE_KEEPALIVE));
-        Assertions.assertFalse(config.getPropertyAsBoolean(HTTPSamplerBase.USE_KEEPALIVE));
+        Assertions.assertNotNull(config.getPropertyOrNull(HTTPSamplerBase.CONNECTION_REUSE));
+        Assertions.assertFalse(config.getPropertyAsBoolean(HTTPSamplerBase.CONNECTION_REUSE));
         editor.getEditor().setItem("${reuse_connections}");
         gui.modifyTestElement(config);
         gui.configure(config);
         gui.modifyTestElement(config);
-        Assertions.assertEquals("${reuse_connections}", config.getPropertyAsString(HTTPSamplerBase.USE_KEEPALIVE));
+        Assertions.assertEquals("${reuse_connections}", config.getPropertyAsString(HTTPSamplerBase.CONNECTION_REUSE));
         gui.clearGui();
         gui.modifyTestElement(config);
-        Assertions.assertNull(config.getPropertyOrNull(HTTPSamplerBase.USE_KEEPALIVE));
+        Assertions.assertNull(config.getPropertyOrNull(HTTPSamplerBase.CONNECTION_REUSE));
+    }
+
+    @Test
+    void keepAliveDefaultOverridesSamplerSavedValue() {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setUseKeepAlive(true);
+        ConfigTestElement config = new ConfigTestElement();
+        config.setProperty(HTTPSamplerBase.CONNECTION_REUSE, false);
+        sampler.addTestElement(config);
+        Assertions.assertFalse(sampler.getUseKeepAlive());
     }
 
     private JTextField textField(String name) throws Exception {

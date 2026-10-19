@@ -725,13 +725,16 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         if (owner == null) {
             return HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
         }
-        owner.registerThreadCleanup(HTTPHC5Impl.class, () -> {
-            Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_USER.remove(owner);
-            if (clients != null) {
-                closeConnections(clients);
-            }
+        return HTTPCLIENTS_CACHE_PER_USER.computeIfAbsent(owner, ignored -> {
+            // Like the HTTP/2 and HTTP/3 pools, end with the user identity, not the thread.
+            owner.registerUserCleanup(HTTPHC5Impl.class, () -> {
+                Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_USER.remove(owner);
+                if (clients != null) {
+                    closeConnections(clients);
+                }
+            });
+            return new HashMap<>(5);
         });
-        return HTTPCLIENTS_CACHE_PER_USER.computeIfAbsent(owner, ignored -> new HashMap<>(5));
     }
 
     /** Transfers this flow's HTTP/1.1 pool to its SSE reader, without transferring ownership. */
@@ -749,6 +752,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         private final PoolingHttpClientConnectionManager connectionManager;
         private final HttpHost proxyHost;
         private AuthExchange proxyAuthExchange;
+        private int maxPerRoute;
 
         private HttpClientState(CloseableHttpClient client, PoolingHttpClientConnectionManager connectionManager,
                 HttpHost proxyHost, AsyncClientIdentity clientIdentity, Map<HttpClientKey, HttpClientState> ownerClients) {
@@ -1541,6 +1545,9 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (log.isDebugEnabled()) {
                 log.debug("Created new HttpClient: @{} {}", System.identityHashCode(httpClient), key);
             }
+            // Embedded resources may borrow this pool across origins. Limit each route,
+            // not the combined connections to independent hosts.
+            pHCCM.setMaxTotal(Integer.MAX_VALUE);
             clientState = new HttpClientState(httpClient, pHCCM, proxy, key.clientIdentity, mapHttpClientPerHttpClientKey);
             mapHttpClientPerHttpClientKey.put(key, clientState); // save the agent for next time round
         } else {
@@ -1550,11 +1557,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         }
         int configuredMaxConnections = testElement.getMaxConnectionsPerHost();
         int maxConnections = configuredMaxConnections > 0 ? configuredMaxConnections : 6;
-        if (maxConnections > 0) {
-            // Embedded resources may borrow this pool across origins. Limit each route,
-            // not the combined connections to independent hosts.
+        // Cached clients follow later samplers' settings without taking the pool lock per sample.
+        if (clientState.maxPerRoute != maxConnections) {
             clientState.getConnectionManager().setDefaultMaxPerRoute(maxConnections);
-            clientState.getConnectionManager().setMaxTotal(Integer.MAX_VALUE);
+            clientState.maxPerRoute = maxConnections;
         }
         setupProxyAuthState(clientState, clientContext);
 

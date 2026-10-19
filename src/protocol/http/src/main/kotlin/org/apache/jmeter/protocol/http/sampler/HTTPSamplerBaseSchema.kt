@@ -104,7 +104,8 @@ public abstract class HTTPSamplerBaseSchema : TestElementSchema() {
     public val http3Upgrade: BooleanPropertyDescriptor<HTTPSamplerBaseSchema>
         by boolean(HTTPSamplerBase.HTTP3_UPGRADE)
 
-    // Absent properties retain the client's legacy pool and lease-timeout defaults.
+    // Absent: six connections per route (parallel downloads do not raise it) and the
+    // client's default lease timeout.
     public val maxConnectionsPerHost: IntegerPropertyDescriptor<HTTPSamplerBaseSchema>
         by int("HTTPSampler.max_connections_per_host")
 

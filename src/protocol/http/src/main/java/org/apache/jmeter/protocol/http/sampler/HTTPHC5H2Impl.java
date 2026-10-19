@@ -591,10 +591,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             DnsResolver resolver,
             HttpClientKey key)
             throws GeneralSecurityException {
+        // Resolve a rotating global alias once per client, never per sample.
+        AsyncClientIdentity identity = key.clientIdentity != null ? key.clientIdentity
+                : ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity();
         PoolingAsyncClientConnectionManager poolingConnectionManager =
                 JMeterPoolingAsyncClientConnectionManagerBuilder.newBuilder()
                         .setDnsResolver(resolver)
-                        .setTlsStrategy(createTlsStrategy(key.clientIdentity))
+                        .setTlsStrategy(createTlsStrategy(identity))
                         .setDefaultConnectionConfig(ConnectionConfig.custom()
                                 .setTimeToLive(TimeValue.ofMilliseconds(TIME_TO_LIVE))
                                 .build())
@@ -606,7 +609,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         H2RouteReuseConnectionManager manager = new H2RouteReuseConnectionManager(poolingConnectionManager, key.toString());
         if (key.coalescing && !key.hasProxy) {
             Map<HttpClientKey, HttpClientState> clients = getThreadLocalClients();
-            manager.coalescing = new H2ConnectionCoalescing(key.clientIdentity, resolver, () -> {
+            manager.coalescing = new H2ConnectionCoalescing(identity, resolver, () -> {
                 synchronized (clients) {
                     return clients.values().stream().map(value -> value.connectionManager.coalescing)
                             .filter(Objects::nonNull).toList();
@@ -1415,15 +1418,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private TlsStrategy createTlsStrategy(AsyncClientIdentity identity) throws GeneralSecurityException {
-        AsyncClientIdentity resolved = identity == null
-                ? ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity() : identity;
         // Client construction holds the owner client map's lock, including parallel workers.
         Map<AsyncClientIdentity, SSLContext> contexts = TLS_CONTEXTS_PER_OWNER.computeIfAbsent(
                 jMeterThreadCacheKey, ignored -> new HashMap<>(3));
-        SSLContext sslContext = contexts.get(resolved);
+        SSLContext sslContext = contexts.get(identity);
         if (sslContext == null) {
-            sslContext = resolved.createContext();
-            contexts.put(resolved, sslContext);
+            sslContext = identity.createContext();
+            contexts.put(identity, sslContext);
         }
         ClientTlsStrategyBuilder builder = ClientTlsStrategyBuilder.create()
                 .setSslContext(sslContext)
@@ -1516,12 +1517,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         if (authorization != null && StringUtilities.isNotEmpty(authorization.getDomain())) {
             coalescing = false;
         }
-        AsyncClientIdentity identity = clientCertificateIdentity(url);
-        if (coalescing && identity == null) {
-            identity = ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity();
-        }
         return new HttpClientKey(url, proxy.enabled(), proxy.scheme(), proxy.host(), proxy.port(),
-                proxy.username(), proxy.password(), versionPolicy, identity, coalescing);
+                proxy.username(), proxy.password(), versionPolicy, clientCertificateIdentity(url), coalescing);
     }
 
     private HttpUriRequestBase createHttpRequest(URI uri, String method, boolean areFollowingRedirect) {

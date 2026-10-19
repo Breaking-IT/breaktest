@@ -21,7 +21,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.URI;
@@ -171,8 +170,8 @@ public class TestHTTPJavaHttp3Impl {
         assertEquals(HTTPHC5H2Impl.class,
                 HTTPSamplerFactory.getImplementation("", sampler, true, true).getClass());
         sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_3);
-        assertThrows(IllegalArgumentException.class,
-                () -> HTTPSamplerFactory.getImplementation("", sampler, false, true));
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation("", sampler, false, true).getClass());
     }
 
     @Test
