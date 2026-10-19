@@ -42,6 +42,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.readiness.AcceptedException;
 import org.apache.jmeter.readiness.CheckId;
 import org.apache.jmeter.readiness.ElementRef;
+import org.apache.jmeter.readiness.PlanFingerprint;
 import org.apache.jmeter.readiness.ReadinessExceptions;
 import org.apache.jmeter.readiness.check.HardcodedValues;
 import org.apache.jmeter.readiness.check.OfflineExtractorTimer;
@@ -79,7 +80,7 @@ final class GuiReadinessController implements ReadinessController {
     private ReadinessReport latest;
     private PlanModel lastModel;
     private Map<String, List<Long>> offlineTimings = Map.of();
-    private HardcodedValues.Scan hardcoded;
+    private HardcodedValues.Snapshot hardcoded;
     private RunSegment running;
     private Timer timeout;
     private SwingWorker<?, ?> worker;
@@ -317,6 +318,7 @@ final class GuiReadinessController implements ReadinessController {
                 && ReadinessAnalyzer.staleReason(session, build.model(), build.scope(),
                         ValidationCheckpoints.generation()) == null;
         boolean scanHardcoded = lastRequest.checks().contains(CheckId.HARDCODED_VALUES);
+        String scanFingerprint = PlanFingerprint.compute(build.model().tree(), null, build.scope());
         List<TestElement> groups = new ArrayList<>(List.of(resolveGroups(lastRequest.groupIds())));
         int runs = lastRequest.options().offlineReruns();
         listener.progress((timing ? "Measuring extractors offline (" + runs + " runs per response)… " : "")
@@ -350,7 +352,7 @@ final class GuiReadinessController implements ReadinessController {
                     listener.progress("Part of the analysis failed: " + e.getCause().getMessage());
                 }
                 offlineTimings = timings;
-                hardcoded = scan;
+                hardcoded = scan == null ? null : new HardcodedValues.Snapshot(scan, scanFingerprint);
                 try {
                     latest = report(build);
                     busy = false;
@@ -432,7 +434,8 @@ final class GuiReadinessController implements ReadinessController {
     private ReadinessReport report(PlanBuild build) {
         return ReadinessAnalyzer.analyze(new ReadinessAnalyzer.Input(build.model(), build.scope(), build.names(),
                 lastRequest.checks(), ReadinessEvidenceStore.latest(), ValidationCheckpoints.generation(),
-                lastRequest.options(), offlineTimings, hardcoded, build.pacing()));
+                lastRequest.options(), offlineTimings,
+                hardcoded == null ? null : hardcoded.forPlan(build.model().tree(), build.scope()), build.pacing()));
     }
 
     private static void index(JMeterTreeNode node, IdentityHashMap<TestElement, JMeterTreeNode> nodes) {

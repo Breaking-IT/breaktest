@@ -60,6 +60,7 @@ import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.testelement.TestStateListener;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.ValidationCheckpoints;
@@ -556,6 +557,7 @@ public class Start extends AbstractAction {
         }
         ValidationSettings settings = readiness != null ? readiness.settings() : ValidationSettings.defaults();
         String fingerprint = readiness == null ? null
+                : readiness.kind() == RunKind.RESUME ? resumeReadinessFingerprint(gui.getTreeModel(), settings)
                 : PlanFingerprint.compute(treeToUse, settings, readinessScope(threadGroupsToRun));
         treeToUse.add(treeToUse.getArray()[0], gui.getMainFrame());
         if (log.isDebugEnabled()) {
@@ -612,6 +614,16 @@ public class Start extends AbstractAction {
                         ((TestPlan) treeToUse.getArray()[0]).isRunningVersion());
             }
         }
+    }
+
+    /** Fingerprint the original readiness scope, even when only a subset is being resumed. */
+    static String resumeReadinessFingerprint(JMeterTreeModel model, ValidationSettings settings) {
+        List<String> originalScope = ReadinessEvidenceStore.latest().main().scope();
+        AbstractThreadGroup[] groups = Arrays.stream(findAllValidationThreadGroups(model))
+                .filter(group -> originalScope.contains(ValidationCheckpoints.sourceIdOfSource(group)))
+                .toArray(AbstractThreadGroup[]::new);
+        HashTree tree = validationTree(model.getTestPlan(), groups);
+        return PlanFingerprint.compute(tree, settings, readinessScope(groups));
     }
 
     private static RunSegment beginReadinessSegment(StandardJMeterEngine startedEngine, ReadinessRun readiness,
@@ -725,11 +737,18 @@ public class Start extends AbstractAction {
                     // hack hack hack
                     // due to the bug of equals / hashcode on AbstractTestElement
                     // where 2 AbstractTestElement can be equals but have different hashcode
+                    JMeterProperty enabled = item.getPropertyOrNull(TestElement.ENABLED);
+                    enabled = enabled == null ? null : enabled.clone();
                     try {
                         item.setEnabled(false);
                         testTree.remove(item);
                     } finally {
-                        item.setEnabled(true);
+                        // Preserve absent defaults too: preparing a subset must not change the plan fingerprint.
+                        if (enabled == null) {
+                            item.removeProperty(TestElement.ENABLED);
+                        } else {
+                            item.setProperty(enabled);
+                        }
                     }
                 }
                 else {

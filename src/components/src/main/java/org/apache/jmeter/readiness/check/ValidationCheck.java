@@ -67,26 +67,31 @@ public final class ValidationCheck implements ReadinessCheck {
             findings.add(new Finding(id(), model.root().ref(), "run", Severity.INFO, "The validation run completed",
                     run, null));
         }
-        // A sampler that failed and later succeeded after Resume validation is fixed; the latest outcome counts
+        // Only a later segment can supersede an outcome. Repeated executions within one run all count.
         Set<String> reported = new HashSet<>();
-        List<SampleObservation> samples = new ArrayList<>(session.allSamples());
-        java.util.Collections.reverse(samples);
-        Set<String> latest = new HashSet<>();
+        List<RunSegment> segments = new ArrayList<>(session.segments());
+        java.util.Collections.reverse(segments);
+        Set<String> later = new HashSet<>();
         int failed = 0;
-        for (SampleObservation sample : samples) {
-            String key = sample.executionId() + "#" + sample.thread() + "#" + sample.iteration();
-            if (!latest.add(key) || sample.successful()) {
-                continue;
+        for (RunSegment segment : segments) {
+            Set<String> seen = new HashSet<>();
+            for (SampleObservation sample : segment.samples()) {
+                String key = sample.executionId() + "#" + sample.thread() + "#" + sample.iteration();
+                seen.add(key);
+                if (later.contains(key) || sample.successful()) {
+                    continue;
+                }
+                failed++;
+                List<PlanNode> nodes = model.nodesWithId(sample.samplerId());
+                if (nodes.isEmpty() || !reported.add(sample.samplerId())) {
+                    continue;
+                }
+                List<String> details = new ArrayList<>(sample.failures());
+                details.add("Thread: " + sample.thread() + ", iteration " + sample.iteration());
+                findings.add(CheckContext.finding(id(), nodes.get(0), "failed", Severity.BLOCKER,
+                        "'" + nodes.get(0).name() + "' failed during validation", details));
             }
-            failed++;
-            List<PlanNode> nodes = model.nodesWithId(sample.samplerId());
-            if (nodes.isEmpty() || !reported.add(sample.samplerId())) {
-                continue;
-            }
-            List<String> details = new ArrayList<>(sample.failures());
-            details.add("Thread: " + sample.thread() + ", iteration " + sample.iteration());
-            findings.add(CheckContext.finding(id(), nodes.get(0), "failed", Severity.BLOCKER,
-                    "'" + nodes.get(0).name() + "' failed during validation", details));
+            later.addAll(seen);
         }
         if (session.isTruncated()) {
             findings.add(new Finding(id(), model.root().ref(), "truncated", Severity.NOT_VERIFIED,

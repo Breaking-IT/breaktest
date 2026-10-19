@@ -27,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.jmeter.assertions.ResponseAssertion;
 import org.apache.jmeter.control.IfController;
@@ -115,6 +116,79 @@ class RuntimeChecksTest extends JMeterTestCase {
 
     private ReadinessReport analyze(Set<CheckId> checks, AbstractThreadGroup... groups) {
         return plan.analyze(checks, ReadinessOptions.defaults(), groups);
+    }
+
+    public static class FailOnceSampler extends TestPlanBuilder.EchoSampler {
+        private static final long serialVersionUID = 1L;
+        private static final AtomicInteger CALLS = new AtomicInteger();
+
+        @Override
+        public org.apache.jmeter.samplers.SampleResult sample(org.apache.jmeter.samplers.Entry entry) {
+            var result = super.sample(entry);
+            result.setSuccessful(CALLS.incrementAndGet() > 1);
+            return result;
+        }
+    }
+
+    @Test
+    void failureWithinLoopMustNotBeHiddenByLaterSuccess() throws Exception {
+        var loop = new org.apache.jmeter.control.LoopController();
+        loop.setLoops(2);
+        FailOnceSampler.CALLS.set(0);
+        var request = new FailOnceSampler();
+        request.setName("fails once");
+        flow.add(loop).add(request);
+        var run = plan.run(RunKind.MAIN, ONCE, group);
+        assertEquals(2, run.samples().size());
+        assertFalse(run.samples().get(0).successful());
+        assertTrue(run.samples().get(1).successful());
+        var validation = result(analyze(Set.of(CheckId.VALIDATION), group), CheckId.VALIDATION);
+        assertFalse(open(validation, Severity.BLOCKER).isEmpty(),
+                "Failed request was hidden: " + validation.state());
+        var resumed = plan.run(RunKind.RESUME, ONCE, group);
+        var resumedCheck = result(analyze(Set.of(CheckId.VALIDATION), group), CheckId.VALIDATION);
+        assertEquals(CheckState.PASSED, resumedCheck.state(),
+                () -> resumedCheck.findings() + " main=" + run.samples() + " resumed=" + resumed.samples());
+    }
+
+    public static class ChildResultSampler extends TestPlanBuilder.EchoSampler {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public org.apache.jmeter.samplers.SampleResult sample(org.apache.jmeter.samplers.Entry entry) {
+            var result = super.sample(entry);
+            var child = new org.apache.jmeter.samplers.SampleResult();
+            child.setResponseData("ok", "UTF-8");
+            child.setSuccessful(true);
+            result.addSubResult(child);
+            return result;
+        }
+    }
+
+    @Test
+    void childOnlyAssertionCountsWhenItEvaluatesAChild() throws Exception {
+        var request = new ChildResultSampler();
+        request.setName("request with child");
+        var check = assertion();
+        check.setScopeChildren();
+        flow.add(request).add(check);
+        plan.run(RunKind.MAIN, ONCE, group);
+        assertEquals(CheckState.PASSED, result(analyze(Set.of(CheckId.VERIFICATION_COVERAGE), group),
+                CheckId.VERIFICATION_COVERAGE).state());
+    }
+
+    @Test
+    void childOnlyAssertionMustNotCountAsExercisedWithoutChildren() throws Exception {
+        var request = sampler("request", "/request");
+        request.setProperty("response", "wrong response");
+        var check = assertion();
+        check.setScopeChildren();
+        flow.add(request).add(check);
+        plan.run(RunKind.MAIN, ONCE, group);
+        CheckResult coverage = result(analyze(Set.of(CheckId.VERIFICATION_COVERAGE), group),
+                CheckId.VERIFICATION_COVERAGE);
+        assertFalse(open(coverage, Severity.NOT_VERIFIED).isEmpty(),
+                "A child-only assertion evaluated zero results, but coverage was " + coverage.state());
     }
 
     @Test

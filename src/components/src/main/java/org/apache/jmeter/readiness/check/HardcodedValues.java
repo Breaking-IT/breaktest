@@ -21,7 +21,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.ServiceLoader;
 
+import org.apache.jmeter.readiness.PlanFingerprint;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jorphan.collections.HashTree;
 
 /**
  * Looks for recorded dynamic values sent literally (hardcoded) by requests in scope, through the existing HAR
@@ -54,6 +56,19 @@ public final class HardcodedValues {
 
         public static Scan unavailable(String note) {
             return new Scan(List.of(), false, note);
+        }
+    }
+
+    /** A scan bound to the plan content that was inspected. */
+    public record Snapshot(Scan scan, String fingerprint) {
+        /**
+         * @param tree current in-scope plan
+         * @param scope current thread group ids
+         * @return the scan, or an explicit unverified result when the plan changed
+         */
+        public Scan forPlan(HashTree tree, List<String> scope) {
+            return fingerprint.equals(PlanFingerprint.compute(tree, null, scope)) ? scan
+                    : Scan.unavailable("the plan changed after the recorded-value scan; run the check again");
         }
     }
 

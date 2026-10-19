@@ -1500,7 +1500,7 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                     threadContext.setPreviousResult(result);
                     runPostProcessors(pack.getPostProcessors(), threadContext);
-                    JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
+                    var evaluatedAssertions = JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
                     if (isCurrentSampleCancelledWithoutResult()) {
                         packageDone = true;
                         doneLocked(pack, recoverControllers);
@@ -1512,7 +1512,7 @@ public class JMeterThread implements Runnable, Interruptible {
                         if (JMeterContextService.isValidationRun()) {
                             ValidationCheckpoints.afterSampler(current, threadContext.getThreadGroup(), result);
                             if (ReadinessRecorder.isActive()) {
-                                ReadinessRecorder.sampleCompleted(current, pack.getAssertions(),
+                                ReadinessRecorder.sampleCompleted(current, evaluatedAssertions,
                                         pack.getPostProcessors(), result, threadContext);
                             }
                         }

@@ -20,6 +20,7 @@ package org.apache.jmeter.readiness.evidence;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -179,7 +180,7 @@ public final class ReadinessRecorder {
      * @param result its result
      * @param context context of the current thread
      */
-    public static void sampleCompleted(Sampler sampler, List<?> assertions, List<?> postProcessors,
+    public static void sampleCompleted(Sampler sampler, Collection<?> assertions, List<?> postProcessors,
             SampleResult result, JMeterContext context) {
         RunSegment segment = active;
         if (segment == null || sampler == null) {
@@ -278,7 +279,7 @@ public final class ReadinessRecorder {
         }
     }
 
-    private static void addIds(Set<String> ids, List<?> elements) {
+    private static void addIds(Set<String> ids, Collection<?> elements) {
         if (elements == null) {
             return;
         }

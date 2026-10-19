@@ -20,13 +20,18 @@ package org.apache.jmeter.readiness.check;
 import static org.apache.jmeter.readiness.check.TestPlanBuilder.group;
 import static org.apache.jmeter.readiness.check.TestPlanBuilder.sampler;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
 
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.readiness.AcceptedException;
+import org.apache.jmeter.readiness.CheckId;
 import org.apache.jmeter.readiness.Finding;
+import org.apache.jmeter.readiness.PlanFingerprint;
+import org.apache.jmeter.readiness.ReadinessExceptions;
 import org.apache.jmeter.readiness.Severity;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.threads.ValidationCheckpoints;
@@ -45,6 +50,27 @@ class HardcodedValuesCheckTest extends JMeterTestCase {
     private CheckOutcome run(HardcodedValues.Scan scan) {
         return new HardcodedValuesCheck().run(new CheckContext(plan.model(group), null, ReadinessOptions.defaults(),
                 Map.of(), scan, Map.of()));
+    }
+
+    @Test
+    void cachedScanBecomesUnverifiedAfterRequestEditsButNotExceptionEdits() {
+        var order = sampler("order", "/order?csrf=recorded");
+        plan.root.add(group).add(order);
+        List<String> scope = List.of(group.getThreadGroupId());
+        var scan = new HardcodedValues.Scan(List.of(new HardcodedValues.Candidate(
+                ValidationCheckpoints.sourceIdOfSource(order), "reco…", "CSRF", "query", "home")), true, "");
+        var snapshot = new HardcodedValues.Snapshot(scan,
+                PlanFingerprint.compute(plan.model(group).tree(), null, scope));
+        ReadinessExceptions.put(order, new AcceptedException(CheckId.THINK_TIME, "*", "API", "", ""));
+        assertSame(scan, snapshot.forPlan(plan.model(group).tree(), scope));
+        order.setProperty("HTTPSampler.path", "/order?csrf=${csrf}");
+        CheckOutcome stale = run(snapshot.forPlan(plan.model(group).tree(), scope));
+        assertTrue(stale.notVerifiedReason().contains("plan changed"));
+        assertTrue(stale.findings().isEmpty());
+        var clean = new HardcodedValues.Snapshot(new HardcodedValues.Scan(List.of(), true, ""),
+                PlanFingerprint.compute(plan.model(group).tree(), null, scope));
+        order.setProperty("HTTPSampler.path", "/order?csrf=recorded");
+        assertTrue(run(clean.forPlan(plan.model(group).tree(), scope)).notVerifiedReason().contains("plan changed"));
     }
 
     @Test
