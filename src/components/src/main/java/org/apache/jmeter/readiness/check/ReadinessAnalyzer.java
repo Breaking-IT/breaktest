@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.ServiceLoader;
 import java.util.Set;
 
 import org.apache.jmeter.gui.action.validation.ValidationSettings;
@@ -54,6 +55,10 @@ public final class ReadinessAnalyzer {
                 new ThinkTimeCheck(), new UnresolvedVariablesCheck(), new FilesCheck(), new ExerciseCoverageCheck(),
                 new HardcodedValuesCheck(), new RepeatabilityCheck())) {
             CHECKS.put(check.id(), check);
+        }
+        // Checks about protocol-specific elements come from the modules that own those elements
+        for (ReadinessCheck check : ServiceLoader.load(ReadinessCheck.class, ReadinessAnalyzer.class.getClassLoader())) {
+            CHECKS.putIfAbsent(check.id(), check);
         }
     }
 
@@ -130,7 +135,12 @@ public final class ReadinessAnalyzer {
             }
             CheckContext context = new CheckContext(model, checkEvidence, input.options(), input.offlineTimings(),
                     input.hardcoded(), input.pacing());
-            CheckOutcome outcome = CHECKS.get(id).run(context);
+            ReadinessCheck check = CHECKS.get(id);
+            if (check == null) {
+                results.add(CheckResult.notVerified(id, "Not verified \u2014 not available without its module"));
+                continue;
+            }
+            CheckOutcome outcome = check.run(context);
             CheckResult result;
             if (outcome.notVerifiedReason() != null) {
                 result = CheckResult.notVerified(id, outcome.notVerifiedReason());

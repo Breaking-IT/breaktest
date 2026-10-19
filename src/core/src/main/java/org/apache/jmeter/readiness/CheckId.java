@@ -34,7 +34,8 @@ public enum CheckId {
     FILES("files", "Files and configuration present", true, Evidence.STATIC),
     EXERCISE_COVERAGE("exercise-coverage", "Validation exercise coverage", false, Evidence.RUNTIME),
     HARDCODED_VALUES("hardcoded-values", "Hardcoded recorded values", false, Evidence.STATIC),
-    REPEATABILITY("repeatability", "Repeatability", false, Evidence.RUNTIME);
+    REPEATABILITY("repeatability", "Repeatability", false, Evidence.RUNTIME),
+    RESPONSE_BODY_STORAGE("response-body-storage", "Response body storage", false, Evidence.STATIC);
 
     /** Where a check gets its evidence from. */
     public enum Evidence {

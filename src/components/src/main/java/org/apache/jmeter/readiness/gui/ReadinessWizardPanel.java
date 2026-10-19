@@ -773,6 +773,10 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
         tile(StatusIcon.Kind.WARNING, summary.warnings(), summary.warnings() == 1 ? "warning" : "warnings");
         tile(StatusIcon.Kind.REVIEW, summary.reviews(), "to review");
         tile(StatusIcon.Kind.NOT_VERIFIED, summary.notVerified(), "not verified");
+        if (summary.suggestions() > 0) {
+            tile(StatusIcon.Kind.SUGGESTION, summary.suggestions(),
+                    summary.suggestions() == 1 ? "suggestion" : "suggestions");
+        }
         tiles.revalidate();
         tiles.repaint();
         StringBuilder text = new StringBuilder();
@@ -877,6 +881,7 @@ public final class ReadinessWizardPanel extends JPanel implements ReadinessContr
             case WARNING -> "Warning";
             case REVIEW -> "Review required";
             case NOT_VERIFIED -> "Not verified";
+            case SUGGESTION -> "Suggestion";
             case INFO -> "Info";
         };
     }

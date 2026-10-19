@@ -37,7 +37,7 @@ class EvidenceSessionTest {
 
     private static void sample(RunSegment segment, String group) {
         segment.addSample(new SampleObservation("s", "/" + group + "/s", group, "t-1", 1, true, "200", List.of(),
-                Set.of(), false));
+                Set.of(), false, 0));
     }
 
     @Test
@@ -50,7 +50,7 @@ class EvidenceSessionTest {
         sample(run, "g");
         assertTrue(run.isTruncated());
         assertFalse(run.hasTruncatedFailures());
-        run.addSample(new SampleObservation("s", "/g/s", "g", "t-1", 2, false, "500", List.of(), Set.of(), false));
+        run.addSample(new SampleObservation("s", "/g/s", "g", "t-1", 2, false, "500", List.of(), Set.of(), false, 0));
         assertTrue(run.hasTruncatedFailures());
         assertEquals(RunSegment.MAX_SAMPLES, run.samples().size());
     }

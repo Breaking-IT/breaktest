@@ -25,12 +25,16 @@ import org.apache.jmeter.testelement.TestElement;
  * Test beans keep their configuration in properties and only copy it to their fields when prepared to run. The
  * checks read prepared copies, never preparing the edited element itself.
  */
-final class Beans {
+public final class Beans {
     private Beans() {
     }
 
+    /**
+     * @param element an element
+     * @return a prepared copy for a test bean, the element itself otherwise
+     */
     @SuppressWarnings("unchecked")
-    static <T extends TestElement> T prepared(T element) {
+    public static <T extends TestElement> T prepared(T element) {
         if (!(element instanceof TestBean)) {
             return element;
         }

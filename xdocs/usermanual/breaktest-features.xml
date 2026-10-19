@@ -966,6 +966,7 @@ validation</code>, never hidden.</p>
 <tr><td>Validation exercise coverage &#x23f1;</td><td>Warning</td><td>No</td></tr>
 <tr><td>Hardcoded recorded values</td><td>Review required</td><td>No</td></tr>
 <tr><td>Repeatability &#x23f1; (optional)</td><td>Blocker; Not verified when not configured</td><td>No</td></tr>
+<tr><td>Response body storage</td><td>Suggestion (never affects readiness)</td><td>No</td></tr>
 </table>
 <ul>
 <li><b>Successful validation</b>: the run must complete without request errors or assertion failures. A cancelled,
@@ -1021,6 +1022,22 @@ Random, Interleave, Once Only, ForEach) that never executed, for example <i>12 o
 <li><b>Hardcoded recorded values</b>: values a recorded response returned that later requests still send literally,
 found with the rules and recorded exchanges of <code>Tools &gt; Correlation Rules</code>. Candidates are for review
 only; the plan is not changed. Without linked recorded responses, the check is Not verified.</li>
+<li><b>Response body storage</b>: suggests <code>Store on error only</code> as HTTP <code>Processing mode</code> to
+save memory under load, when successful response bodies are not needed. Each HTTP request's mode is resolved from
+its own setting, else the nearest HTTP Request Defaults that sets one, else <code>Store response</code>. Assertions
+and post-processors applying to a request are no reason to keep <code>Store response</code>: the request keeps its
+bodies automatically while they apply, and validation always keeps them. Bodies must stay stored when embedded
+resources are retrieved from them; when something outside the request reads them through <code>prev</code> or the
+previous result (the next sampler's pre-processors and timers, a following JSR223 or BeanShell sampler, controller
+conditions); or when a Save Responses to a file listener saves successful responses, or a results file saves
+response data. Scripts that use the previous result without clearly reading its body, script files, and custom or
+backend listeners are listed for review. When most requests inherit <code>Store response</code>, one suggestion on the
+HTTP Request Defaults (or the thread group) says how many requests would discard successful bodies and lists those to
+set explicitly to <code>Store response</code> and those to review; requests explicitly set to <code>Store response</code>
+whose bodies nothing reads get a suggestion each, and requests set to discard bodies that are read are flagged too.
+<code>Fetch and discard</code> saves the same in steady state but also drops error bodies. With a current readiness
+validation, the suggestion estimates the successful body bytes per iteration that would no longer be kept. The plan
+is never changed.</li>
 <li><b>Repeatability</b>: when enabled in the first step, a second validation run in a fresh session (a new thread,
 so fresh cookies and variables) repeats the scope for the chosen number of iterations (at least two), within its own
 time limit. Any failure, unmatched extraction or unresolved variable in it is a Blocker.</li>
@@ -1028,7 +1045,9 @@ time limit. Any failure, unmatched extraction or unresolved variable in it is a 
 
 <h2>Readiness</h2>
 <p>Each check is <code>Passed</code>, <code>Blocker</code>, <code>Warning</code>, <code>Review required</code>,
-<code>Not verified</code>, <code>Not applicable</code> or <code>Accepted</code>, after its worst open finding.
+<code>Not verified</code>, <code>Not applicable</code>, <code>Accepted</code> or <code>Suggestion</code>, after its worst
+open finding. Suggestions are optional improvements: a check with only suggestions counts as passed, and they never
+change the verdict.
 The summary never gives a score; it shows counts such as <i>6 of 8 checks passed &#xb7; 1 blocker &#xb7;
 1 review pending</i>.</p>
 <ul>

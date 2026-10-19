@@ -21,6 +21,7 @@ import org.apache.jmeter.readiness.CheckId;
 
 /**
  * A readiness check. Implementations are pure: they read the plan model and evidence and never change the plan.
+ * Modules can provide checks for their own elements as {@link java.util.ServiceLoader} services.
  */
 public interface ReadinessCheck {
     CheckId id();

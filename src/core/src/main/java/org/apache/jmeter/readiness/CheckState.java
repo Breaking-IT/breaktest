@@ -29,6 +29,8 @@ public enum CheckState {
     WARNING("Warning"),
     REVIEW("Review required"),
     NOT_VERIFIED("Not verified"),
+    /** Only optional improvements were found; counts as passed */
+    SUGGESTION("Suggestion"),
     /** The check was not selected for this run */
     NOT_RUN("Not run");
 

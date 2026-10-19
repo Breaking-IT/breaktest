@@ -123,7 +123,7 @@ class ReadinessAnalyzerTest extends JMeterTestCase {
         assertEquals(ReadinessVerdict.READY, report.summary().verdict(), report.summary().reasons() + " "
                 + report.results());
         assertEquals(CheckState.NOT_VERIFIED, report.result(CheckId.REPEATABILITY).orElseThrow().state());
-        assertTrue(report.summary().countsText().contains("of 11 checks passed"), report.summary().countsText());
+        assertTrue(report.summary().countsText().contains("of 12 checks passed"), report.summary().countsText());
         assertEquals("2 of 2 transactions exercised · 0 of 0 branches exercised",
                 report.result(CheckId.EXERCISE_COVERAGE).orElseThrow().summary());
     }

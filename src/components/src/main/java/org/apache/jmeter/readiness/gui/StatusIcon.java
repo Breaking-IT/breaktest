@@ -53,6 +53,7 @@ final class StatusIcon implements Icon {
         NOT_VERIFIED("Not verified"),
         NOT_APPLICABLE("Not applicable"),
         NOT_RUN("Not run"),
+        SUGGESTION("Suggestion"),
         INFO("Info");
 
         private final String description;
@@ -95,6 +96,7 @@ final class StatusIcon implements Icon {
             case NOT_VERIFIED -> Kind.NOT_VERIFIED;
             case NOT_APPLICABLE -> Kind.NOT_APPLICABLE;
             case NOT_RUN -> Kind.NOT_RUN;
+            case SUGGESTION -> Kind.SUGGESTION;
         };
     }
 
@@ -111,6 +113,7 @@ final class StatusIcon implements Icon {
             case WARNING -> Kind.WARNING;
             case REVIEW -> Kind.REVIEW;
             case NOT_VERIFIED -> Kind.NOT_VERIFIED;
+            case SUGGESTION -> Kind.SUGGESTION;
             case INFO -> Kind.INFO;
         };
     }
@@ -144,10 +147,11 @@ final class StatusIcon implements Icon {
             case REVIEW -> 2;
             case NOT_VERIFIED -> 3;
             case ACCEPTED -> 4;
-            case PASSED -> 5;
-            case INFO -> 6;
-            case NOT_APPLICABLE -> 7;
-            case NOT_RUN -> 8;
+            case SUGGESTION -> 5;
+            case PASSED -> 6;
+            case INFO -> 7;
+            case NOT_APPLICABLE -> 8;
+            case NOT_RUN -> 9;
         };
     }
 
@@ -156,7 +160,7 @@ final class StatusIcon implements Icon {
             case PASSED, ACCEPTED -> color("Actions.Green", new Color(0x2E7D32));
             case FAILED -> color("Actions.Red", new Color(0xD32F2F));
             case WARNING -> color("Actions.Yellow", new Color(0xD97706));
-            case REVIEW, INFO -> color("Actions.Blue", new Color(0x1E6FD9));
+            case REVIEW, INFO, SUGGESTION -> color("Actions.Blue", new Color(0x1E6FD9));
             case NOT_VERIFIED, NOT_APPLICABLE, NOT_RUN -> color("Actions.Grey", new Color(0x8A8A8A));
         };
     }
@@ -226,6 +230,21 @@ final class StatusIcon implements Icon {
                     outline(g2, circle, color);
                     g2.setStroke(new BasicStroke(1.8f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                     g2.drawLine(5, 8, 11, 8);
+                }
+                case SUGGESTION -> {
+                    // A light bulb: an optional improvement
+                    g2.setColor(color);
+                    g2.setStroke(new BasicStroke(1.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
+                    Path2D bulb = new Path2D.Float();
+                    bulb.moveTo(6, 11);
+                    bulb.curveTo(6, 9.6, 3.2, 8.6, 3.2, 6);
+                    bulb.curveTo(3.2, 3.4, 5.4, 1.4, 8, 1.4);
+                    bulb.curveTo(10.6, 1.4, 12.8, 3.4, 12.8, 6);
+                    bulb.curveTo(12.8, 8.6, 10, 9.6, 10, 11);
+                    bulb.closePath();
+                    g2.draw(bulb);
+                    g2.drawLine(6, 13, 10, 13);
+                    g2.drawLine(7, 15, 9, 15);
                 }
                 case NOT_RUN -> {
                     g2.setColor(color);

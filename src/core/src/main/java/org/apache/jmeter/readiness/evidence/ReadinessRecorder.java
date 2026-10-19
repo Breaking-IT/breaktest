@@ -210,7 +210,7 @@ public final class ReadinessRecorder {
         String code = String.valueOf(result.getResponseCode());
         segment.addSample(new SampleObservation(samplerId, ValidationCheckpoints.executionIdOf(sampler),
                 group == null ? "" : ValidationCheckpoints.sourceIdOfClone(group), thread, iteration,
-                result.isSuccessful(), code, failures, verifiers, code.startsWith("3")));
+                result.isSuccessful(), code, failures, verifiers, code.startsWith("3"), result.getBodySizeAsLong()));
         scanUnresolved(segment, samplerId, result, thread, iteration, new LinkedHashSet<>(), 0);
     }
 

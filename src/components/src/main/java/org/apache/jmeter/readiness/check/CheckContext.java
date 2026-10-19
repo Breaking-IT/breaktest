@@ -57,7 +57,16 @@ public record CheckContext(PlanModel model, RuntimeEvidence evidence, ReadinessO
         return evidence != null;
     }
 
-    static Finding finding(CheckId id, PlanNode node, String key, Severity severity, String message,
+    /**
+     * @param id check
+     * @param node element the finding is about
+     * @param key finding key
+     * @param severity severity
+     * @param message message
+     * @param evidence evidence lines
+     * @return a finding grouped under the element's transaction
+     */
+    public static Finding finding(CheckId id, PlanNode node, String key, Severity severity, String message,
             List<String> evidence) {
         return new Finding(id, node.ref(), key, severity, message, evidence, unitOf(node));
     }

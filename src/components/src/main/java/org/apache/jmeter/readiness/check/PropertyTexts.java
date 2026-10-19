@@ -31,14 +31,18 @@ import org.apache.jmeter.testelement.property.TestElementProperty;
 /**
  * The string values of an element's properties, nested ones included, keyed by a readable property path.
  */
-final class PropertyTexts {
+public final class PropertyTexts {
     private static final Set<String> SKIPPED = Set.of(TestElement.NAME, TestElement.TEST_CLASS,
             TestElement.ENABLED);
 
     private PropertyTexts() {
     }
 
-    static Map<String, String> of(TestElement element) {
+    /**
+     * @param element an element
+     * @return its string property values by property path
+     */
+    public static Map<String, String> of(TestElement element) {
         Map<String, String> texts = new LinkedHashMap<>();
         collect(element, "", texts, 0);
         return texts;

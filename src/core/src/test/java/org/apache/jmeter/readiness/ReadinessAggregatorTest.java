@@ -147,6 +147,25 @@ class ReadinessAggregatorTest {
     }
 
     @Test
+    void suggestionsNeverChangeTheVerdictOrCountAsPendingReviews() {
+        CheckResult suggestion = CheckResult.of(CheckId.RESPONSE_BODY_STORAGE,
+                List.of(finding(CheckId.RESPONSE_BODY_STORAGE, Severity.SUGGESTION)), true, "");
+        assertEquals(CheckState.SUGGESTION, suggestion.state());
+        assertTrue(suggestion.isVerified());
+        ReadinessAggregator.Summary summary = ReadinessAggregator.aggregate(replace(allPassed(), suggestion));
+        assertEquals(ReadinessVerdict.READY, summary.verdict());
+        assertEquals(0, summary.reviews());
+        assertEquals(1, summary.suggestions());
+        assertEquals(CheckId.values().length, summary.passed());
+        assertTrue(summary.countsText().endsWith("1 suggestion"), summary.countsText());
+        // A suggestion never hides a real problem of the same check
+        CheckResult mixed = CheckResult.of(CheckId.RESPONSE_BODY_STORAGE, List.of(
+                finding(CheckId.RESPONSE_BODY_STORAGE, Severity.SUGGESTION),
+                finding(CheckId.RESPONSE_BODY_STORAGE, Severity.REVIEW)), true, "");
+        assertEquals(CheckState.REVIEW, mixed.state());
+    }
+
+    @Test
     void stateIsWorstOpenFindingAndInfoIsIgnored() {
         CheckResult result = CheckResult.of(CheckId.VERIFICATION_COVERAGE, List.of(
                 finding(CheckId.VERIFICATION_COVERAGE, Severity.INFO),

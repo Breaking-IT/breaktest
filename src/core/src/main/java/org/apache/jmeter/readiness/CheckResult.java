@@ -39,8 +39,8 @@ public record CheckResult(CheckId checkId, CheckState state, List<Finding> findi
     }
 
     /**
-     * Derives the state from the findings: the worst open finding, else Accepted when a finding was accepted,
-     * else Passed or Not applicable.
+     * Derives the state from the findings: the worst open finding (Suggestion only when nothing else is open), else
+     * Accepted when a finding was accepted, else Passed or Not applicable.
      *
      * @param checkId check
      * @param findings findings, with exceptions already applied
@@ -102,6 +102,7 @@ public record CheckResult(CheckId checkId, CheckState state, List<Finding> findi
                 case BLOCKER -> CheckState.BLOCKER;
                 case WARNING -> CheckState.WARNING;
                 case REVIEW -> CheckState.REVIEW;
+                case SUGGESTION -> CheckState.SUGGESTION;
                 default -> CheckState.NOT_VERIFIED;
             };
             if (worst == null || rank(state) < rank(worst)) {
@@ -122,6 +123,7 @@ public record CheckResult(CheckId checkId, CheckState state, List<Finding> findi
             case BLOCKER -> 0;
             case WARNING -> 1;
             case REVIEW -> 2;
+            case SUGGESTION -> 4;
             default -> 3;
         };
     }

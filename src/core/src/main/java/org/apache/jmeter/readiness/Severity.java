@@ -29,6 +29,8 @@ public enum Severity {
     REVIEW,
     /** The check could not establish this item */
     NOT_VERIFIED,
+    /** An optional improvement; never affects readiness and is not a pending review */
+    SUGGESTION,
     /** Context only; never changes a check's state */
     INFO
 }

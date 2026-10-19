@@ -31,6 +31,8 @@ import java.util.Map;
  *     <li><b>Not verified</b>: otherwise, for instance a mandatory check that was not run, is stale or Not verified, or
  *     a run of only some of the checks</li>
  * </ul>
+ * Suggestions are optional improvements: a check with only suggestions counts as passed and they never change the
+ * verdict.
  * Stale results are never counted as findings, only as not verified.
  */
 public final class ReadinessAggregator {
@@ -49,11 +51,13 @@ public final class ReadinessAggregator {
      * @param blockers open blocker findings
      * @param warnings open warning findings
      * @param reviews open review findings
+     * @param suggestions open suggestions, which never affect the verdict
      * @param notVerified checks that ran but are not verified (including stale ones)
      * @param reasons why the verdict is not Ready
      */
     public record Summary(ReadinessVerdict verdict, List<CheckResult> results, int selected, int passed,
-            int accepted, long blockers, long warnings, long reviews, int notVerified, List<String> reasons) {
+            int accepted, long blockers, long warnings, long reviews, long suggestions, int notVerified,
+            List<String> reasons) {
 
         public Summary {
             results = List.copyOf(results);
@@ -72,6 +76,7 @@ public final class ReadinessAggregator {
             appendCount(sb, warnings, "warning", "warnings");
             appendCount(sb, reviews, "review pending", "reviews pending");
             appendCount(sb, notVerified, "not verified", "not verified");
+            appendCount(sb, suggestions, "suggestion", "suggestions");
             return sb.toString();
         }
 
@@ -100,6 +105,7 @@ public final class ReadinessAggregator {
         long blockers = 0;
         long warnings = 0;
         long reviews = 0;
+        long suggestions = 0;
         boolean mandatoryUnverified = false;
         boolean subset = false;
         for (CheckId id : CheckId.values()) {
@@ -115,7 +121,7 @@ public final class ReadinessAggregator {
             }
             selected++;
             switch (result.state()) {
-                case PASSED, NOT_APPLICABLE -> passed++;
+                case PASSED, NOT_APPLICABLE, SUGGESTION -> passed++;
                 case ACCEPTED -> accepted++;
                 default -> {
                 }
@@ -130,6 +136,7 @@ public final class ReadinessAggregator {
             blockers += result.openCount(Severity.BLOCKER);
             warnings += result.openCount(Severity.WARNING);
             reviews += result.openCount(Severity.REVIEW);
+            suggestions += result.openCount(Severity.SUGGESTION);
         }
         ReadinessVerdict verdict;
         if (blockers > 0 || warnings > 0 || reviews > 0) {
@@ -148,7 +155,7 @@ public final class ReadinessAggregator {
         } else {
             verdict = ReadinessVerdict.READY;
         }
-        return new Summary(verdict, results, selected, passed, accepted, blockers, warnings, reviews, notVerified,
-                reasons);
+        return new Summary(verdict, results, selected, passed, accepted, blockers, warnings, reviews, suggestions,
+                notVerified, reasons);
     }
 }

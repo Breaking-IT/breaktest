@@ -33,10 +33,11 @@ import java.util.Set;
  * @param failures bounded, redacted failure messages (request error, failed assertions)
  * @param verifierIds source ids of the assertions and post-processors that ran on the sample
  * @param redirect whether the response was a redirect (3xx)
+ * @param bodyBytes size of the response body as received; validation keeps every body
  */
 public record SampleObservation(String samplerId, String executionId, String groupId, String thread, int iteration,
         boolean successful, String responseCode, List<String> failures, Set<String> verifierIds,
-        boolean redirect) {
+        boolean redirect, long bodyBytes) {
     public SampleObservation {
         failures = List.copyOf(failures);
         verifierIds = Set.copyOf(verifierIds);
