@@ -37,6 +37,7 @@ import java.util.stream.Collectors;
 import java.util.zip.GZIPOutputStream;
 
 import org.apache.jmeter.junit.JMeterTestCase;
+import org.apache.jmeter.protocol.http.parser.LagartoBasedHtmlParser;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.threads.JMeterContextService;
@@ -66,6 +67,9 @@ class HTTPSamplerEmbeddedResourcesProcessingModeTest extends JMeterTestCase {
     void startServer() throws IOException {
         JMeterContextService.setValidationRun(false);
         JMeterContextService.getContext().setVariables(new JMeterVariables());
+        // Forked test JVMs may initialize HTTPSamplerBase before jmeter.properties is loaded.
+        // Register the parser this test needs instead of relying on another test's setup.
+        HTTPSamplerBase.registerParser("text/html", LagartoBasedHtmlParser.class.getName());
         server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         server.stubFor(get(urlPathEqualTo("/page.html")).willReturn(aResponse()
