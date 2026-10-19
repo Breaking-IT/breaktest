@@ -2555,7 +2555,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         }
 
         HTTPSampleResult page = res;
-        byte[] pageBody = page.getResponseData();
+        boolean createdResourceContainer = false;
         if (res.isSuccessful() && SampleResult.TEXT.equals(res.getDataType()) && isImageParser() ) {
             if (frameDepth > MAX_FRAME_DEPTH) {
                 HTTPSampleResult errSubResult = new HTTPSampleResult(res);
@@ -2572,12 +2572,13 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                     HTTPSampleResult container = (HTTPSampleResult) (
                             areFollowingRedirect ? res.getParent() : SEPARATE_CONTAINER ? null : res);
                     res = downloadPageResources(res, container, frameDepth);
+                    createdResourceContainer = container == null && res != page;
                 }
             }
         }
         if (discardBodyKeptForEmbeddedResources(page)) {
             // A new container shares the page body; release that reference too
-            if (res != page && res.getResponseData() == pageBody) {
+            if (createdResourceContainer) {
                 res.setResponseData(new byte[0]);
             }
         }

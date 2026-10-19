@@ -25,11 +25,16 @@ import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.net.MalformedURLException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPOutputStream;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase.ResponseProcessingMode;
@@ -39,6 +44,7 @@ import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.wiremock.WireMockExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -57,7 +63,7 @@ class HTTPSamplerEmbeddedResourcesProcessingModeTest extends JMeterTestCase {
     private WireMockServer server;
 
     @BeforeEach
-    void startServer() {
+    void startServer() throws IOException {
         JMeterContextService.setValidationRun(false);
         JMeterContextService.getContext().setVariables(new JMeterVariables());
         server = new WireMockServer(WireMockExtension.loopbackConfig());
@@ -66,6 +72,11 @@ class HTTPSamplerEmbeddedResourcesProcessingModeTest extends JMeterTestCase {
                 .withStatus(200)
                 .withHeader("Content-Type", "text/html; charset=utf-8")
                 .withBody(PAGE)));
+        server.stubFor(get(urlPathEqualTo("/page.html.gz")).willReturn(aResponse()
+                .withStatus(200)
+                .withHeader("Content-Type", "text/html; charset=utf-8")
+                .withHeader("Content-Encoding", "gzip")
+                .withBody(compressedPage())));
         server.stubFor(get(urlPathEqualTo("/image.png")).willReturn(aResponse()
                 .withStatus(200)
                 .withHeader("Content-Type", "image/png")
@@ -83,21 +94,22 @@ class HTTPSamplerEmbeddedResourcesProcessingModeTest extends JMeterTestCase {
         for (String httpImpl : HTTPSamplerFactory.getImplementations()) {
             for (ResponseProcessingMode mode : Arrays.asList(
                     ResponseProcessingMode.STORE_ON_ERROR, ResponseProcessingMode.FETCH_AND_DISCARD)) {
-                res.add(Arguments.of(httpImpl, mode));
+                res.add(Arguments.of(httpImpl, mode, "/page.html"));
+                res.add(Arguments.of(httpImpl, mode, "/page.html.gz"));
             }
         }
         return res;
     }
 
-    @ParameterizedTest(name = "{0} {1}")
+    @ParameterizedTest(name = "{0} {1} {2}")
     @MethodSource("params")
-    void embeddedResourcesAreRetrieved(String httpImpl, ResponseProcessingMode mode)
+    void embeddedResourcesAreRetrieved(String httpImpl, ResponseProcessingMode mode, String path)
             throws MalformedURLException {
         HTTPSamplerBase http = HTTPSamplerFactory.newInstance(httpImpl);
         http.setResponseProcessingMode(mode);
         http.setImageParser(true);
 
-        HTTPSampleResult res = http.sample(toUrl(server.url("/page.html")), "GET", false, 0);
+        HTTPSampleResult res = http.sample(toUrl(server.url(path)), "GET", false, 0);
 
         SampleResult[] subResults = res.getSubResults();
         String urls = Arrays.stream(subResults)
@@ -111,5 +123,34 @@ class HTTPSamplerEmbeddedResourcesProcessingModeTest extends JMeterTestCase {
                     () -> "successful body must be discarded after parsing: " + subResult.getURL());
         }
         assertEquals(0, res.getResponseData().length, "container must not keep the page body");
+    }
+
+    @Test
+    void ordinaryStoredResponseStaysLazy() throws IOException {
+        AtomicInteger bodyReads = new AtomicInteger();
+        HTTPSampleResult result = new HTTPSampleResult() {
+            @Override
+            public byte[] getResponseData() {
+                bodyReads.incrementAndGet();
+                return super.getResponseData();
+            }
+        };
+        result.setResponseData(compressedPage(), "gzip");
+        result.setResponseCode("200");
+        result.setSuccessful(true);
+        result.setDataType(SampleResult.TEXT);
+        HTTPSamplerBase sampler = new HTTPSamplerProxy();
+        sampler.setImageParser(false);
+        sampler.setResponseProcessingMode(ResponseProcessingMode.STORE_COMPRESSED);
+        sampler.resultProcessing(false, 0, result);
+        assertEquals(0, bodyReads.get(), "Without resource parsing, stored bodies should remain lazy");
+    }
+
+    private static byte[] compressedPage() throws IOException {
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzip = new GZIPOutputStream(buffer)) {
+            gzip.write(PAGE.getBytes(StandardCharsets.UTF_8));
+        }
+        return buffer.toByteArray();
     }
 }
