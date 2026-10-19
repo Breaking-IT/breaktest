@@ -50,9 +50,11 @@ public class ThreadGroupsSectionGui extends TestPlanSectionGui {
             popup.insert(new JPopupMenu.Separator(), 1);
             popup.insert(validationItem("validate_all", ActionNames.VALIDATE_ALL), 2);
             popup.insert(validationItem("validate_all_sequentially", ActionNames.VALIDATE_ALL_SEQUENTIALLY), 3);
+            int index = 4;
             if (Start.canResumeAllFailed()) {
-                popup.insert(validationItem("resume_all_failed", ActionNames.RESUME_ALL_FAILED), 4);
+                popup.insert(validationItem("resume_all_failed", ActionNames.RESUME_ALL_FAILED), index++);
             }
+            popup.insert(validationItem("check_readiness_all", ActionNames.CHECK_READINESS_ALL), index);
         }
         return popup;
     }

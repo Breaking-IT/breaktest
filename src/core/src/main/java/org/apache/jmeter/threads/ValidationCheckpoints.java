@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.control.Controller;
@@ -63,6 +64,8 @@ public final class ValidationCheckpoints {
     private static final Map<String, List<String>> LAYOUTS = new HashMap<>();
     private static final Map<String, Checkpoint> PENDING = new HashMap<>();
     private static long generation;
+    /** Copies to the elements they copy, while {@link #withSourceIdentity} runs */
+    private static final ThreadLocal<IdentityHashMap<TestElement, TestElement>> COPIES = new ThreadLocal<>();
 
     private ValidationCheckpoints() {
     }
@@ -108,7 +111,73 @@ public final class ValidationCheckpoints {
     public static synchronized void inheritSourceIdentity(TestElement source, TestElement clone) {
         if (JMeterContextService.isValidationRun()) {
             IDS.put(clone, sourceId(source));
+        } else if (COPIES.get() != null) {
+            COPIES.get().put(clone, source);
         }
+    }
+
+    /**
+     * Runs an action in which copies made outside a validation run (profile configuration, flattened sections) have
+     * the identity of the element they copy, as they do during a validation run. Script readiness builds and analyses
+     * the tree validation runs this way. The copies are only remembered until the outermost action ends.
+     *
+     * @param action builds and uses the tree
+     * @param <T> result type
+     * @return the result of the action
+     */
+    public static <T> T withSourceIdentity(Supplier<T> action) {
+        boolean outermost = COPIES.get() == null;
+        if (outermost) {
+            COPIES.set(new IdentityHashMap<>());
+        }
+        try {
+            return action.get();
+        } finally {
+            if (outermost) {
+                COPIES.remove();
+            }
+        }
+    }
+
+    /**
+     * Stable identity of a test plan element for the current validation generation, the same id the validation
+     * clones of the element carry. Assigned on first use; never derived from the element's name.
+     *
+     * @param source element of the edited test plan
+     * @return its source id
+     */
+    public static synchronized String sourceIdOfSource(TestElement source) {
+        TestElement original = source;
+        IdentityHashMap<TestElement, TestElement> copies = COPIES.get();
+        if (copies != null) {
+            for (int i = 0; i < 16 && copies.containsKey(original); i++) {
+                original = copies.get(original);
+            }
+        }
+        return sourceId(original);
+    }
+
+    /**
+     * @param clone element of a validation tree
+     * @return the source id of the element it was cloned from, empty when it is not a validation clone
+     */
+    public static String sourceIdOfClone(TestElement clone) {
+        return clone.getPropertyAsString(SOURCE_ID);
+    }
+
+    /**
+     * @param clone element of a validation tree
+     * @return its execution id: the source ids of its enclosing controllers and its own, separated by {@code /}
+     */
+    public static String executionIdOf(TestElement clone) {
+        return clone.getPropertyAsString(ID);
+    }
+
+    /**
+     * @return the generation of source ids; it changes whenever validation history is cleared
+     */
+    public static synchronized long generation() {
+        return generation;
     }
 
     private static String sourceId(TestElement source) {

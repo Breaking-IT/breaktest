@@ -1059,5 +1059,167 @@ mutated in place do not trigger notifications; write with <code>vars.put</code> 
 <code>vars.putObject</code>. Independent virtual users do not share notifications.
 Start the producer in an asynchronous Fork before reaching the wait.</p>
 </section>
+<section name="Script readiness" anchor="script_readiness">
+<p>Use <code>Tools &gt; Check script readiness&#x2026;</code> to check whether the thread groups of a test plan are
+ready for a performance test. The wizard has four steps: choose the scope (the selected thread groups or all of
+them), the checks and the validation settings of this run (right-click a thread group and choose <code>Check readiness&#x2026;</code>, or the <code>Thread Groups</code> section and choose <code>Check readiness of all&#x2026;</code>, to open the wizard with that scope); run the checks with progress and <code>Cancel</code>;
+review the findings grouped by check or by transaction; and read the readiness summary. Double-click a finding,
+or press Enter, to select its element in the tree. Close the wizard to edit the plan; reopening it during the GUI
+session shows the latest report, and <code>Re-run checks</code> runs them again. Distributed execution, reporting
+and load generator capacity are out of scope. No external service or AI is used.</p>
+
+<h2>Checks</h2>
+<p>Checks marked &#x23f1; need evidence from a readiness validation. That validation is an ordinary GUI
+validation of the scope, run with the settings chosen in the wizard for this run only (iterations, timers,
+time limit); the <code>testplan_validation.*</code> properties keep defining ordinary validation. Without a
+current readiness validation, these checks are shown as <code>Not verified &#x2014; requires runtime
+validation</code>, never hidden.</p>
+<table>
+<tr><th>Check</th><th>On failure</th><th>Mandatory for Ready</th></tr>
+<tr><td>Successful validation &#x23f1;</td><td>Blocker</td><td>Yes</td></tr>
+<tr><td>Transaction verification coverage (configured, and exercised &#x23f1;)</td><td>Blocker; Warning when only static resources or redirects are verified</td><td>Yes</td></tr>
+<tr><td>Unused extractions</td><td>Warning</td><td>No</td></tr>
+<tr><td>Unmatched extractions &#x23f1;</td><td>Blocker; Warning when marked optional</td><td>Yes</td></tr>
+<tr><td>Extraction processing time &#x23f1;</td><td>Warning</td><td>No</td></tr>
+<tr><td>Think-time review</td><td>Review required</td><td>No</td></tr>
+<tr><td>Unresolved variables sent in requests (configuration, confirmed &#x23f1;)</td><td>Blocker</td><td>Yes</td></tr>
+<tr><td>Files and configuration present</td><td>Blocker</td><td>Yes</td></tr>
+<tr><td>Validation exercise coverage &#x23f1;</td><td>Warning</td><td>No</td></tr>
+<tr><td>Hardcoded recorded values</td><td>Review required</td><td>No</td></tr>
+<tr><td>Repeatability &#x23f1; (optional)</td><td>Blocker; Not verified when not configured</td><td>No</td></tr>
+<tr><td>Response body storage</td><td>Warning when a script reads the previous response body while requests discard bodies; otherwise Suggestion (never affects readiness)</td><td>No</td></tr>
+</table>
+<ul>
+<li><b>Successful validation</b>: the run must complete without request errors or assertion failures. A cancelled,
+stopped (on error or by a Flow Control Action), timed-out or empty run is never successful. A readiness validation
+continued with <code>Resume validation</code> counts as complete only when the resumed runs carried every stopped
+thread group to its end against the same, unchanged plan. <code>Replay from here</code> results are never readiness
+evidence. The report shows the settings, scope, start and end time and completion status of the run.</li>
+<li><b>Transaction verification coverage</b>: every enabled Transaction Controller with a request sampler needs an
+enabled assertion, or a Regular Expression, XPath, XPath2, Boundary, CSS Selector, JSON or JMESPath extractor with
+<code>Fail on no match</code>, applying to one of its samplers under JMeter's scoping rules. Requests outside any
+transaction are checked one by one. An inner transaction's verification covers the outer one only through its own
+samplers. Debug Samplers and Flow Control Actions are not requests. After a readiness validation, the check also
+confirms that a verifying element ran on a covered sampler.</li>
+<li><b>Unused extractions</b>: variables nothing in scope reads, searched in every string field (requests, headers,
+bodies, controller conditions, assertions, timers, other extractors, configuration), including generated families
+such as <code>name_1</code>, <code>name_matchNr</code>, <code>name_g1</code>, <code>name_ALL</code> and ForEach
+inputs, and literal <code>vars.get("name")</code> in scripts. Computed names and scripts reading computed names
+are reported as <i>possibly used</i>, not unused. An extraction overwritten before any read is reported when both
+extractions run once in a linear flow.</li>
+<li><b>Unmatched extractions</b>: every invocation of a supported extractor reports whether it matched, whatever
+<code>Fail on no match</code> says; the resulting variable is never inspected, because it may hold a default or a
+stale value. Findings show the extractor, source sampler, thread, iteration, expression and a redacted response
+excerpt. An extractor that never executed is Not verified; other post-processors are <i>Unsupported &#x2014; not
+verified</i>.</li>
+<li><b>Extraction processing time</b>: each supported extractor is timed with <code>System.nanoTime()</code>,
+separately from the request. The response is decoded once before timing starts, so no extractor absorbs a decoding
+cost shared by all of them. The first invocation is warm-up and reported apart. To get enough observations without
+replaying requests, each extractor is also run offline against a response captured during validation (20 times by
+default), with scratch variables. Median, p95 (from 20 observations), maximum and the number of invocations above
+the budget (3 ms by default) are shown; a median or p95 above the budget is a Warning, and fewer than 5 observations
+is Not verified.</li>
+<li><b>Think-time review</b>: lists the configured delays between user-facing steps (top-level transactions, or
+requests outside transactions): timers in effective scope, Flow Control Action pauses and transaction delays.
+Missing delays, timers that apply to every request of a step (embedded resources included) and several timers on one
+request are reported for review. Iteration and transaction pacing are listed apart; they are not think time between
+steps. The check inspects the configuration even when validation ignores timers and never claims a duration is
+realistic.</li>
+<li><b>Unresolved variables</b>: <code>${name}</code> references in requests and the request configuration applying
+to them (HTTP Request Defaults, headers, cookies, authorization) that no variable source in scope defines (User
+Defined Variables, Test Plan variables, profiles, CSV and structured data sets, extractors, User Parameters,
+counters, random variables, ForEach). Functions are recognized; properties read with <code>__P</code> are not
+variables; empty variables are defined. References defined only by scripts, functions or unknown elements, and
+computed names, are uncertain and resolved by the validation run. During validation, literal <code>${name}</code>
+and <code>%24%7Bname%7D</code> in the URL, request headers and request data of what was sent are Blockers, with the
+cause where the evidence supports it: never defined, its extractor ran without matching, or consumed before it is
+assigned.</li>
+<li><b>Files and configuration</b>: CSV, JSON/XML/YAML data set, upload and script files and JMX archive entries
+must exist and be readable, resolving relative paths as the run does. A data set without a file, an HTTP request
+without a server name or HTTP Request Defaults, and a Module Controller without a target are Blockers. File names
+computed at run time are Not verified.</li>
+<li><b>Validation exercise coverage</b>: transactions and branches (If, Switch, While, Throughput, Fork, Parallel,
+Random, Interleave, Once Only, ForEach) that never executed, for example <i>12 of 14 transactions exercised</i>.</li>
+<li><b>Hardcoded recorded values</b>: values a recorded response returned that later requests still send literally,
+found with the rules and recorded exchanges of <code>Tools &gt; Correlation Rules</code>. Candidates are for review
+only; the plan is not changed. Without linked recorded responses, the check is Not verified.</li>
+<li><b>Response body storage</b>: each HTTP request's <code>Processing mode</code> is resolved from its own setting,
+else the nearest HTTP Request Defaults that sets one, else <code>Store response</code>. A script that reads the previous
+response body (a JSR223 or BeanShell sampler, pre-processor or timer, or a scripting function such as
+<code>${__groovy(prev.getResponseDataAsString())}</code> in a field or a controller condition) is a <b>Warning</b>
+when any HTTP request of its thread group discards successful bodies (<code>Fetch and discard</code> or
+<code>Store on error only</code>). Which request runs just before the script depends on the flow (If controllers,
+loops), so every request of the thread group counts, except requests that keep their bodies because assertions or
+extractors apply to them. Validation always keeps response bodies, so a validation run does not show the problem:
+only a test run gives the script an empty body. Without such scripts, the check suggests
+<code>Store on error only</code> to save memory under load: when most requests inherit <code>Store response</code>, one
+suggestion on the HTTP Request Defaults (or the thread group) says how many requests would discard successful bodies,
+which ones must keep <code>Store response</code> (embedded resources, a Save Responses to a file listener saving
+successful responses, a results file saving response data) and which scripts using the previous result to check
+first; requests explicitly set to <code>Store response</code> whose bodies nothing reads get a suggestion each.
+Backend Listeners with the built-in InfluxDB, InfluxDB raw or Graphite clients only send metrics and do not need
+bodies; custom backend clients and other listeners such as a JSR223 Listener are listed for review, without stopping
+the suggestion. Scripts are recognized in Java and Groovy forms: <code>prev.getResponseDataAsString()</code>,
+<code>ctx.getPreviousResult()</code>, <code>ctx.previousResult.responseDataAsString</code>.
+Assertions and post-processors applying to a request are no reason to keep <code>Store response</code>, because the
+request keeps its bodies while they apply. <code>Fetch and discard</code> saves the same in steady state but also drops
+error bodies. With a current readiness validation, the suggestion estimates the successful body bytes per iteration
+that would no longer be kept. The plan is never changed.</li>
+<li><b>Repeatability</b>: when enabled in the first step, a second validation run in a fresh session (a new thread,
+so fresh cookies and variables) repeats the scope for the chosen number of iterations (at least two), within its own
+time limit. Any failure, unmatched extraction or unresolved variable in it is a Blocker.</li>
+</ul>
+
+<h2>Readiness</h2>
+<p>Each check is <code>Passed</code>, <code>Blocker</code>, <code>Warning</code>, <code>Review required</code>,
+<code>Not verified</code>, <code>Not applicable</code>, <code>Accepted</code> or <code>Suggestion</code>, after its worst
+open finding. Suggestions are optional improvements: a check with only suggestions counts as passed, and they never
+change the verdict.
+The summary never gives a score; it shows counts such as <i>6 of 8 checks passed &#xb7; 1 blocker &#xb7;
+1 review pending</i>.</p>
+<ul>
+<li><b>Ready</b>: every check ran, every mandatory check ran against the current plan and is Passed, Not applicable
+or Accepted, and no finding is open.</li>
+<li><b>Needs attention</b>: a Blocker, or a Warning or Review finding not covered by an accepted exception.</li>
+<li><b>Not verified</b>: otherwise, for instance when a mandatory check did not run, is Not verified or is based on
+stale evidence, or when only some checks were selected. Running a subset of the checks never gives Ready.</li>
+</ul>
+<p>Runtime evidence belongs to the plan as it was when the readiness validation started: a fingerprint of the
+enabled elements in scope, their properties, the validation settings and the scope. Pending editor changes are
+committed first, and the run uses the usual validation copy of the plan, so editing during a run is safe. When the
+recomputed fingerprint differs, for example after a field edit, the report marks the evidence <code>Stale</code> and
+the runtime checks count as Not verified until the next readiness validation. Another validation run, or clearing or
+opening a plan, also discards it. While a readiness validation runs, other test and validation starts are refused.</p>
+
+<h2>Accepted exceptions</h2>
+<p>Select a finding and use <code>Accept&#x2026;</code> to record why it is acceptable; <code>Mark&#x2026;</code>
+marks an extractor as optional (its failed matches become Warnings) or a transaction or subtree as background/API
+activity without think time. Exceptions are stored on the element as
+<code>breaktest.readiness.exception.&lt;check&gt;.&lt;key&gt;</code> properties with the reason, an optional
+author and the date, so they travel with the script. They do not affect execution or the fingerprint. Recording or
+removing one is an ordinary plan edit: it can be undone and marks the plan as changed. Accepted findings are shown as
+Accepted with their reason, never as passes. Exceptions that no longer match a finding are listed as
+<i>Unused exception</i>. The wizard never adds or weakens assertions and never deletes extractors.</p>
+
+<h2>Evidence and privacy</h2>
+<p>Evidence is kept in memory for the GUI session only, is never written to the JMX and is not logged at INFO or
+above. Values of <code>Authorization</code>, <code>Proxy-Authorization</code>, <code>Cookie</code> and
+<code>Set-Cookie</code> headers, and of parameters and JSON keys whose name contains <code>pass</code>,
+<code>pwd</code>, <code>secret</code>, <code>token</code>, <code>key</code>, <code>auth</code> or
+<code>session</code>, are masked. Excerpts are limited to about 40 characters around the reference and 512
+characters per finding. Set <code>breaktest.readiness.author</code> to choose the default exception author.</p>
+
+<h2>Limitations</h2>
+<ul>
+<li>Large or binary request bodies may be truncated or absent from the request data a sampler records; unresolved
+values in them are then not verified.</li>
+<li>Static analysis follows JMeter's scoping rules but not run-time flow: overwrites are only detected in linear
+flows, and the consumed-before-assignment cause only for extractors and processors.</li>
+<li>Exceptions are kept by editors that preserve unknown properties. A few legacy editors that rebuild their element
+(FTP, UDP, mail and LDAP samplers and LDAP configuration) can drop them when edited.</li>
+<li>Resume validation of a readiness run needs one thread and one iteration, as Resume validation does.</li>
+<li>Readiness evidence is not exported; there is no command-line interface in this version.</li>
+</ul>
+</section>
 </body>
 </document>
