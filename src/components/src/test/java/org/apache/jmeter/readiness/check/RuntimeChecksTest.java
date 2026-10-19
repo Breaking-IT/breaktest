@@ -130,6 +130,72 @@ class RuntimeChecksTest extends JMeterTestCase {
         }
     }
 
+    public static class LateFailureSampler extends TestPlanBuilder.EchoSampler {
+        private static final long serialVersionUID = 1L;
+        private static final AtomicInteger CALLS = new AtomicInteger();
+        @Override
+        public org.apache.jmeter.samplers.SampleResult sample(org.apache.jmeter.samplers.Entry entry) {
+            var result = super.sample(entry);
+            result.setSuccessful(CALLS.incrementAndGet() <= 20000);
+            return result;
+        }
+    }
+
+    @Test
+    void truncatedRepeatabilityCannotPass() throws Exception {
+        var loop = new org.apache.jmeter.control.LoopController();
+        loop.setLoops(10001);
+        LateFailureSampler.CALLS.set(0);
+        var request = new LateFailureSampler();
+        request.setName("late failure");
+        flow.add(loop).add(request);
+        plan.run(RunKind.MAIN, ONCE, group);
+        LateFailureSampler.CALLS.set(0);
+        var repeated = plan.run(RunKind.REPEATABILITY, ONCE.withIterations(2), group);
+        assertTrue(repeated.isTruncated());
+        assertEquals(20002, LateFailureSampler.CALLS.get());
+        var check = result(analyze(Set.of(CheckId.REPEATABILITY), group), CheckId.REPEATABILITY);
+        assertFalse(check.isVerified(), "Lost failing samples but check was " + check.state());
+        assertEquals(CheckState.BLOCKER, check.state());
+        assertTrue(repeated.hasTruncatedFailures());
+    }
+
+    @Test
+    void parameterizedExtractorMustNotTimeAnUnresolvedExpression() throws Exception {
+        var variables = new org.apache.jmeter.config.Arguments();
+        variables.addArgument("pattern", "token=(\\w+)");
+        plan.root.add(variables);
+        var request = sampler("request", "/");
+        request.setProperty("response", "token=abc");
+        flow.add(request).add(regex("token", "${pattern}"));
+        var segment = plan.run(RunKind.MAIN, ONCE, group);
+        assertEquals(Boolean.TRUE, segment.extractions().get(0).matched());
+        assertTrue(OfflineExtractorTimer.measure(segment, plan.model(group), 20, () -> false).isEmpty());
+    }
+
+    @Test
+    void variableScopedExtractorMustNotTimeMissingInput() throws Exception {
+        var variables = new org.apache.jmeter.config.Arguments();
+        variables.addArgument("input", "token=abc");
+        plan.root.add(variables);
+        var extractor = regex("token", "token=(\\w+)");
+        extractor.setScopeVariable("input");
+        flow.add(sampler("request", "/")).add(extractor);
+        var segment = plan.run(RunKind.MAIN, ONCE, group);
+        assertEquals(Boolean.TRUE, segment.extractions().get(0).matched());
+        var timings = OfflineExtractorTimer.measure(segment, plan.model(group), 20, () -> false);
+        assertTrue(timings.values().stream().allMatch(List::isEmpty),
+                "Missing variable input was still counted as timed processing: " + timings);
+        var options = new ReadinessOptions(10_000_000_000L, 20, 0, 0);
+        assertEquals(CheckState.NOT_VERIFIED, result(plan.analyze(Set.of(CheckId.EXTRACTION_TIME), options,
+                timings, group), CheckId.EXTRACTION_TIME).state());
+        var enoughLiveSamples = plan.run(RunKind.MAIN, ONCE.withIterations(6), group);
+        var liveOnly = OfflineExtractorTimer.measure(enoughLiveSamples, plan.model(group), 20, () -> false);
+        assertTrue(liveOnly.isEmpty());
+        assertEquals(CheckState.PASSED, result(plan.analyze(Set.of(CheckId.EXTRACTION_TIME), options,
+                liveOnly, group), CheckId.EXTRACTION_TIME).state());
+    }
+
     @Test
     void failureWithinLoopMustNotBeHiddenByLaterSuccess() throws Exception {
         var loop = new org.apache.jmeter.control.LoopController();

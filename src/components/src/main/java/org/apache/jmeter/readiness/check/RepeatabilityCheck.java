@@ -57,6 +57,15 @@ public final class RepeatabilityCheck implements ReadinessCheck {
             findings.add(new Finding(id(), model.root().ref(), "run", Severity.BLOCKER,
                     "The repeatability run did not complete: " + run.status().label(), details, null));
         }
+        if (run.isTruncated()) {
+            findings.add(new Finding(id(), model.root().ref(), "truncated", Severity.NOT_VERIFIED,
+                    "The repeatability run produced more evidence than is kept; part of it was not recorded",
+                    List.of("Run fewer iterations or a smaller scope to verify repeatability"), null));
+        }
+        if (run.hasTruncatedFailures()) {
+            findings.add(new Finding(id(), model.root().ref(), "truncated-failures", Severity.BLOCKER,
+                    "The repeatability run had failures in evidence beyond the recording limit", List.of(), null));
+        }
         int maxIteration = 0;
         for (SampleObservation sample : run.samples()) {
             maxIteration = Math.max(maxIteration, sample.iteration());

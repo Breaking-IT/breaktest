@@ -29,7 +29,10 @@ import org.apache.jmeter.readiness.evidence.RunSegment;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testbeans.TestBeanHelper;
+import org.apache.jmeter.testelement.AbstractScopedTestElement;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.testelement.property.FunctionProperty;
+import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
@@ -66,13 +69,17 @@ public final class OfflineExtractorTimer {
                 if (cancelled.getAsBoolean()) {
                     break;
                 }
+                TestElement extractor = capture.extractor();
+                // Responses are captured without the variable/function context. Use only live timings when needed.
+                if (requiresLiveContext(extractor)) {
+                    continue;
+                }
                 if (model.nodesWithId(capture.extractorId()).isEmpty()
                         || ExtractorSupport.describe(capture.extractor()).isEmpty()
                         || !(capture.extractor() instanceof PostProcessor postProcessor)) {
                     continue;
                 }
                 List<Long> times = new ArrayList<>();
-                TestElement extractor = capture.extractor();
                 for (int i = 0; i < runs && !cancelled.getAsBoolean(); i++) {
                     SampleResult response = new SampleResult(capture.response());
                     response.getResponseDataAsString();
@@ -95,5 +102,15 @@ public final class OfflineExtractorTimer {
             context.setCurrentSampler(savedSampler);
         }
         return result;
+    }
+
+    private static boolean requiresLiveContext(TestElement extractor) {
+        PropertyIterator properties = extractor.propertyIterator();
+        while (properties.hasNext()) {
+            if (properties.next() instanceof FunctionProperty) {
+                return true;
+            }
+        }
+        return extractor instanceof AbstractScopedTestElement scoped && scoped.isScopeVariable(scoped.fetchScope());
     }
 }

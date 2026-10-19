@@ -57,6 +57,7 @@ public final class RunSegment {
     private final Set<String> invokedExtractors = new LinkedHashSet<>();
     private final Set<String> stoppedGroups = new LinkedHashSet<>();
     private boolean truncated;
+    private boolean truncatedFailures;
 
     /**
      * @param kind why the run happens
@@ -170,6 +171,7 @@ public final class RunSegment {
             samples.add(observation);
         } else {
             truncated = true;
+            truncatedFailures |= !observation.successful();
         }
     }
 
@@ -178,6 +180,7 @@ public final class RunSegment {
             extractions.add(observation);
         } else {
             truncated = true;
+            truncatedFailures |= Boolean.FALSE.equals(observation.matched());
         }
     }
 
@@ -186,6 +189,7 @@ public final class RunSegment {
             unresolved.add(observation);
         } else {
             truncated = true;
+            truncatedFailures = true;
         }
     }
 
@@ -219,6 +223,11 @@ public final class RunSegment {
 
     public synchronized Map<String, ExtractorCapture> captures() {
         return Map.copyOf(captures);
+    }
+
+    /** @return whether discarded evidence included a failed sample, unmatched extraction or unresolved variable */
+    public synchronized boolean hasTruncatedFailures() {
+        return truncatedFailures;
     }
 
     public synchronized boolean isTruncated() {

@@ -18,7 +18,9 @@
 package org.apache.jmeter.readiness.evidence;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Set;
@@ -36,6 +38,49 @@ class EvidenceSessionTest {
     private static void sample(RunSegment segment, String group) {
         segment.addSample(new SampleObservation("s", "/" + group + "/s", group, "t-1", 1, true, "200", List.of(),
                 Set.of(), false));
+    }
+
+    @Test
+    void truncatedSamplesRetainFailuresWithoutGrowingTheBuffer() {
+        RunSegment run = segment(RunKind.REPEATABILITY, "f", List.of("g"));
+        for (int i = 0; i < RunSegment.MAX_SAMPLES; i++) {
+            sample(run, "g");
+        }
+        assertFalse(run.isTruncated());
+        sample(run, "g");
+        assertTrue(run.isTruncated());
+        assertFalse(run.hasTruncatedFailures());
+        run.addSample(new SampleObservation("s", "/g/s", "g", "t-1", 2, false, "500", List.of(), Set.of(), false));
+        assertTrue(run.hasTruncatedFailures());
+        assertEquals(RunSegment.MAX_SAMPLES, run.samples().size());
+    }
+
+    @Test
+    void truncatedExtractionsRetainUnmatchedOutcomes() {
+        RunSegment run = segment(RunKind.REPEATABILITY, "f", List.of("g"));
+        var matched = new ExtractorObservation("e", "s", "t-1", 1, true, 1, false, "", "");
+        for (int i = 0; i <= RunSegment.MAX_EXTRACTIONS; i++) {
+            run.addExtraction(matched);
+        }
+        assertTrue(run.isTruncated());
+        assertFalse(run.hasTruncatedFailures());
+        run.addExtraction(new ExtractorObservation("e", "s", "t-1", 2, false, 1, false, "", ""));
+        assertTrue(run.hasTruncatedFailures());
+        assertEquals(RunSegment.MAX_EXTRACTIONS, run.extractions().size());
+    }
+
+    @Test
+    void truncatedUnresolvedVariablesRetainFailures() {
+        RunSegment run = segment(RunKind.REPEATABILITY, "f", List.of("g"));
+        var unresolved = new UnresolvedObservation("s", "missing", "URL", false, "t-1", 1, "");
+        for (int i = 0; i < RunSegment.MAX_UNRESOLVED; i++) {
+            run.addUnresolved(unresolved);
+        }
+        assertFalse(run.isTruncated());
+        assertFalse(run.hasTruncatedFailures());
+        run.addUnresolved(unresolved);
+        assertTrue(run.hasTruncatedFailures());
+        assertEquals(RunSegment.MAX_UNRESOLVED, run.unresolved().size());
     }
 
     @Test
