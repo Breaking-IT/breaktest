@@ -484,6 +484,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
          * body for HTTP error responses, where it is usually needed for triage.
          * Without assertions or post-processors, only the HTTP status is consulted.
          * When either applies, the effective mode stores all response bodies.
+         * With embedded resource retrieval, the body is kept until the page is parsed.
          */
         STORE_ON_ERROR("response_processing_store_on_error"), //$NON-NLS-1$
 
@@ -2589,6 +2590,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             }
         }
 
+        HTTPSampleResult page = res;
+        boolean createdResourceContainer = false;
         if (res.isSuccessful() && SampleResult.TEXT.equals(res.getDataType()) && isImageParser() ) {
             if (frameDepth > MAX_FRAME_DEPTH) {
                 HTTPSampleResult errSubResult = new HTTPSampleResult(res);
@@ -2605,10 +2608,36 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                     HTTPSampleResult container = (HTTPSampleResult) (
                             areFollowingRedirect ? res.getParent() : SEPARATE_CONTAINER ? null : res);
                     res = downloadPageResources(res, container, frameDepth);
+                    createdResourceContainer = container == null && res != page;
                 }
             }
         }
+        if (discardBodyKeptForEmbeddedResources(page)) {
+            // A new container shares the page body; release that reference too
+            if (createdResourceContainer) {
+                res.setResponseData(new byte[0]);
+            }
+        }
         return res;
+    }
+
+    /**
+     * Body-discarding modes keep the body while reading when embedded resources are retrieved,
+     * because the page has to be parsed for resource URLs. Once parsing is done, apply the
+     * configured mode to the page result so the memory saving still holds.
+     *
+     * @return true if the body was discarded
+     */
+    private boolean discardBodyKeptForEmbeddedResources(HTTPSampleResult result) {
+        ResponseProcessingMode configured = getResponseProcessingMode();
+        if (!isImageParser() || !isBodyDiscardingMode(configured) || isBodyRequiredAfterSample()) {
+            return false;
+        }
+        if (configured == ResponseProcessingMode.STORE_ON_ERROR && isErrorResponse(result)) {
+            return false;
+        }
+        result.setResponseData(new byte[0]);
+        return true;
     }
 
     /**
@@ -2784,23 +2813,36 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     /**
      * Preserve bodies for validation and for assertions or post-processors in the current
      * execution package (including inherited elements). Scripted post-processors can read
-     * bodies too, so all post-processors conservatively require storage. Explicit checksum
-     * modes are left intact so assertions can still check the requested digest.
+     * bodies too, so all post-processors conservatively require storage. Embedded resource
+     * retrieval needs the body to parse the page; {@link #resultProcessing} discards it again
+     * afterwards when nothing else requires it. Explicit checksum modes are left intact so
+     * assertions can still check the requested digest.
      */
-    private static ResponseProcessingMode effectiveResponseProcessingMode(ResponseProcessingMode configured) {
-        if (configured == ResponseProcessingMode.FETCH_AND_DISCARD
-                || configured == ResponseProcessingMode.STORE_ON_ERROR) {
-            if (JMeterContextService.isValidationRun()) {
-                return ResponseProcessingMode.STORE_COMPRESSED;
-            }
-            Object currentPackage = JMeterContextService.getContext().getVariables()
-                    .getObject(JMeterThread.PACKAGE_OBJECT);
-            if (currentPackage instanceof SamplePackage pack
-                    && (!pack.getAssertions().isEmpty() || !pack.getPostProcessors().isEmpty())) {
-                return ResponseProcessingMode.STORE_COMPRESSED;
-            }
+    private static ResponseProcessingMode effectiveResponseProcessingMode(ResponseProcessingMode configured,
+            boolean parsesEmbeddedResources) {
+        if (isBodyDiscardingMode(configured) && (parsesEmbeddedResources || isBodyRequiredAfterSample())) {
+            return ResponseProcessingMode.STORE_COMPRESSED;
         }
         return configured;
+    }
+
+    private static boolean isBodyDiscardingMode(ResponseProcessingMode mode) {
+        return mode == ResponseProcessingMode.FETCH_AND_DISCARD
+                || mode == ResponseProcessingMode.STORE_ON_ERROR;
+    }
+
+    /**
+     * @return true if a validation run or the current package's assertions or post-processors
+     *         may read the response body after sampling
+     */
+    private static boolean isBodyRequiredAfterSample() {
+        if (JMeterContextService.isValidationRun()) {
+            return true;
+        }
+        Object currentPackage = JMeterContextService.getContext().getVariables()
+                .getObject(JMeterThread.PACKAGE_OBJECT);
+        return currentPackage instanceof SamplePackage pack
+                && (!pack.getAssertions().isEmpty() || !pack.getPostProcessors().isEmpty());
     }
 
     /**
@@ -2832,7 +2874,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * @throws IOException if reading the result fails
      */
     public void readResponse(SampleResult sampleResult, InputStream in, long length, @Nullable String contentEncoding) throws IOException {
-        ResponseProcessingMode responseProcessingMode = effectiveResponseProcessingMode(getResponseProcessingMode());
+        ResponseProcessingMode responseProcessingMode = effectiveResponseProcessingMode(getResponseProcessingMode(), isImageParser());
         if (responseProcessingMode == ResponseProcessingMode.CHECKSUM_DECODED_MD5) {
             // Closing the original HTTP input does not release resources owned by the decoder.
             try (InputStream decoded = ResponseDecoderRegistry.decodeStream(contentEncoding, in)) {
