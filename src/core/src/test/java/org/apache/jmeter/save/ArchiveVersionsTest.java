@@ -436,4 +436,95 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
         assertArrayEquals(oldContent, SaveService.readArchiveEntry(restored.toFile(), "files/data.csv").orElseThrow());
     }
 
+    @Test
+    void unreadableManifestRetainsContentUntilExplicitlyDeleted() throws Exception {
+        Path file = directory.resolve("review-manifest.jmx");
+        TestPlan current = testPlan("Before");
+        byte[] content = {11, 12, 13};
+        attach(current, content);
+        HashTree tree = new ListedHashTree(current);
+        SaveService.saveTreeToFile(tree, file);
+        current.removeProperty(ArchiveFiles.PROPERTY);
+        SaveService.saveTreeToFile(tree, file);
+        String version = current.getArchiveVersions().list().get(0).entry();
+        Path nested = directory.resolve("nested.jmx");
+        Files.write(nested, SaveService.readArchiveEntry(file.toFile(), version).orElseThrow());
+        rewrite(nested, "__breaktest_version_attachments_v1.properties", new byte[]{0});
+        rewrite(file, version, Files.readAllBytes(nested));
+        String blob = ArchiveVersions.BLOBS + ArchiveVersions.digest(content);
+        current.getArchiveVersions().delete(Set.of());
+        assertArrayEquals(content, SaveService.readArchiveEntry(file.toFile(), blob).orElseThrow());
+        current.setName("After");
+        SaveService.saveTreeToFile(tree, file);
+        assertArrayEquals(content, SaveService.readArchiveEntry(file.toFile(), blob).orElseThrow());
+        current.getArchiveVersions().delete(Set.of(version));
+        assertTrue(SaveService.readArchiveEntry(file.toFile(), blob).isEmpty(),
+                "Explicit deletion allows garbage collection again");
+    }
+
+    @Test
+    void badCompressedBlobFailsSaveWithoutChangingArchive() throws Exception {
+        Path file = directory.resolve("review-compressed.jmx");
+        TestPlan current = testPlan("Before");
+        byte[] content = {21, 22, 23};
+        attach(current, content);
+        HashTree tree = new ListedHashTree(current);
+        SaveService.saveTreeToFile(tree, file);
+        current.removeProperty(ArchiveFiles.PROPERTY);
+        SaveService.saveTreeToFile(tree, file);
+        byte[] zip = Files.readAllBytes(file);
+        String blob = ArchiveVersions.BLOBS + ArchiveVersions.digest(content);
+        var header = java.nio.ByteBuffer.wrap(zip).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        boolean patched = false;
+        for (int pos = 0; pos + 30 < zip.length; pos++) {
+            if (header.getInt(pos) != 0x04034b50) {
+                continue;
+            }
+            int nameLength = Short.toUnsignedInt(header.getShort(pos + 26));
+            int extraLength = Short.toUnsignedInt(header.getShort(pos + 28));
+            String name = new String(zip, pos + 30, nameLength, java.nio.charset.StandardCharsets.UTF_8);
+            if (name.equals(blob)) {
+                zip[pos + 30 + nameLength + extraLength] = 7; // Invalid DEFLATE block type.
+                patched = true;
+                break;
+            }
+        }
+        assertTrue(patched);
+        Files.write(file, zip);
+        current.setName("Unsaved edit");
+        assertThrows(java.io.IOException.class, () -> SaveService.saveTreeToFile(tree, file));
+        assertArrayEquals(zip, Files.readAllBytes(file), "Failure must leave the original archive untouched");
+        assertEquals(1, current.getArchiveVersions().list().size());
+        assertThrows(java.io.IOException.class, () -> current.getArchiveVersions().delete(Set.of()));
+        assertArrayEquals(zip, Files.readAllBytes(file));
+    }
+
+    @Test
+    void unreadableManifestRetainsAttachmentsSharedWithPreviousLatest() throws Exception {
+        Path file = directory.resolve("shared-unreadable.jmx");
+        TestPlan current = testPlan("Before");
+        byte[] original = {31, 32, 33};
+        attach(current, original);
+        HashTree tree = new ListedHashTree(current);
+        SaveService.saveTreeToFile(tree, file);
+        saveEdit(current, tree, file);
+        String version = current.getArchiveVersions().list().get(0).entry();
+        Path nested = directory.resolve("shared-nested.jmx");
+        Files.write(nested, SaveService.readArchiveEntry(file.toFile(), version).orElseThrow());
+        rewrite(nested, "__breaktest_version_attachments_v1.properties", new byte[]{0});
+        byte[] broken = Files.readAllBytes(nested);
+        rewrite(file, version, broken);
+        attach(current, new byte[]{41, 42, 43});
+        SaveService.saveTreeToFile(tree, file);
+        Set<String> otherVersions = current.getArchiveVersions().list().stream()
+                .map(ArchiveVersions.Version::entry).filter(name -> !name.equals(version))
+                .collect(java.util.stream.Collectors.toSet());
+        current.getArchiveVersions().delete(otherVersions);
+        assertArrayEquals(broken, SaveService.readArchiveEntry(file.toFile(), version).orElseThrow());
+        assertArrayEquals(original, SaveService.readArchiveEntry(file.toFile(), ArchiveVersions.BLOBS
+                + ArchiveVersions.digest(original)).orElseThrow());
+        current.getArchiveVersions().delete(Set.of(version));
+        assertEquals(0, blobs(file));
+    }
+
 }

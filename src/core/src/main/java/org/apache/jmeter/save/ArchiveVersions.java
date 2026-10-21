@@ -145,15 +145,10 @@ public final class ArchiveVersions {
             return;
         }
         try (zip) {
-            Catalog catalog;
-            byte[] previousXml;
-            try {
-                catalog = new Catalog(zip);
-                previousXml = read(zip, SaveService.TEST_PLAN_ZIP_ENTRY);
-            } catch (IOException e) {
-                log.warn("Saving without version history; cannot read {}: {}", source, e.toString());
-                return;
-            }
+            // A readable archive can still contain damaged entries. Fail the atomic save
+            // rather than replace that archive and silently discard all its history.
+            Catalog catalog = new Catalog(zip);
+            byte[] previousXml = read(zip, SaveService.TEST_PLAN_ZIP_ENTRY);
             Set<String> written = new HashSet<>(latestContent.values());
             writeHistory(zip, output, catalog, written, Set.of());
             if (digest(previousXml).equals(latestXml) && catalog.latest.equals(latestContent)) {
@@ -227,6 +222,7 @@ public final class ArchiveVersions {
 
     private static void writeHistory(ZipFile zip, ZipOutputStream output, Catalog catalog,
             Set<String> written, Set<String> excluded) throws IOException {
+        boolean unknownDependencies = false;
         for (ZipEntry entry : Collections.list(zip.entries())) {
             if (!isVersion(entry.getName()) || entry.isDirectory() || excluded.contains(entry.getName())) {
                 continue;
@@ -237,6 +233,7 @@ public final class ArchiveVersions {
             } catch (IOException e) {
                 log.warn("Keeping unreadable archive version {} unchanged: {}", entry.getName(), e.getMessage());
                 copyEntry(zip, entry, output);
+                unknownDependencies = true;
                 continue;
             }
             if (snapshot.attachments.values().stream().allMatch(hash -> catalog.contents.containsKey(hash)
@@ -249,6 +246,25 @@ public final class ArchiveVersions {
                 copyEntry(zip, entry, output);
             }
             writeContent(output, snapshot, catalog, written);
+        }
+        if (unknownDependencies) {
+            // We cannot prove any content is unused while a retained manifest is unreadable.
+            // Include old latest attachments too: the new latest may replace or remove them.
+            for (String hash : catalog.contents.keySet()) {
+                if (written.add(hash)) {
+                    output.putNextEntry(new ZipEntry(BLOBS + hash));
+                    catalog.copy(hash, output);
+                    output.closeEntry();
+                }
+            }
+            for (ZipEntry entry : Collections.list(zip.entries())) {
+                if (entry.getName().startsWith(BLOBS) && !entry.isDirectory()) {
+                    String hash = entry.getName().substring(BLOBS.length());
+                    if (!catalog.damagedWritten.contains(hash) && written.add(hash)) {
+                        copyEntry(zip, entry, output);
+                    }
+                }
+            }
         }
     }
 
