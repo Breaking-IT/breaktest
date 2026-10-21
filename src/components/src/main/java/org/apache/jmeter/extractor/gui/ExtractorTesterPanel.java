@@ -491,17 +491,24 @@ public final class ExtractorTesterPanel<E extends AbstractScopedTestElement> ext
         }
         JPanel targetsPanel = new JPanel();
         targetsPanel.setLayout(new javax.swing.BoxLayout(targetsPanel, javax.swing.BoxLayout.Y_AXIS));
+        String value = candidate.value();
+        String valuePreview = value.length() <= 100 ? value
+                : value.substring(0, 48) + "..." + value.substring(value.length() - 49);
         targetsPanel.add(new JLabel(MessageFormat.format(
                 JMeterUtils.getResString("regex_test_replace_confirmation"), //$NON-NLS-1$
-                candidate.variableName(), candidate.value())));
+                candidate.variableName(), valuePreview)));
         targetsPanel.add(Box.createVerticalStrut(8));
         for (ReplacementTarget target : targets) {
             targetsPanel.add(new JLabel(MessageFormat.format(
                     JMeterUtils.getResString("regex_test_replacement_target"), //$NON-NLS-1$
                     formatNodePath(target.node()), target.occurrences())));
         }
+        JScrollPane targetsScroll = new JScrollPane(targetsPanel);
+        Dimension preferredSize = targetsScroll.getPreferredSize();
+        targetsScroll.setPreferredSize(new Dimension(
+                Math.min(preferredSize.width, 720), Math.min(preferredSize.height, 360)));
         int answer = JOptionPane.showConfirmDialog(
-                gui.getMainFrame(), targetsPanel,
+                gui.getMainFrame(), targetsScroll,
                 JMeterUtils.getResString("regex_test_replacement"), //$NON-NLS-1$
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (answer != JOptionPane.OK_OPTION) {

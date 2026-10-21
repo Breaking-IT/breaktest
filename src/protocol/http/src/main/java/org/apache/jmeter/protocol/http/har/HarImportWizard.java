@@ -230,6 +230,7 @@ public class HarImportWizard extends JDialog {
     private final HarCorrelationMatchesPanel correlationsPanel = new HarCorrelationMatchesPanel();
     private final JLabel correlationsSummary = new JLabel(" ");
     private final JTextArea correlationWarnings = new JTextArea();
+    private final JScrollPane correlationWarningsScroll = new JScrollPane(correlationWarnings);
     private List<HarPredefinedCorrelation> predefinedCorrelations = List.of();
     private SwingWorker<List<HarPredefinedCorrelation>, Void> correlationWorker;
     private boolean correlationAnalysisComplete;
@@ -632,10 +633,10 @@ public class HarImportWizard extends JDialog {
         correlationWarnings.setEditable(false);
         correlationWarnings.setLineWrap(true);
         correlationWarnings.setWrapStyleWord(true);
-        JScrollPane warningsScroll = new JScrollPane(correlationWarnings);
-        warningsScroll.setPreferredSize(new Dimension(600, 65));
-        warningsScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
-        heading.add(warningsScroll);
+        correlationWarningsScroll.setPreferredSize(new Dimension(600, 65));
+        correlationWarningsScroll.setAlignmentX(Component.LEFT_ALIGNMENT);
+        correlationWarningsScroll.setVisible(false);
+        heading.add(correlationWarningsScroll);
         panel.add(heading, BorderLayout.NORTH);
 
         JScrollPane scroll = new JScrollPane(correlationsPanel);
@@ -655,6 +656,7 @@ public class HarImportWizard extends JDialog {
         correlationsPanel.setCorrelations(List.of());
         correlationsSummary.setText(" ");
         correlationWarnings.setText("");
+        correlationWarningsScroll.setVisible(false);
         correlationsPanel.removeAll();
         correlationsPanel.add(new JLabel(JMeterUtils.getResString("har_import_correlations_analyzing")));
         JProgressBar progress = new JProgressBar(0, 100);
@@ -683,6 +685,7 @@ public class HarImportWizard extends JDialog {
                 try {
                     predefinedCorrelations = get();
                     correlationWarnings.setText(String.join("\n", HarPredefinedCorrelation.diagnostics(correlationRules)));
+                    correlationWarningsScroll.setVisible(!correlationWarnings.getText().isBlank());
                     correlationAnalysisComplete = true;
                     rebuildCorrelationsPanel();
                 } catch (CancellationException ignored) {
