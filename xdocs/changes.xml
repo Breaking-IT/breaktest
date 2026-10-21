@@ -24,6 +24,47 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.10.21 — Script Readiness, Archive History, and HTTP Connection Reuse</h1>
+<p>This release adds evidence-based script readiness checks, recoverable saves inside JMX archives, and shared HTTP connection state within each virtual user. It also improves protocol selection, connection timing, and correlation dialogs.</p>
+<ch_section>Check Whether a Script Is Ready to Run</ch_section>
+<ul>
+<li><b>Tools &gt; Check script readiness...</b> opens a wizard that checks the selected or all thread groups: successful validation, transaction verification coverage, unused and unmatched extractions, extractor processing time, think time, unresolved <code>${...}</code> values sent in requests, files and configuration, validation exercise coverage, hardcoded recorded values, and optional repeatability in a fresh session.</li>
+<li><b>Runtime evidence from a normal validation.</b> The readiness validation goes through the usual validation path with per-run settings. Supported extractors report every match outcome, extractor time is measured apart from the request (also offline against captured responses), and sent URLs, headers and request data are scanned for literal and URL-encoded <code>${...}</code>.</li>
+<li><b>An honest verdict.</b> Ready, Needs attention or Not verified, with counts instead of a score. Runtime checks without current evidence are Not verified; a content fingerprint marks evidence stale after any plan edit. Running a subset of the checks never gives Ready.</li>
+<li><b>Response bodies that scripts need, and those nobody needs.</b> A script reading the previous response body (JSR223 or BeanShell, or <code>${__groovy(...)}</code> in a field) is a warning when requests of its thread group discard successful bodies, since validation keeps every body and would not show the script reading an empty one. Without such scripts, a suggestion points out requests whose successful bodies nothing needs and recommends Store on error only, usually once on HTTP Request Defaults. Suggestions never change the verdict.</li>
+<li><b>Accepted exceptions travel with the script.</b> Accept a finding with a reason, mark an extractor optional or a transaction as background activity. Exceptions are stored on the element in the JMX, are undoable, and unused ones are listed.</li>
+</ul>
+<p>Evidence stays in memory, is redacted and never logged at INFO or above. Large or binary request bodies may be truncated in recorded request data, so unresolved values in them are not verified. Exceptions can be dropped by the few legacy editors that rebuild their element on edit. See the user manual section <em>Script readiness</em> for details.</p>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/268">#268</a>.</p>
+<ch_section>Recover Earlier Saves and Manage Archive Files</ch_section>
+<ul>
+<li><b>Keep saved versions inside the JMX archive.</b> Open the Test Plan's Versions tab or <b>Tools &gt; Version History</b> to inspect and open earlier saves. Opening a version leaves the saved latest plan intact until Save; saving preserves the previous latest as another version.</li>
+<li><b>Share unchanged attachments across versions.</b> History reuses attachment content by checksum while retaining changed and removed files needed by older plans. Delete selected versions together to remove history and content no surviving version needs.</li>
+<li><b>Browse folders and replace files in place.</b> The Archive browser starts at the archive root, supports folder navigation, and links to Version History. Replace file keeps the archive path and plan references intact; the next save preserves the previously saved contents in history.</li>
+</ul>
+<p>Version sizes exclude shared attachment content. Internal history files are protected from generic replacement and deletion. Failed saves preserve the original archive, and unreadable history is retained when recovery cannot safely inspect its dependencies.</p>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/272">#272</a>.</p>
+<ch_section>Reuse HTTP Connections Within Each Virtual User</ch_section>
+<ul>
+<li><b>Share HTTP/1.1 pools and TLS sessions across sequential and parallel requests.</b> Virtual users remain isolated. HTTP Request Defaults adds per-host connection limits (default six), connection availability timeouts, and keep-alive controls under Protocol &amp; Connections.</li>
+<li><b>Reuse HTTP/2 connections across eligible hosts.</b> Coalescing checks DNS, certificates, port, and client identity, and is enabled by default, including for existing scripts without an explicit setting. Disable it in HTTP Request Defaults when separate connections per origin are required.</li>
+<li><b>Upgrade Automatic HTTPS after discovery.</b> On Java 27+, Automatic starts with HC5 TCP/TLS negotiation and can use native Java HTTP/3 after a same-host, same-port Alt-Svc advertisement. New Automatic profiles enable the upgrade checkbox; explicit HTTP/1.1 and HTTP/2 do not upgrade. Failed HTTP/3 attempts clear discovery and apply a cooldown without replaying the failed request.</li>
+<li><b>Show only measured connection times.</b> Reused connections and unavailable HTTP/3 setup timings appear blank and do not contribute to connection-time averages. Actual measured zero values remain zero. Successful initial HTTP/1.1 pool waits are excluded from request start, elapsed time, and latency; surrounding transactions retain their full duration.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/269">#269</a>.</p>
+<ch_section>Reliability and Editor Fixes</ch_section>
+<ul>
+<li>Preserve page bodies needed for embedded-resource parsing even when successful response bodies are discarded, and fix compressed response cleanup while retaining lazy decoding.</li>
+<li>Keep correlation review controls usable in smaller windows and bound replacement confirmation dialogs for long values.</li>
+<li>Reset HTTP and TLS state when starting a new user, recover closed coalesced connection leases, and prevent late advertisements from bypassing HTTP/3 cooldown.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/269">#269</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/270">#270</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/271">#271</a>.</p>
+<ch_section>Upgrade Notes</ch_section>
+<p>Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later and remains a beta transport. Native HTTP/3 does not provide cross-host QUIC coalescing or measured QUIC connect times.</p>
+<p>Connection-time exports now distinguish missing measurements: CSV leaves Connect empty, and XML omits the connect-time attribute. Consumers must accept missing values. Older numeric results, including zero, remain readable without reinterpretation.</p>
+<p>Existing scripts without an HTTP/2 coalescing setting now enable it. Existing Automatic protocol settings retain their legacy preferences unless explicitly overridden in the plan. The deprecated <code>httpsampler.http3.force_http3=false</code> now uses HC5 Automatic negotiation with Alt-Svc upgrade instead of JDK TCP fallback.</p>
+<p><a href="https://github.com/Breaking-IT/breaktest/compare/2026.10.16...2026.10.21">Full changelog since 2026.10.16</a></p>
+
 <h1>BreakTest 2026.10.16 — OpenAPI Import, Structured Data Sets, and Resumable Validation</h1>
 <p>This feature release expands how you build and debug tests: generate reusable requests from an API specification, drive iterations with JSON, XML, or YAML data, and continue validation from a failed request after editing the plan. Request replay and cURL export make individual calls easier to investigate, alongside editor improvements and a Groovy 6 upgrade.</p>
 <ch_section>Turn API Specifications into Reusable Requests</ch_section>
