@@ -60,9 +60,9 @@ Sources: [#269](https://github.com/Breaking-IT/breaktest/pull/269), [#270](https
 
 Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later and remains a beta transport. Native HTTP/3 does not provide cross-host QUIC coalescing or measured QUIC connect times.
 
-Connection-time exports now distinguish missing measurements: CSV leaves Connect empty, and XML omits the connect-time attribute. Consumers must accept missing values. Older numeric results, including zero, remain readable without reinterpretation.
+Connection-time exports now distinguish missing measurements: CSV leaves Connect empty, and XML omits the connect-time attribute. Consumers must accept missing values. Older numeric results, including zero, remain readable without reinterpretation. Aggregated XML results in statistical mode also add a `ctc` attribute with the number of samples that measured a connection time; older aggregated results without it assume every sample was measured.
 
-Existing scripts without an HTTP/2 coalescing setting now enable it. Existing Automatic protocol settings retain their legacy preferences unless explicitly overridden in the plan. The deprecated `httpsampler.http3.force_http3=false` now uses HC5 Automatic negotiation with Alt-Svc upgrade instead of JDK TCP fallback.
+Existing scripts without an HTTP/2 coalescing setting now enable it. Existing Automatic protocol settings retain their legacy preferences unless explicitly overridden in the plan. For explicit HTTP/3 selections in scripts without a saved HTTP/3 upgrade setting, the deprecated `httpsampler.http3.force_http3=false` now uses HC5 Automatic negotiation with Alt-Svc upgrade instead of JDK TCP fallback.
 
 [Full changelog since 2026.10.16](https://github.com/Breaking-IT/breaktest/compare/2026.10.16...2026.10.21)
 
