@@ -77,6 +77,42 @@ public final class ArchiveBrowser {
         return contents;
     }
 
+    /** Immediate children only; directory paths keep their trailing slash. */
+    static Map<String, Object> children(Map<String, Object> files, String directory) {
+        Map<String, Object> children = new TreeMap<>();
+        files.forEach((path, size) -> {
+            if (!path.startsWith(directory) || path.equals(directory)) {
+                return;
+            }
+            int separator = path.indexOf('/', directory.length());
+            if (separator >= 0) {
+                children.put(path.substring(0, separator + 1), "Folder");
+            } else {
+                children.put(path, size);
+            }
+        });
+        return children;
+    }
+
+    private static Map<String, Object> browserEntries() throws IOException {
+        Map<String, Object> files = new TreeMap<>();
+        String saved = GuiPackage.getInstance().getTestPlanFile();
+        if (saved != null && Files.isRegularFile(Path.of(saved))) {
+            try (var zip = new java.util.zip.ZipFile(saved)) {
+                zip.stream().filter(entry -> entry.getName().startsWith("versions/")
+                        || entry.getName().equals(SaveService.TEST_PLAN_ZIP_ENTRY))
+                        .forEach(entry -> files.put(entry.getName(), entry.getSize()));
+            } catch (java.util.zip.ZipException ex) {
+                // A plain XML plan has no internal archive directories yet.
+            }
+        }
+        Map<String, byte[]> contents = archiveContents();
+        contents.forEach((entry, bytes) -> files.put(entry, bytes.length));
+        entries().keySet().stream().filter(entry -> !contents.containsKey(entry)).forEach(entry ->
+                files.put(entry, JMeterUtils.getResString("archive_file_unavailable")));
+        return files;
+    }
+
     public static String chooseFile(Component parent) {
         return chooseFile(parent, null);
     }
@@ -116,13 +152,42 @@ public final class ArchiveBrowser {
         DefaultTableCellRenderer sizeRenderer = new DefaultTableCellRenderer();
         sizeRenderer.setHorizontalAlignment(JLabel.RIGHT);
         sizeColumn.setCellRenderer(sizeRenderer);
+        String[] directory = {""};
+        JLabel location = new JLabel("/");
+        JButton up = new JButton("Up");
         Runnable refresh = () -> {
             model.setRowCount(0);
-            Map<String, byte[]> contents = archiveContents();
-            contents.forEach((entry, bytes) -> model.addRow(new Object[] {entry, bytes.length}));
-            entries().keySet().stream().filter(entry -> !contents.containsKey(entry)).forEach(entry ->
-                    model.addRow(new Object[] {entry, JMeterUtils.getResString("archive_file_unavailable")}));
+            try {
+                children(browserEntries(), directory[0]).forEach((entry, size) ->
+                        model.addRow(new Object[]{entry.substring(directory[0].length()), size}));
+            } catch (IOException ex) {
+                showError(dialog, ex);
+            }
+            location.setText("/" + directory[0]);
+            up.setEnabled(!directory[0].isEmpty());
         };
+        Runnable openFolder = () -> {
+            int row = table.getSelectedRow();
+            if (row >= 0 && model.getValueAt(row, 0).toString().endsWith("/")) {
+                directory[0] += model.getValueAt(row, 0).toString();
+                refresh.run();
+            }
+        };
+        JButton open = new JButton("Open folder");
+        open.addActionListener(event -> openFolder.run());
+        table.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent event) {
+                if (event.getClickCount() == 2) {
+                    openFolder.run();
+                }
+            }
+        });
+        up.addActionListener(event -> {
+            String current = directory[0];
+            directory[0] = current.substring(0, current.lastIndexOf('/', current.length() - 2) + 1);
+            refresh.run();
+        });
         refresh.run();
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton add = new JButton(JMeterUtils.getResString("archive_add"));
@@ -135,12 +200,13 @@ public final class ArchiveBrowser {
             for (File file : chooser.getSelectedFiles()) {
                 try {
                     byte[] bytes = Files.readAllBytes(file.toPath());
-                    String entry = ArchiveFiles.entryName(file.getName());
+                    String entry = ArchiveFiles.entryName(directory[0].startsWith("files/")
+                            ? directory[0] + file.getName() : file.getName());
                     String existing = entries().get(entry);
-                    if (existing != null && !existing.equals(ArchiveFiles.checksum(bytes))) {
-                        throw new IOException("A different file already uses " + entry + ". Use a unique filename.");
+                    if (existing != null && !confirmReplacement(dialog, entry)) {
+                        continue;
                     }
-                    ArchiveFiles.put(ArchiveFiles.currentPlan(), entry, bytes, false);
+                    ArchiveFiles.put(ArchiveFiles.currentPlan(), entry, bytes, existing != null);
                     GuiPackage.getInstance().setDirty(true);
                 } catch (IOException | RuntimeException ex) {
                     showError(dialog, ex);
@@ -148,13 +214,42 @@ public final class ArchiveBrowser {
             }
             refresh.run();
         });
+        JButton replace = new JButton(JMeterUtils.getResString("archive_replace"));
+        replace.addActionListener(event -> {
+            int row = table.getSelectedRow();
+            if (row < 0) {
+                return;
+            }
+            String entry = directory[0] + model.getValueAt(row, 0);
+            if (!entry.startsWith("files/") || entry.endsWith("/")) {
+                return;
+            }
+            JFileChooser chooser = new JFileChooser();
+            chooser.setDialogTitle(JMeterUtils.getResString("archive_replace"));
+            if (chooser.showOpenDialog(dialog) != JFileChooser.APPROVE_OPTION) {
+                return;
+            }
+            try {
+                byte[] bytes = Files.readAllBytes(chooser.getSelectedFile().toPath());
+                if (confirmReplacement(dialog, entry)) {
+                    ArchiveFiles.put(ArchiveFiles.currentPlan(), entry, bytes, true);
+                    GuiPackage.getInstance().setDirty(true);
+                    refresh.run();
+                }
+            } catch (IOException | RuntimeException ex) {
+                showError(dialog, ex);
+            }
+        });
         JButton export = new JButton(JMeterUtils.getResString("archive_export"));
         export.addActionListener(event -> {
             int row = table.getSelectedRow();
             if (row < 0) {
                 return;
             }
-            String entry = model.getValueAt(row, 0).toString();
+            String entry = directory[0] + model.getValueAt(row, 0).toString();
+            if (entry.endsWith("/")) {
+                return;
+            }
             JFileChooser chooser = new JFileChooser();
             chooser.setSelectedFile(Path.of(entry).getFileName().toFile());
             if (chooser.showSaveDialog(dialog) != JFileChooser.APPROVE_OPTION) {
@@ -168,6 +263,12 @@ public final class ArchiveBrowser {
             }
             try {
                 byte[] bytes = archiveContents().get(entry);
+                if (bytes == null && (entry.startsWith("versions/") || entry.equals(SaveService.TEST_PLAN_ZIP_ENTRY))) {
+                    String saved = GuiPackage.getInstance().getTestPlanFile();
+                    if (saved != null) {
+                        bytes = SaveService.readArchiveEntry(new File(saved), entry).orElse(null);
+                    }
+                }
                 if (bytes == null) {
                     throw new IOException("Archive file content is unavailable: " + entry);
                 }
@@ -182,8 +283,8 @@ public final class ArchiveBrowser {
             if (row < 0) {
                 return;
             }
-            String entry = model.getValueAt(row, 0).toString();
-            if (!entry.startsWith("files/")) {
+            String entry = directory[0] + model.getValueAt(row, 0).toString();
+            if (!entry.startsWith("files/") || entry.endsWith("/")) {
                 JOptionPane.showMessageDialog(dialog, JMeterUtils.getResString("archive_delete_recording"));
                 return;
             }
@@ -200,8 +301,8 @@ public final class ArchiveBrowser {
         reference.addActionListener(event -> {
             int row = table.getSelectedRow();
             if (row >= 0) {
-                String entry = model.getValueAt(row, 0).toString();
-                if (entry.startsWith("files/")) {
+                String entry = directory[0] + model.getValueAt(row, 0).toString();
+                if (entry.startsWith("files/") && !entry.endsWith("/")) {
                     Toolkit.getDefaultToolkit().getSystemClipboard().setContents(
                             new StringSelection("${__archiveFile(" + entry.substring("files/".length()) + ")}"), null);
                 }
@@ -214,19 +315,53 @@ public final class ArchiveBrowser {
         orphans.addActionListener(event -> cleanRecordings(dialog, refresh, RecordingStorageMode.ALL, true));
         JButton close = new JButton(JMeterUtils.getResString("close"));
         close.addActionListener(event -> dialog.dispose());
+        Runnable updateActions = () -> {
+            int row = table.getSelectedRow();
+            boolean selected = row >= 0;
+            String entry = selected ? directory[0] + model.getValueAt(row, 0) : "";
+            boolean folder = entry.endsWith("/");
+            open.setEnabled(selected && folder);
+            export.setEnabled(selected && !folder);
+            replace.setEnabled(selected && !folder && entry.startsWith("files/"));
+            delete.setEnabled(selected && !folder && entry.startsWith("files/"));
+            reference.setEnabled(selected && !folder && entry.startsWith("files/"));
+        };
+        table.getSelectionModel().addListSelectionListener(event -> updateActions.run());
+        updateActions.run();
         buttons.add(add);
+        buttons.add(replace);
         buttons.add(export);
         buttons.add(delete);
         buttons.add(reference);
         buttons.add(cleanup);
         buttons.add(orphans);
         buttons.add(close);
-        dialog.add(new JLabel(JMeterUtils.getResString("archive_help")), BorderLayout.NORTH);
+        JPanel navigation = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        navigation.add(up);
+        navigation.add(open);
+        navigation.add(location);
+        JButton history = new JButton(JMeterUtils.getResString("version_history"));
+        history.addActionListener(event -> {
+            dialog.dispose();
+            org.apache.jmeter.control.gui.TestPlanGui.showVersionHistory();
+        });
+        navigation.add(history);
+        JPanel header = new JPanel(new BorderLayout());
+        header.add(navigation, BorderLayout.NORTH);
+        header.add(new JLabel(JMeterUtils.getResString("archive_help")), BorderLayout.SOUTH);
+        dialog.add(header, BorderLayout.NORTH);
         dialog.add(new JScrollPane(table), BorderLayout.CENTER);
         dialog.add(buttons, BorderLayout.SOUTH);
-        dialog.setSize(1000, 460);
+        dialog.setSize(1150, 460);
         dialog.setLocationRelativeTo(parent);
         dialog.setVisible(true);
+    }
+
+    private static boolean confirmReplacement(Component parent, String entry) {
+        return JOptionPane.showConfirmDialog(parent,
+                MessageFormat.format(JMeterUtils.getResString("archive_replace_confirm"), entry),
+                JMeterUtils.getResString("archive_replace"), JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.QUESTION_MESSAGE) == JOptionPane.OK_OPTION;
     }
 
     private static HashTree testElementTree(HashTree source) {

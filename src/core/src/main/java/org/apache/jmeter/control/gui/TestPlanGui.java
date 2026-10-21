@@ -81,6 +81,7 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
     private final ArgumentsPanel argsPanel;
 
     private final FileListPanel browseJar;
+    private final JTabbedPane tabs = new JTabbedPane();
     private final ArchiveVersionsPanel versionsPanel = new ArchiveVersionsPanel();
 
     /**
@@ -212,7 +213,6 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
 
         add(makeTitlePanel(), BorderLayout.NORTH);
 
-        JTabbedPane tabs = new JTabbedPane();
         tabs.addTab(JMeterUtils.getResString("user_defined_variables"), argsPanel);
         tabs.addTab("Versions", versionsPanel);
         tabs.addChangeListener(event -> {
@@ -231,6 +231,19 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
         southPanel.add(browseJar);
 
         add(southPanel, BorderLayout.SOUTH);
+    }
+
+    /** Selects the test plan and opens its history from anywhere in the editor. */
+    public static void showVersionHistory() {
+        org.apache.jmeter.gui.GuiPackage gui = org.apache.jmeter.gui.GuiPackage.getInstance();
+        gui.updateCurrentNode();
+        var node = (org.apache.jmeter.gui.tree.JMeterTreeNode) gui.getTreeModel().getTestPlan().getArray()[0];
+        gui.getMainFrame().getTree().setSelectionPath(new javax.swing.tree.TreePath(node.getPath()));
+        gui.updateCurrentGui();
+        if (gui.getCurrentGui() instanceof TestPlanGui editor) {
+            editor.tabs.setSelectedComponent(editor.versionsPanel);
+            editor.versionsPanel.refresh();
+        }
     }
 
     @Override

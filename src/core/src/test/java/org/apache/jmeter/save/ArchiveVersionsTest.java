@@ -335,4 +335,32 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
         }
     }
 
+    @Test
+    void replacingSharedFileKeepsReferencesAndPreviouslySavedContents() throws Exception {
+        Path file = directory.resolve("replace.jmx");
+        TestPlan current = testPlan("CSV plan");
+        byte[] oldContent = {1, 2, 3};
+        byte[] newContent = {4, 5, 6};
+        ArchiveFiles.put(current, "data.csv", oldContent, false);
+        current.setProperty("fileReference", "${__archiveFile(data.csv)}");
+        current.setProperty(JmxArchiveEntryStore.CSV_ENTRY_PROPERTY, "files/data.csv");
+        current.setProperty(JmxArchiveEntryStore.CSV_CHECKSUM_PROPERTY, ArchiveFiles.checksum(oldContent));
+        HashTree tree = new ListedHashTree(current);
+        SaveService.saveTreeToFile(tree, file);
+        byte[] saved = Files.readAllBytes(file);
+        ArchiveFiles.put(current, "files/data.csv", newContent, true);
+        assertArrayEquals(saved, Files.readAllBytes(file), "Replacement is staged until Save");
+        assertEquals(Set.of("files/data.csv"), ArchiveFiles.references(current).keySet());
+        assertEquals("${__archiveFile(data.csv)}", current.getPropertyAsString("fileReference"));
+        SaveService.saveTreeToFile(tree, file);
+        assertArrayEquals(newContent, SaveService.readArchiveEntry(file.toFile(), "files/data.csv").orElseThrow());
+        var versions = current.getArchiveVersions();
+        HashTree old = versions.open(versions.list().get(0).entry());
+        assertEquals(ArchiveFiles.checksum(oldContent), ArchiveFiles.references(plan(old)).get("files/data.csv"));
+        assertEquals("${__archiveFile(data.csv)}", plan(old).getPropertyAsString("fileReference"));
+        Path restored = directory.resolve("restored.csv.jmx");
+        SaveService.saveTreeToFile(old, restored);
+        assertArrayEquals(oldContent, SaveService.readArchiveEntry(restored.toFile(), "files/data.csv").orElseThrow());
+    }
+
 }
