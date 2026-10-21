@@ -47,13 +47,17 @@ import java.util.zip.ZipOutputStream;
 
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jorphan.collections.HashTree;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Archive-local history. Snapshots contain XML and attachment checksums. Content is
  * shared with the latest plan's ordinary entries, or stored once in versions/blobs/.
- * Rewriting history retains only blobs referenced by a surviving snapshot.
+ * Rewriting history retains only blobs referenced by a surviving snapshot. Versions
+ * whose content is missing or corrupt are carried over unchanged rather than blocking a save.
  */
 public final class ArchiveVersions {
+    private static final Logger log = LoggerFactory.getLogger(ArchiveVersions.class);
     public static final String DIRECTORY = "versions/";
     static final String BLOBS = DIRECTORY + "blobs/";
     private static final String MANIFEST = "__breaktest_version_attachments_v1.properties";
@@ -105,27 +109,59 @@ public final class ArchiveVersions {
         return digest(new ByteArrayInputStream(bytes));
     }
 
-    private static String digest(InputStream input) throws IOException {
-        try (DigestInputStream stream = new DigestInputStream(input, MessageDigest.getInstance("SHA-256"))) {
-            stream.transferTo(java.io.OutputStream.nullOutputStream());
-            return HexFormat.of().formatHex(stream.getMessageDigest().digest());
+    static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException(e);
         }
     }
 
-    /** Copies history and backs up the saved latest plan, sharing content already written by SaveService. */
-    public void writeTo(ZipOutputStream output, Set<String> latestContent) throws IOException {
+    private static String digest(InputStream input) throws IOException {
+        try (DigestInputStream stream = new DigestInputStream(input, sha256())) {
+            stream.transferTo(java.io.OutputStream.nullOutputStream());
+            return HexFormat.of().formatHex(stream.getMessageDigest().digest());
+        }
+    }
+
+    /**
+     * Copies history and backs up the previously saved plan unless it equals the plan being saved,
+     * sharing content already written by SaveService. An unreadable source archive only skips history:
+     * nothing has been written yet, so the latest plan is still saved.
+     *
+     * @param latestXml SHA-256 of the testplan.jmx being saved
+     * @param latestContent entries being saved, mapped to their SHA-256 content
+     */
+    public void writeTo(ZipOutputStream output, String latestXml, Map<String, String> latestContent)
+            throws IOException {
         if (source == null) {
             return;
         }
-        try (ZipFile zip = new ZipFile(source.toFile())) {
-            Catalog catalog = new Catalog(zip);
-            Set<String> written = new HashSet<>(latestContent);
+        ZipFile zip;
+        try {
+            zip = new ZipFile(source.toFile());
+        } catch (IOException e) {
+            log.warn("Saving without version history; cannot read {}: {}", source, e.toString());
+            return;
+        }
+        try (zip) {
+            Catalog catalog;
+            byte[] previousXml;
+            try {
+                catalog = new Catalog(zip);
+                previousXml = read(zip, SaveService.TEST_PLAN_ZIP_ENTRY);
+            } catch (IOException e) {
+                log.warn("Saving without version history; cannot read {}: {}", source, e.toString());
+                return;
+            }
+            Set<String> written = new HashSet<>(latestContent.values());
             writeHistory(zip, output, catalog, written, Set.of());
+            if (digest(previousXml).equals(latestXml) && catalog.latest.equals(latestContent)) {
+                return; // Saving an unchanged plan would only duplicate the latest as a version.
+            }
             ZipEntry previous = zip.getEntry(SaveService.TEST_PLAN_ZIP_ENTRY);
             String name = DIRECTORY + System.currentTimeMillis() + "-" + UUID.randomUUID() + ".jmx";
-            Snapshot snapshot = new Snapshot(read(zip, SaveService.TEST_PLAN_ZIP_ENTRY), catalog.latest);
+            Snapshot snapshot = new Snapshot(previousXml, catalog.latest);
             writeSnapshot(output, name, previous.getTime(), snapshot);
             writeContent(output, snapshot, catalog, written);
         }
@@ -171,15 +207,7 @@ public final class ArchiveVersions {
                 Catalog catalog = new Catalog(zip);
                 for (ZipEntry entry : Collections.list(zip.entries())) {
                     if (!entry.getName().startsWith(DIRECTORY)) {
-                        ZipEntry copy = new ZipEntry(entry.getName());
-                        if (entry.getTime() >= 0) {
-                            copy.setTime(entry.getTime());
-                        }
-                        output.putNextEntry(copy);
-                        try (InputStream input = zip.getInputStream(entry)) {
-                            input.transferTo(output);
-                        }
-                        output.closeEntry();
+                        copyEntry(zip, entry, output);
                     }
                 }
                 writeHistory(zip, output, catalog, new HashSet<>(catalog.latest.values()), names);
@@ -200,23 +228,53 @@ public final class ArchiveVersions {
     private static void writeHistory(ZipFile zip, ZipOutputStream output, Catalog catalog,
             Set<String> written, Set<String> excluded) throws IOException {
         for (ZipEntry entry : Collections.list(zip.entries())) {
-            if (isVersion(entry.getName()) && !entry.isDirectory() && !excluded.contains(entry.getName())) {
-                Snapshot snapshot = readSnapshot(zip, entry.getName(), catalog);
-                writeSnapshot(output, entry.getName(), entry.getTime(), snapshot);
-                writeContent(output, snapshot, catalog, written);
+            if (!isVersion(entry.getName()) || entry.isDirectory() || excluded.contains(entry.getName())) {
+                continue;
             }
+            Snapshot snapshot;
+            try {
+                snapshot = readSnapshot(zip, entry.getName(), catalog);
+            } catch (IOException e) {
+                log.warn("Keeping unreadable archive version {} unchanged: {}", entry.getName(), e.getMessage());
+                copyEntry(zip, entry, output);
+                continue;
+            }
+            if (snapshot.attachments.values().stream().allMatch(hash -> catalog.contents.containsKey(hash)
+                    || written.contains(hash))) {
+                writeSnapshot(output, entry.getName(), entry.getTime(), snapshot);
+            } else {
+                // Keep it, and any damaged content, so it can still be inspected or deleted explicitly.
+                log.warn("Keeping archive version {} unchanged; its attachment content is missing or corrupt",
+                        entry.getName());
+                copyEntry(zip, entry, output);
+            }
+            writeContent(output, snapshot, catalog, written);
         }
     }
 
     private static void writeContent(ZipOutputStream output, Snapshot snapshot, Catalog catalog,
             Set<String> written) throws IOException {
         for (String hash : snapshot.attachments.values()) {
-            if (written.add(hash)) {
+            if (!catalog.contents.containsKey(hash) && !written.contains(hash)) {
+                catalog.copyDamaged(hash, output);
+            } else if (written.add(hash)) {
                 output.putNextEntry(new ZipEntry(BLOBS + hash));
                 catalog.copy(hash, output);
                 output.closeEntry();
             }
         }
+    }
+
+    private static void copyEntry(ZipFile zip, ZipEntry entry, ZipOutputStream output) throws IOException {
+        ZipEntry copy = new ZipEntry(entry.getName());
+        if (entry.getTime() >= 0) {
+            copy.setTime(entry.getTime());
+        }
+        output.putNextEntry(copy);
+        try (InputStream input = zip.getInputStream(entry)) {
+            input.transferTo(output);
+        }
+        output.closeEntry();
     }
 
     private static Snapshot readSnapshot(ZipFile zip, String name, Catalog catalog) throws IOException {
@@ -308,10 +366,16 @@ public final class ArchiveVersions {
 
     /** Keep existing blobs on disk; only stream their contents when needed. */
     private static final class Catalog {
+        /** Verified content by SHA-256. */
         private final Map<String, Content> contents = new HashMap<>();
         private final Map<String, String> latest = new LinkedHashMap<>();
+        /** Blobs whose content no longer matches their name. */
+        private final Map<String, ZipEntry> damaged = new HashMap<>();
+        private final Set<String> damagedWritten = new HashSet<>();
+        private final ZipFile zip;
 
         private Catalog(ZipFile zip) throws IOException {
+            this.zip = zip;
             for (ZipEntry entry : Collections.list(zip.entries())) {
                 String name = entry.getName();
                 if (entry.isDirectory() || SaveService.TEST_PLAN_ZIP_ENTRY.equals(name)) {
@@ -319,8 +383,13 @@ public final class ArchiveVersions {
                 }
                 if (name.startsWith(BLOBS)) {
                     String hash = name.substring(BLOBS.length());
-                    if (hash.matches("[a-f0-9]{64}")) {
+                    if (!hash.matches("[a-f0-9]{64}")) {
+                        continue;
+                    }
+                    if (hash.equals(digest(zip.getInputStream(entry)))) {
                         contents.putIfAbsent(hash, () -> zip.getInputStream(entry));
+                    } else {
+                        damaged.put(hash, entry);
                     }
                 } else if (!name.startsWith(DIRECTORY)) {
                     if (!JmxArchiveEntryStore.isSafeEntryName(name)) {
@@ -336,17 +405,24 @@ public final class ArchiveVersions {
         private void copy(String hash, ZipOutputStream output) throws IOException {
             Content content = contents.get(hash);
             if (content == null) {
-                throw new IOException("Missing version attachment content: " + hash);
+                throw new IOException((damaged.containsKey(hash) ? "Corrupt" : "Missing")
+                        + " version attachment content: " + hash);
             }
             try (InputStream input = content.open()) {
-                MessageDigest digest = MessageDigest.getInstance("SHA-256");
+                MessageDigest digest = sha256();
                 DigestInputStream checked = new DigestInputStream(input, digest);
                 checked.transferTo(output);
                 if (!hash.equals(HexFormat.of().formatHex(digest.digest()))) {
                     throw new IOException("Corrupt version attachment content: " + hash);
                 }
-            } catch (NoSuchAlgorithmException e) {
-                throw new IllegalStateException(e);
+            }
+        }
+
+        /** Carries a damaged blob over unchanged for the versions kept alongside it. */
+        private void copyDamaged(String hash, ZipOutputStream output) throws IOException {
+            ZipEntry entry = damaged.get(hash);
+            if (entry != null && damagedWritten.add(hash)) {
+                copyEntry(zip, entry, output);
             }
         }
     }

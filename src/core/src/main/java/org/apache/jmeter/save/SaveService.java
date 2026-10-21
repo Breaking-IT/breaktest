@@ -36,8 +36,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.security.DigestOutputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -296,7 +298,8 @@ public class SaveService {
                 : Files.createTempFile(target.getParent(), ".breaktest-save-", ".jmx");
         try {
             try (OutputStream output = Files.newOutputStream(temporary)) {
-                saveTree(tree, output);
+                // The destination is untouched until the move, so history can be copied from it safely.
+                saveTree(tree, output, true);
             }
             if (permissions != null) {
                 Files.setPosixFilePermissions(temporary, permissions);
@@ -351,20 +354,32 @@ public class SaveService {
         return r == null ? s : r;
     }
 
-    // Called by Save function
+    /**
+     * Saves the latest plan without archive version history. Use {@link #saveTreeToFile(HashTree, Path)}
+     * to keep history: it is copied from the loaded archive, which an in-place stream would already
+     * have truncated.
+     */
     public static void saveTree(HashTree tree, OutputStream out) throws IOException {
+        saveTree(tree, out, false);
+    }
+
+    private static void saveTree(HashTree tree, OutputStream out, boolean includeHistory) throws IOException {
         archiveWarnings(tree).forEach(message -> log.warn("{}", message));
         HashTree serializableTree = createSerializableTree(tree);
         validateSharedFilesForSave(serializableTree);
         try (ZipOutputStream zipOutputStream = new ZipOutputStream(
                 new BufferedOutputStream(new NonClosingOutputStream(out), 64 * 1024))) {
             zipOutputStream.putNextEntry(new ZipEntry(TEST_PLAN_ZIP_ENTRY));
-            saveTreeAsXml(serializableTree, zipOutputStream);
+            DigestOutputStream xml = new DigestOutputStream(new NonClosingOutputStream(zipOutputStream),
+                    ArchiveVersions.sha256());
+            saveTreeAsXml(serializableTree, xml);
+            xml.flush();
             zipOutputStream.closeEntry();
-            Set<String> latestContent = writeReferencedArchiveEntries(serializableTree, zipOutputStream);
+            Map<String, String> latestContent = writeReferencedArchiveEntries(serializableTree, zipOutputStream);
             TestPlan plan = findArchiveTestPlan(tree);
-            if (plan != null) {
-                plan.getArchiveVersions().writeTo(zipOutputStream, latestContent);
+            if (includeHistory && plan != null) {
+                plan.getArchiveVersions().writeTo(zipOutputStream,
+                        HexFormat.of().formatHex(xml.getMessageDigest().digest()), latestContent);
             }
         }
     }
@@ -462,9 +477,10 @@ public class SaveService {
         }
     }
 
-    private static Set<String> writeReferencedArchiveEntries(HashTree tree, ZipOutputStream zipOutputStream)
+    /** Returns the written entries mapped to their SHA-256 content. */
+    private static Map<String, String> writeReferencedArchiveEntries(HashTree tree, ZipOutputStream zipOutputStream)
             throws IOException {
-        Set<String> contentHashes = new LinkedHashSet<>();
+        Map<String, String> contentHashes = new LinkedHashMap<>();
         Set<String> writtenEntries = new LinkedHashSet<>();
         writtenEntries.add(TEST_PLAN_ZIP_ENTRY);
         for (Map.Entry<String, String> reference : collectArchiveReferences(tree).entrySet()) {
@@ -487,7 +503,7 @@ public class SaveService {
                 }
                 zipOutputStream.putNextEntry(new ZipEntry(bundleEntry.getKey()));
                 zipOutputStream.write(bundleEntry.getValue());
-                contentHashes.add(ArchiveVersions.digest(bundleEntry.getValue()));
+                contentHashes.put(bundleEntry.getKey(), ArchiveVersions.digest(bundleEntry.getValue()));
                 zipOutputStream.closeEntry();
             }
         }

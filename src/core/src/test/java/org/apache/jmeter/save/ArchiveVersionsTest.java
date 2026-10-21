@@ -54,6 +54,12 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
         return (TestPlan) tree.getArray()[0];
     }
 
+    /** Saves an edit; saving an unchanged plan intentionally adds no version. */
+    private static void saveEdit(TestPlan plan, HashTree tree, Path file) throws Exception {
+        plan.setProperty("revision", plan.getPropertyAsInt("revision") + 1);
+        SaveService.saveTreeToFile(tree, file);
+    }
+
     @Test
     void saveOpenSaveAsAndBulkDeletePreserveLatestAndHistory() throws Exception {
         Path file = directory.resolve("plan.jmx");
@@ -84,7 +90,7 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
         }));
         Path copy = directory.resolve("copy.jmx");
         SaveService.saveTreeToFile(new ListedHashTree(latest), copy);
-        assertEquals(3, latest.getArchiveVersions().list().size());
+        assertEquals(2, latest.getArchiveVersions().list().size(), "An unchanged Save As adds no version");
         Set<String> selected = latest.getArchiveVersions().list().stream()
                 .map(ArchiveVersions.Version::entry).collect(java.util.stream.Collectors.toSet());
         byte[] latestXml = SaveService.readArchiveEntry(copy.toFile(), SaveService.TEST_PLAN_ZIP_ENTRY).orElseThrow();
@@ -184,9 +190,9 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
         byte[] b = "name\nBob\n".getBytes(java.nio.charset.StandardCharsets.UTF_8);
         attach(current, a);
         HashTree tree = new ListedHashTree(current);
-        SaveService.saveTreeToFile(tree, file);
-        SaveService.saveTreeToFile(tree, file);
-        SaveService.saveTreeToFile(tree, file);
+        saveEdit(current, tree, file);
+        saveEdit(current, tree, file);
+        saveEdit(current, tree, file);
         assertEquals(0, blobs(file), "Unchanged content is shared directly with the latest entry");
         assertEquals(2, current.getArchiveVersions().list().size());
         for (var version : current.getArchiveVersions().list()) {
@@ -199,15 +205,15 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
         }
         current.setName("B");
         attach(current, b);
-        SaveService.saveTreeToFile(tree, file);
-        SaveService.saveTreeToFile(tree, file);
+        saveEdit(current, tree, file);
+        saveEdit(current, tree, file);
         assertEquals(1, blobs(file), "All A versions share one old copy");
         assertArrayEquals(a, SaveService.readArchiveEntry(file.toFile(), ArchiveVersions.BLOBS
                 + ArchiveVersions.digest(a)).orElseThrow());
         assertArrayEquals(b, SaveService.readArchiveEntry(file.toFile(), "files/data.csv").orElseThrow());
         current.setName("No file");
         current.removeProperty(ArchiveFiles.PROPERTY);
-        SaveService.saveTreeToFile(tree, file);
+        saveEdit(current, tree, file);
         assertEquals(2, blobs(file), "Removed files remain available to their versions");
         ArchiveVersions versions = current.getArchiveVersions();
         Set<String> aVersions = versionsNamed(versions, "A");
@@ -280,27 +286,94 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
     }
 
     @Test
-    void missingOrCorruptHistoricalContentFailsWithoutReplacingArchive() throws Exception {
+    void missingOrCorruptHistoricalContentIsKeptWithoutBlockingSaves() throws Exception {
         for (boolean missing : new boolean[]{true, false}) {
             Path file = directory.resolve("broken-" + missing + ".jmx");
             TestPlan current = testPlan("Old");
             byte[] a = {7, 8, 9};
             attach(current, a);
-            SaveService.saveTreeToFile(new ListedHashTree(current), file);
+            HashTree tree = new ListedHashTree(current);
+            SaveService.saveTreeToFile(tree, file);
             current.removeProperty(ArchiveFiles.PROPERTY);
-            SaveService.saveTreeToFile(new ListedHashTree(current), file);
+            SaveService.saveTreeToFile(tree, file);
             String name = current.getArchiveVersions().list().get(0).entry();
-            rewrite(file, ArchiveVersions.BLOBS + ArchiveVersions.digest(a), missing ? null : new byte[]{0});
-            byte[] damaged = Files.readAllBytes(file);
+            String blob = ArchiveVersions.BLOBS + ArchiveVersions.digest(a);
+            rewrite(file, blob, missing ? null : new byte[]{0});
+            byte[] brokenVersion = SaveService.readArchiveEntry(file.toFile(), name).orElseThrow();
             assertThrows(java.io.IOException.class, () -> current.getArchiveVersions().open(name));
-            assertThrows(java.io.IOException.class,
-                    () -> SaveService.saveTreeToFile(new ListedHashTree(current), file));
-            assertArrayEquals(damaged, Files.readAllBytes(file));
-            assertThrows(java.io.IOException.class, () -> current.getArchiveVersions().delete(Set.of()));
-            assertArrayEquals(damaged, Files.readAllBytes(file));
+
+            current.setName("Latest");
+            SaveService.saveTreeToFile(tree, file);
+            assertEquals("Latest", plan(SaveService.loadTree(file.toFile())).getName());
+            assertEquals(2, current.getArchiveVersions().list().size());
+            assertArrayEquals(brokenVersion, SaveService.readArchiveEntry(file.toFile(), name).orElseThrow(),
+                    "The broken version is kept unchanged");
+            assertEquals(missing ? 0 : 1, blobs(file), "Damaged content is carried over, never rewritten");
+            assertThrows(java.io.IOException.class, () -> current.getArchiveVersions().open(name));
+
+            current.getArchiveVersions().delete(Set.of());
+            assertEquals(2, current.getArchiveVersions().list().size());
             current.getArchiveVersions().delete(Set.of(name));
+            assertEquals(1, current.getArchiveVersions().list().size());
             assertEquals(0, blobs(file), "A broken version can be removed explicitly");
         }
+    }
+
+    @Test
+    void unchangedSaveAddsNoVersion() throws Exception {
+        Path file = directory.resolve("unchanged.jmx");
+        TestPlan current = testPlan("Plan");
+        attach(current, new byte[]{1, 2});
+        HashTree tree = new ListedHashTree(current);
+        SaveService.saveTreeToFile(tree, file);
+        SaveService.saveTreeToFile(tree, file);
+        SaveService.saveTreeToFile(tree, file);
+        assertTrue(current.getArchiveVersions().list().isEmpty());
+        attach(current, new byte[]{3, 4});
+        SaveService.saveTreeToFile(tree, file);
+        assertEquals(1, current.getArchiveVersions().list().size(), "Changed attachments are a new version");
+    }
+
+    @Test
+    void streamSaveExcludesHistoryAndCanOverwriteItsSource() throws Exception {
+        Path file = directory.resolve("in-place.jmx");
+        TestPlan current = testPlan("First");
+        HashTree tree = new ListedHashTree(current);
+        SaveService.saveTreeToFile(tree, file);
+        saveEdit(current, tree, file);
+        assertEquals(1, current.getArchiveVersions().list().size());
+        java.io.ByteArrayOutputStream first = new java.io.ByteArrayOutputStream();
+        SaveService.saveTree(tree, first);
+        java.io.ByteArrayOutputStream second = new java.io.ByteArrayOutputStream();
+        SaveService.saveTree(tree, second);
+        assertArrayEquals(first.toByteArray(), second.toByteArray(), "Stream saves are deterministic");
+
+        TestPlan loaded = plan(SaveService.loadTree(file.toFile()));
+        loaded.setName("Edited in place");
+        try (var output = Files.newOutputStream(file)) {
+            SaveService.saveTree(new ListedHashTree(loaded), output);
+        }
+        TestPlan reloaded = plan(SaveService.loadTree(file.toFile()));
+        assertEquals("Edited in place", reloaded.getName());
+        assertTrue(reloaded.getArchiveVersions().list().isEmpty());
+    }
+
+    @Test
+    void unreadableSourceSavesLatestWithoutHistory() throws Exception {
+        Path file = directory.resolve("moved.jmx");
+        TestPlan current = testPlan("Plan");
+        HashTree tree = new ListedHashTree(current);
+        SaveService.saveTreeToFile(tree, file);
+        saveEdit(current, tree, file);
+        Files.write(file, new byte[]{1, 2, 3});
+        current.setName("Recovered");
+        SaveService.saveTreeToFile(tree, file);
+        assertEquals("Recovered", plan(SaveService.loadTree(file.toFile())).getName());
+        Files.delete(file);
+        Path elsewhere = directory.resolve("elsewhere.jmx");
+        current.getArchiveVersions().setSource(file);
+        SaveService.saveTreeToFile(tree, elsewhere);
+        assertEquals("Recovered", plan(SaveService.loadTree(elsewhere.toFile())).getName());
     }
 
     @Test
@@ -318,8 +391,8 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
         current.setProperty(org.apache.jmeter.recording.RecordedExchangeStore.CHECKSUM_PROPERTY, recording.checksum());
         Path file = directory.resolve("recording.jmx");
         HashTree tree = new ListedHashTree(current);
-        SaveService.saveTreeToFile(tree, file);
-        SaveService.saveTreeToFile(tree, file);
+        saveEdit(current, tree, file);
+        saveEdit(current, tree, file);
         assertEquals(0, blobs(file));
         String version = current.getArchiveVersions().list().get(0).entry();
         current.removeProperty(org.apache.jmeter.recording.RecordedExchangeStore.MANIFEST_PROPERTY);
