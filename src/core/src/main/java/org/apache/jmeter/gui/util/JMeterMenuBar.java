@@ -277,6 +277,10 @@ public class JMeterMenuBar extends JMenuBar implements LocaleChangeListener {
             ArchiveBrowser.show(this);
         });
         toolsMenu.add(archive);
+        JMenuItem versions = new JMenuItem(JMeterUtils.getResString("version_history"));
+        versions.setName("version_history");
+        versions.addActionListener(event -> org.apache.jmeter.control.gui.TestPlanGui.showVersionHistory());
+        toolsMenu.add(versions);
         addPluginsMenuItems(toolsMenu, menuCreators, MENU_LOCATION.TOOLS);
     }
 

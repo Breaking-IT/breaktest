@@ -26,6 +26,7 @@ import java.util.Set;
 import org.apache.jmeter.NewDriver;
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.save.ArchiveFiles;
+import org.apache.jmeter.save.ArchiveVersions;
 import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.schema.PropertiesAccessor;
@@ -47,6 +48,19 @@ public class TestPlan extends AbstractTestElement implements Serializable, TestS
     // There's only 1 test plan, so can cache the mode here
     private static volatile boolean functionalMode = false;
 
+    private transient ArchiveVersions archiveVersions;
+
+    public ArchiveVersions getArchiveVersions() {
+        if (archiveVersions == null) {
+            archiveVersions = new ArchiveVersions();
+        }
+        return archiveVersions;
+    }
+
+    public void setArchiveVersions(ArchiveVersions versions) {
+        archiveVersions = versions;
+    }
+
     private transient Set<String> unavailableArchiveFiles = Set.of();
 
     public Set<String> getUnavailableArchiveFiles() {
@@ -61,6 +75,7 @@ public class TestPlan extends AbstractTestElement implements Serializable, TestS
     public Object clone() {
         TestPlan copy = (TestPlan) super.clone();
         copy.setUnavailableArchiveFiles(getUnavailableArchiveFiles());
+        copy.setArchiveVersions(getArchiveVersions());
         return copy;
     }
 

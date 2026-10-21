@@ -36,8 +36,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFileAttributeView;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.security.DigestOutputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -296,7 +298,8 @@ public class SaveService {
                 : Files.createTempFile(target.getParent(), ".breaktest-save-", ".jmx");
         try {
             try (OutputStream output = Files.newOutputStream(temporary)) {
-                saveTree(tree, output);
+                // The destination is untouched until the move, so history can be copied from it safely.
+                saveTree(tree, output, true);
             }
             if (permissions != null) {
                 Files.setPosixFilePermissions(temporary, permissions);
@@ -305,6 +308,10 @@ public class SaveService {
                 Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+            TestPlan plan = findArchiveTestPlan(tree);
+            if (plan != null) {
+                plan.getArchiveVersions().setSource(target);
             }
         } finally {
             Files.deleteIfExists(temporary);
@@ -347,17 +354,33 @@ public class SaveService {
         return r == null ? s : r;
     }
 
-    // Called by Save function
+    /**
+     * Saves the latest plan without archive version history. Use {@link #saveTreeToFile(HashTree, Path)}
+     * to keep history: it is copied from the loaded archive, which an in-place stream would already
+     * have truncated.
+     */
     public static void saveTree(HashTree tree, OutputStream out) throws IOException {
+        saveTree(tree, out, false);
+    }
+
+    private static void saveTree(HashTree tree, OutputStream out, boolean includeHistory) throws IOException {
         archiveWarnings(tree).forEach(message -> log.warn("{}", message));
         HashTree serializableTree = createSerializableTree(tree);
         validateSharedFilesForSave(serializableTree);
         try (ZipOutputStream zipOutputStream = new ZipOutputStream(
                 new BufferedOutputStream(new NonClosingOutputStream(out), 64 * 1024))) {
             zipOutputStream.putNextEntry(new ZipEntry(TEST_PLAN_ZIP_ENTRY));
-            saveTreeAsXml(serializableTree, zipOutputStream);
+            DigestOutputStream xml = new DigestOutputStream(new NonClosingOutputStream(zipOutputStream),
+                    ArchiveVersions.sha256());
+            saveTreeAsXml(serializableTree, xml);
+            xml.flush();
             zipOutputStream.closeEntry();
-            writeReferencedArchiveEntries(serializableTree, zipOutputStream);
+            Map<String, String> latestContent = writeReferencedArchiveEntries(serializableTree, zipOutputStream);
+            TestPlan plan = findArchiveTestPlan(tree);
+            if (includeHistory && plan != null) {
+                plan.getArchiveVersions().writeTo(zipOutputStream,
+                        HexFormat.of().formatHex(xml.getMessageDigest().digest()), latestContent);
+            }
         }
     }
 
@@ -454,8 +477,10 @@ public class SaveService {
         }
     }
 
-    private static void writeReferencedArchiveEntries(HashTree tree, ZipOutputStream zipOutputStream)
+    /** Returns the written entries mapped to their SHA-256 content. */
+    private static Map<String, String> writeReferencedArchiveEntries(HashTree tree, ZipOutputStream zipOutputStream)
             throws IOException {
+        Map<String, String> contentHashes = new LinkedHashMap<>();
         Set<String> writtenEntries = new LinkedHashSet<>();
         writtenEntries.add(TEST_PLAN_ZIP_ENTRY);
         for (Map.Entry<String, String> reference : collectArchiveReferences(tree).entrySet()) {
@@ -472,14 +497,17 @@ public class SaveService {
                 continue;
             }
             for (Map.Entry<String, byte[]> bundleEntry : bundle.orElseThrow().entrySet()) {
-                if (!writtenEntries.add(bundleEntry.getKey())) {
+                if (bundleEntry.getKey().startsWith(ArchiveVersions.DIRECTORY)
+                        || !writtenEntries.add(bundleEntry.getKey())) {
                     continue;
                 }
                 zipOutputStream.putNextEntry(new ZipEntry(bundleEntry.getKey()));
                 zipOutputStream.write(bundleEntry.getValue());
+                contentHashes.put(bundleEntry.getKey(), ArchiveVersions.digest(bundleEntry.getValue()));
                 zipOutputStream.closeEntry();
             }
         }
+        return contentHashes;
     }
 
     private static void saveTreeAsXml(HashTree tree, OutputStream out) throws IOException {
@@ -626,6 +654,10 @@ public class SaveService {
 
     static HashTree loadTreeFromZip(File file, ZipFile zip) throws IOException {
         HashTree tree = readTreeFromZip(file, zip);
+        TestPlan plan = findArchiveTestPlan(tree);
+        if (plan != null) {
+            plan.getArchiveVersions().setSource(file.toPath());
+        }
         cacheSharedArchiveFiles(tree, zip);
         cacheReferencedArchiveEntries(tree, file, zip);
         return tree;

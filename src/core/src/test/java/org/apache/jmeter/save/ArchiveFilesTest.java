@@ -266,9 +266,8 @@ class ArchiveFilesTest extends JMeterTestCase implements JMeterSerialTest {
         // A second save/reopen retains the rebuilt index.
         HashTree updated = new HashTree();
         updated.add(loaded);
-        try (OutputStream output = Files.newOutputStream(archive)) {
-            SaveService.saveTree(updated, output);
-        }
+        // Preserve the source archive until its version history has been copied.
+        SaveService.saveTreeToFile(updated, archive);
         TestPlan reloaded = (TestPlan) SaveService.loadTree(archive.toFile()).getArray()[0];
         assertEquals(checksum, ArchiveFiles.references(reloaded).get(entry));
     }

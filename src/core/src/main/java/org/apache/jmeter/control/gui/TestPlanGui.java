@@ -25,6 +25,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JMenu;
 import javax.swing.JPopupMenu;
+import javax.swing.JTabbedPane;
 
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.config.gui.ArgumentsPanel;
@@ -80,6 +81,8 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
     private final ArgumentsPanel argsPanel;
 
     private final FileListPanel browseJar;
+    private final JTabbedPane tabs = new JTabbedPane();
+    private final ArchiveVersionsPanel versionsPanel = new ArchiveVersionsPanel();
 
     /**
      * Create a new TestPlanGui.
@@ -197,6 +200,7 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
                 argsPanel.configure((Arguments) udv.getObjectValue());
             }
             browseJar.setFiles(tp.getTestPlanClasspathArray());
+            versionsPanel.configure(tp);
         }
     }
 
@@ -209,7 +213,14 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
 
         add(makeTitlePanel(), BorderLayout.NORTH);
 
-        add(argsPanel, BorderLayout.CENTER);
+        tabs.addTab(JMeterUtils.getResString("user_defined_variables"), argsPanel);
+        tabs.addTab("Versions", versionsPanel);
+        tabs.addChangeListener(event -> {
+            if (tabs.getSelectedComponent() == versionsPanel) {
+                versionsPanel.refresh();
+            }
+        });
+        add(tabs, BorderLayout.CENTER);
 
         VerticalPanel southPanel = new VerticalPanel();
         // Whether thread groups run one after another is chosen per scenario
@@ -222,10 +233,24 @@ public class TestPlanGui extends AbstractJMeterGuiComponent {
         add(southPanel, BorderLayout.SOUTH);
     }
 
+    /** Selects the test plan and opens its history from anywhere in the editor. */
+    public static void showVersionHistory() {
+        org.apache.jmeter.gui.GuiPackage gui = org.apache.jmeter.gui.GuiPackage.getInstance();
+        gui.updateCurrentNode();
+        var node = (org.apache.jmeter.gui.tree.JMeterTreeNode) gui.getTreeModel().getTestPlan().getArray()[0];
+        gui.getMainFrame().getTree().setSelectionPath(new javax.swing.tree.TreePath(node.getPath()));
+        gui.updateCurrentGui();
+        if (gui.getCurrentGui() instanceof TestPlanGui editor) {
+            editor.tabs.setSelectedComponent(editor.versionsPanel);
+            editor.versionsPanel.refresh();
+        }
+    }
+
     @Override
     public void clearGui() {
         super.clearGui();
         argsPanel.clear();
         browseJar.clearFiles();
+        versionsPanel.configure(null);
     }
 }
