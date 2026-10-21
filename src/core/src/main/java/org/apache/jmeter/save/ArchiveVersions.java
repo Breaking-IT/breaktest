@@ -145,8 +145,8 @@ public final class ArchiveVersions {
             return;
         }
         try (zip) {
-            // A readable archive can still contain damaged entries. Fail the atomic save
-            // rather than replace that archive and silently discard all its history.
+            // Entries that cannot be decompressed are logged and left out (see Catalog), so damage
+            // never blocks saving the latest plan or removing the versions that depend on it.
             Catalog catalog = new Catalog(zip);
             byte[] previousXml = read(zip, SaveService.TEST_PLAN_ZIP_ENTRY);
             Set<String> written = new HashSet<>(latestContent.values());
@@ -260,7 +260,8 @@ public final class ArchiveVersions {
             for (ZipEntry entry : Collections.list(zip.entries())) {
                 if (entry.getName().startsWith(BLOBS) && !entry.isDirectory()) {
                     String hash = entry.getName().substring(BLOBS.length());
-                    if (!catalog.damagedWritten.contains(hash) && written.add(hash)) {
+                    if (!catalog.damagedWritten.contains(hash) && !catalog.isUnreadable(entry.getName())
+                            && written.add(hash)) {
                         copyEntry(zip, entry, output);
                     }
                 }
@@ -387,6 +388,8 @@ public final class ArchiveVersions {
         private final Map<String, String> latest = new LinkedHashMap<>();
         /** Blobs whose content no longer matches their name. */
         private final Map<String, ZipEntry> damaged = new HashMap<>();
+        /** Blobs that cannot be decompressed; their content is lost, so they are never copied. */
+        private final Set<String> unreadable = new HashSet<>();
         private final Set<String> damagedWritten = new HashSet<>();
         private final ZipFile zip;
 
@@ -402,7 +405,10 @@ public final class ArchiveVersions {
                     if (!hash.matches("[a-f0-9]{64}")) {
                         continue;
                     }
-                    if (hash.equals(digest(zip.getInputStream(entry)))) {
+                    String actual = readableDigest(zip, entry);
+                    if (actual == null) {
+                        unreadable.add(hash);
+                    } else if (hash.equals(actual)) {
                         contents.putIfAbsent(hash, () -> zip.getInputStream(entry));
                     } else {
                         damaged.put(hash, entry);
@@ -411,18 +417,35 @@ public final class ArchiveVersions {
                     if (!JmxArchiveEntryStore.isSafeEntryName(name)) {
                         throw new IOException("Invalid archive attachment: " + name);
                     }
-                    String hash = digest(zip.getInputStream(entry));
-                    latest.put(name, hash);
-                    contents.put(hash, () -> zip.getInputStream(entry));
+                    // Loading already reported an unreadable latest attachment as unavailable, and
+                    // the previous-latest version cannot keep it either.
+                    String hash = readableDigest(zip, entry);
+                    if (hash != null) {
+                        latest.put(name, hash);
+                        contents.put(hash, () -> zip.getInputStream(entry));
+                    }
                 }
             }
+        }
+
+        private static String readableDigest(ZipFile zip, ZipEntry entry) {
+            try {
+                return digest(zip.getInputStream(entry));
+            } catch (IOException e) {
+                log.warn("Dropping unreadable archive entry {}: {}", entry.getName(), e.toString());
+                return null;
+            }
+        }
+
+        private boolean isUnreadable(String blobName) {
+            return unreadable.contains(blobName.substring(BLOBS.length()));
         }
 
         private void copy(String hash, ZipOutputStream output) throws IOException {
             Content content = contents.get(hash);
             if (content == null) {
-                throw new IOException((damaged.containsKey(hash) ? "Corrupt" : "Missing")
-                        + " version attachment content: " + hash);
+                boolean corrupt = damaged.containsKey(hash) || unreadable.contains(hash);
+                throw new IOException((corrupt ? "Corrupt" : "Missing") + " version attachment content: " + hash);
             }
             try (InputStream input = content.open()) {
                 MessageDigest digest = sha256();

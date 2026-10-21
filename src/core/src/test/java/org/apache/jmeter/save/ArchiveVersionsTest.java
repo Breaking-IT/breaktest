@@ -462,8 +462,28 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
                 "Explicit deletion allows garbage collection again");
     }
 
+    /** Corrupts an entry's DEFLATE stream so it can be listed but not decompressed. */
+    private static void breakCompression(Path file, String entry) throws Exception {
+        byte[] zip = Files.readAllBytes(file);
+        var header = java.nio.ByteBuffer.wrap(zip).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        for (int pos = 0; pos + 30 < zip.length; pos++) {
+            if (header.getInt(pos) != 0x04034b50) {
+                continue;
+            }
+            int nameLength = Short.toUnsignedInt(header.getShort(pos + 26));
+            int extraLength = Short.toUnsignedInt(header.getShort(pos + 28));
+            String name = new String(zip, pos + 30, nameLength, java.nio.charset.StandardCharsets.UTF_8);
+            if (name.equals(entry)) {
+                zip[pos + 30 + nameLength + extraLength] = 7; // Invalid DEFLATE block type.
+                Files.write(file, zip);
+                return;
+            }
+        }
+        throw new AssertionError("Entry not found: " + entry);
+    }
+
     @Test
-    void badCompressedBlobFailsSaveWithoutChangingArchive() throws Exception {
+    void badCompressedBlobDoesNotBlockSaveOrDeletingItsVersion() throws Exception {
         Path file = directory.resolve("review-compressed.jmx");
         TestPlan current = testPlan("Before");
         byte[] content = {21, 22, 23};
@@ -472,31 +492,51 @@ class ArchiveVersionsTest extends JMeterTestCase implements JMeterSerialTest {
         SaveService.saveTreeToFile(tree, file);
         current.removeProperty(ArchiveFiles.PROPERTY);
         SaveService.saveTreeToFile(tree, file);
-        byte[] zip = Files.readAllBytes(file);
+        String version = current.getArchiveVersions().list().get(0).entry();
         String blob = ArchiveVersions.BLOBS + ArchiveVersions.digest(content);
-        var header = java.nio.ByteBuffer.wrap(zip).order(java.nio.ByteOrder.LITTLE_ENDIAN);
-        boolean patched = false;
-        for (int pos = 0; pos + 30 < zip.length; pos++) {
-            if (header.getInt(pos) != 0x04034b50) {
-                continue;
-            }
-            int nameLength = Short.toUnsignedInt(header.getShort(pos + 26));
-            int extraLength = Short.toUnsignedInt(header.getShort(pos + 28));
-            String name = new String(zip, pos + 30, nameLength, java.nio.charset.StandardCharsets.UTF_8);
-            if (name.equals(blob)) {
-                zip[pos + 30 + nameLength + extraLength] = 7; // Invalid DEFLATE block type.
-                patched = true;
-                break;
-            }
-        }
-        assertTrue(patched);
-        Files.write(file, zip);
+        breakCompression(file, blob);
         current.setName("Unsaved edit");
-        assertThrows(java.io.IOException.class, () -> SaveService.saveTreeToFile(tree, file));
-        assertArrayEquals(zip, Files.readAllBytes(file), "Failure must leave the original archive untouched");
+
+        Path elsewhere = directory.resolve("review-compressed-copy.jmx");
+        SaveService.saveTreeToFile(tree, elsewhere);
+        assertEquals("Unsaved edit", plan(SaveService.loadTree(elsewhere.toFile())).getName(), "Save As works");
+
+        current.getArchiveVersions().setSource(file);
+        SaveService.saveTreeToFile(tree, file);
+        assertEquals("Unsaved edit", plan(SaveService.loadTree(file.toFile())).getName());
+        assertEquals(2, current.getArchiveVersions().list().size(), "The affected version is kept");
+        assertTrue(SaveService.readArchiveEntry(file.toFile(), blob).isEmpty(), "Lost content is not copied");
+        assertThrows(java.io.IOException.class, () -> current.getArchiveVersions().open(version));
+
+        current.getArchiveVersions().delete(Set.of(version));
         assertEquals(1, current.getArchiveVersions().list().size());
-        assertThrows(java.io.IOException.class, () -> current.getArchiveVersions().delete(Set.of()));
-        assertArrayEquals(zip, Files.readAllBytes(file));
+        assertEquals(0, blobs(file));
+    }
+
+    @Test
+    void removingUnreadableLatestAttachmentAllowsSave() throws Exception {
+        Path file = directory.resolve("broken-latest.jmx");
+        TestPlan original = testPlan("Before");
+        attach(original, new byte[]{51, 52, 53});
+        HashTree tree = new ListedHashTree(original);
+        SaveService.saveTreeToFile(tree, file);
+        saveEdit(original, tree, file);
+        breakCompression(file, "files/data.csv");
+
+        HashTree loaded = SaveService.loadTree(file.toFile());
+        TestPlan current = plan(loaded);
+        assertEquals(Set.of("files/data.csv"), current.getUnavailableArchiveFiles());
+        assertThrows(java.io.IOException.class, () -> SaveService.saveTreeToFile(loaded, file),
+                "Save asks the user to restore or delete the unavailable file first");
+        ArchiveFiles.remove(current, "files/data.csv");
+        current.setName("Recovered");
+        SaveService.saveTreeToFile(loaded, file);
+
+        TestPlan reloaded = plan(SaveService.loadTree(file.toFile()));
+        assertEquals("Recovered", reloaded.getName());
+        assertTrue(reloaded.getUnavailableArchiveFiles().isEmpty());
+        assertTrue(SaveService.readArchiveEntry(file.toFile(), "files/data.csv").isEmpty());
+        assertEquals(2, reloaded.getArchiveVersions().list().size(), "Earlier history is kept");
     }
 
     @Test
