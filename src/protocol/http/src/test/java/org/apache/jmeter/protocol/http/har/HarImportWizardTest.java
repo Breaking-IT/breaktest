@@ -24,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+
 import org.junit.jupiter.api.Test;
 
 class HarImportWizardTest {
@@ -92,5 +95,19 @@ class HarImportWizardTest {
     @Test
     void enablesPredefinedCorrelationScanByDefault() {
         assertTrue(HarImportWizard.DEFAULT_FIND_PREDEFINED_CORRELATIONS);
+    }
+
+    @Test
+    void showsCorrelationWarningsOnlyWhenThereAreDiagnostics() {
+        JTextArea warnings = new JTextArea();
+        JScrollPane warningsScroll = new JScrollPane(warnings);
+
+        HarImportWizard.showCorrelationWarnings(warnings, warningsScroll, List.of("Rule A is invalid", "Rule B is invalid"));
+        assertTrue(warningsScroll.isVisible());
+        assertEquals("Rule A is invalid\nRule B is invalid", warnings.getText());
+
+        HarImportWizard.showCorrelationWarnings(warnings, warningsScroll, List.of());
+        assertFalse(warningsScroll.isVisible());
+        assertEquals("", warnings.getText());
     }
 }

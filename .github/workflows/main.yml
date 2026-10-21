@@ -65,6 +65,8 @@ jobs:
       with:
         website: ${{ matrix.oracle_java_website }}
         release: ${{ matrix.java_version }}
+        # Oracle no longer serves the JDK 21 latest checksum; use its checksummed archive.
+        version: ${{ matrix.java_version == '21' && '21.0.12' || 'latest' }}
     - name: Set up test JDK ${{ matrix.non_ea_java_version }}, ${{ matrix.java_distribution }}
       if: ${{ matrix.oracle_java_website == '' }}
       uses: actions/setup-java@v5
