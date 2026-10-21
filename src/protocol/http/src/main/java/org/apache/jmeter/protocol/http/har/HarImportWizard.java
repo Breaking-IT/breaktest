@@ -655,8 +655,7 @@ public class HarImportWizard extends JDialog {
         predefinedCorrelations = List.of();
         correlationsPanel.setCorrelations(List.of());
         correlationsSummary.setText(" ");
-        correlationWarnings.setText("");
-        correlationWarningsScroll.setVisible(false);
+        showCorrelationWarnings(correlationWarnings, correlationWarningsScroll, List.of());
         correlationsPanel.removeAll();
         correlationsPanel.add(new JLabel(JMeterUtils.getResString("har_import_correlations_analyzing")));
         JProgressBar progress = new JProgressBar(0, 100);
@@ -684,8 +683,8 @@ public class HarImportWizard extends JDialog {
                 }
                 try {
                     predefinedCorrelations = get();
-                    correlationWarnings.setText(String.join("\n", HarPredefinedCorrelation.diagnostics(correlationRules)));
-                    correlationWarningsScroll.setVisible(!correlationWarnings.getText().isBlank());
+                    showCorrelationWarnings(correlationWarnings, correlationWarningsScroll,
+                            HarPredefinedCorrelation.diagnostics(correlationRules));
                     correlationAnalysisComplete = true;
                     rebuildCorrelationsPanel();
                 } catch (CancellationException ignored) {
@@ -712,6 +711,12 @@ public class HarImportWizard extends JDialog {
             }
         });
         correlationWorker.execute();
+    }
+
+    /** Shows the warnings box only when there are diagnostics, so it reserves no space otherwise. */
+    static void showCorrelationWarnings(JTextArea warnings, JScrollPane warningsScroll, List<String> diagnostics) {
+        warnings.setText(String.join("\n", diagnostics));
+        warningsScroll.setVisible(!warnings.getText().isBlank());
     }
 
     private static List<HarPredefinedCorrelation.Rule> availableCorrelationRules() {
