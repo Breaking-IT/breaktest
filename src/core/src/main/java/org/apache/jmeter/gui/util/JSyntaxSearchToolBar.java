@@ -18,6 +18,7 @@
 package org.apache.jmeter.gui.util;
 
 import java.awt.Color;
+import java.awt.LayoutManager;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.ArrayList;
@@ -35,6 +36,8 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.JFactory;
 import org.fife.ui.rtextarea.SearchContext;
 import org.fife.ui.rtextarea.SearchEngine;
+
+import net.miginfocom.swing.MigLayout;
 
 /**
  * Search toolbar associated to {@link JSyntaxTextArea}
@@ -91,10 +94,13 @@ public final class JSyntaxSearchToolBar implements ActionListener {
         matchCaseCB = new JCheckBox(JMeterUtils.getResString("search_text_chkbox_case"));
         JFactory.small(matchCaseCB);
 
-        this.toolBar = new JToolBar();
+        this.toolBar = new SearchToolBar();
         toolBar.setFloatable(false);
         JFactory.small(toolBar);
-        toolBar.add(searchField);
+        // Reserve each action's natural width; only the search input absorbs resizing.
+        // Callers can append actions (such as Pretty Print) to the same row.
+        toolBar.setLayout(new MigLayout("insets 0, gap 0, fillx, hidemode 3, novisualpadding"));
+        toolBar.add(searchField, "width 0:pref:inf, growx, pushx");
         toolBar.add(findButton);
         toolBar.add(matchCaseCB);
         toolBar.add(regexCB);
@@ -382,5 +388,19 @@ public final class JSyntaxSearchToolBar implements ActionListener {
         EQUAL,
         DELETE,
         INSERT
+    }
+
+    /** Synth look-and-feels replace the toolbar layout in updateUI; keep the resizable search row. */
+    private static final class SearchToolBar extends JToolBar {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public void updateUI() {
+            LayoutManager layout = getLayout();
+            super.updateUI();
+            if (layout instanceof MigLayout) {
+                setLayout(layout);
+            }
+        }
     }
 }

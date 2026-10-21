@@ -21,8 +21,7 @@
 
 cd "$(dirname "$0")" || exit 1
 
-CP=../lib/ext/ApacheJMeter_http.jar:../lib/ext/ApacheJMeter_core.jar:../lib/jorphan.jar:../lib/oro-2.0.8.jar
-CP=${CP}:../lib/slf4j-api-1.7.36.jar:../lib/jcl-over-slf4j-1.7.36.jar:../lib/log4j-slf4j-impl-2.22.1.jar
-CP=${CP}:../lib/log4j-api-2.22.1.jar:../lib/log4j-core-2.22.1.jar
+# lib/* is a Java classpath wildcard, so library upgrades do not require script changes
+CP="../lib/ext/ApacheJMeter_http.jar:../lib/ext/ApacheJMeter_core.jar:../lib/*"
 
-java -cp $CP org.apache.jmeter.protocol.http.control.HttpMirrorServer "$@"
+java -cp "$CP" org.apache.jmeter.protocol.http.control.HttpMirrorServer "$@"

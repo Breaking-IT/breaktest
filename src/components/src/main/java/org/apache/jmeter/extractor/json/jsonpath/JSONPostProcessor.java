@@ -22,11 +22,15 @@ import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.apache.jmeter.extractor.ExtractorEvidence;
 import org.apache.jmeter.extractor.ExtractorFailure;
+import org.apache.jmeter.extractor.ExtractorTestResult;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.AbstractScopedTestElement;
@@ -85,12 +89,14 @@ public class JSONPostProcessor
             try {
                 if (jsonResponses.isEmpty()) {
                     handleEmptyResponse(vars, defaultValues[i], currentRefName);
+                    ExtractorEvidence.outcome(this, false, currentJsonPath, "");
                     if (isFailOnNoMatch()) {
                         ExtractorFailure.failOnNoMatch(previousResult, getName(), currentRefName);
                     }
                 } else {
                     List<Object> extractedValues = extractValues(jsonResponses, currentJsonPath);
                     boolean foundMatch = handleResult(vars, defaultValues[i], matchNumber, currentRefName, extractedValues);
+                    ExtractorEvidence.outcome(this, foundMatch, currentJsonPath, "");
                     if (!foundMatch && isFailOnNoMatch()) {
                         ExtractorFailure.failOnNoMatch(previousResult, getName(), currentRefName);
                     }
@@ -105,6 +111,43 @@ public class JSONPostProcessor
                 vars.put(currentRefName, defaultValues[i]);
             }
         }
+    }
+
+    /**
+     * Evaluates a recorded sample without changing runtime variables or sample assertions.
+     * Errors are propagated so the tester can distinguish invalid input from a missing path.
+     */
+    public ExtractorTestResult extractForTesting(SampleResult sample) {
+        JMeterVariables variables = ExtractorTestResult.newVariables(this);
+        String[] names = getRefNames().split(SEPARATOR);
+        String[] paths = getJsonPathExpressions().split(SEPARATOR);
+        String[] defaults = getDefaultValues().split(SEPARATOR, -1);
+        validateSameLengthOfArguments(names, paths, defaults);
+        int[] matchNumbers = getMatchNumbersAsInt(defaults.length);
+        JSONManager manager = new JSONManager();
+        List<Object> responses = getSampleList(sample).stream()
+                .map(SampleResult::getResponseDataAsString)
+                .filter(StringUtilities::isNotBlank)
+                .map(manager::parse)
+                .collect(Collectors.toList());
+        Set<String> counts = new HashSet<>();
+        int matchCount = 0;
+        for (int i = 0; i < paths.length; i++) {
+            String name = names[i].trim();
+            clearOldRefVars(variables, name);
+            if (responses.isEmpty()) {
+                handleEmptyResponse(variables, defaults[i], name);
+            } else {
+                List<Object> values = new ArrayList<>();
+                for (Object response : responses) {
+                    values.addAll(manager.extractFromParsedJson(response, paths[i].trim()));
+                }
+                matchCount += values.size();
+                handleResult(variables, defaults[i], matchNumbers[i], name, values);
+            }
+            counts.add(name + REF_MATCH_NR);
+        }
+        return ExtractorTestResult.from(variables, counts, matchCount);
     }
 
     private boolean handleResult(JMeterVariables vars, String defaultValue, int matchNumber, String currentRefName,

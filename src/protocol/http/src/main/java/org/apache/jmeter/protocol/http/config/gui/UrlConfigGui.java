@@ -27,6 +27,7 @@ import java.util.List;
 
 import javax.swing.BorderFactory;
 import javax.swing.BoxLayout;
+import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
@@ -76,6 +77,12 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
     private static final long serialVersionUID = 240L;
 
     /**
+     * Client property for content tabs that fit the editor viewport and scroll internally.
+     * The HTTP sampler editor then avoids an outer scroll bar while such a tab is selected.
+     */
+    public static final String VIEWPORT_FIT_TAB = "BreakTest.viewportFitTab"; // $NON-NLS-1$
+
+    /**
      * Default value settings for URL Configuration GUI elements.
      */
     private static final UrlConfigDefaults URL_CONFIG_DEFAULTS = new UrlConfigDefaults();
@@ -117,7 +124,11 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
 
     private JLabeledTextField contentEncoding;
 
-    private JLabeledTextField path;
+    // Text field in the classic layout, wrapping editor in the modern one
+    private JLabeledField path;
+
+    // Moves the query string between Path and Params (modern layout only)
+    private JButton queryParamsButton;
 
     private JLabel redirectHandlingLabel;
 
@@ -226,7 +237,16 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
         }
     }
 
+    // These settings are edited in Defaults, but explicit sampler overrides must
+    // survive editing and copying through HTTP, GraphQL and SSE sampler editors.
+    private static final List<String> CONNECTION_PROPERTIES = List.of(
+            HTTPSamplerBase.HTTP2_COALESCING, HTTPSamplerBase.HTTP3_UPGRADE,
+            HTTPSamplerBase.CONNECTION_REUSE, "HTTPSampler.max_connections_per_host",
+            "HTTPSampler.connection_availability_timeout");
+    private final List<JMeterProperty> connectionProperties = new ArrayList<>();
+
     public void clear() {
+        connectionProperties.clear();
         argsPanel.clear();
         if (headersPanel != null) {
             headersPanel.clear();
@@ -259,6 +279,12 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
     public void modifyTestElement(TestElement element) {
         bindingGroup.updateElement(element);
         if (notConfigOnly) {
+            for (String name : CONNECTION_PROPERTIES) {
+                element.removeProperty(name);
+            }
+            for (JMeterProperty property : connectionProperties) {
+                element.setProperty(property.clone());
+            }
             HTTPSamplerBaseSchema schema = HTTPSamplerBaseSchema.INSTANCE;
             element.set(schema.getFollowRedirects(), redirectHandling.isFollowRedirects() ? true : null);
             element.set(schema.getAutoRedirects(), redirectHandling.isAutomaticRedirects() ? true : null);
@@ -342,6 +368,15 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
      *            contains the data to be displayed
      */
     public void configure(TestElement el) {
+        connectionProperties.clear();
+        if (notConfigOnly) {
+            for (String name : CONNECTION_PROPERTIES) {
+                JMeterProperty property = el.getPropertyOrNull(name);
+                if (property != null) {
+                    connectionProperties.add(property.clone());
+                }
+            }
+        }
         setName(el.getName());
         updatingUiFromElement = true;
         try {
@@ -431,15 +466,151 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
 
     private JPanel createUrlBarPanel() {
         JPanel urlBar = new JPanel(new MigLayout("insets 2 0 2 0, fillx", // $NON-NLS-1$
-                notConfigOnly ? "[][][grow 45][][grow 55]" : "[][grow 45][][grow 55]")); // $NON-NLS-1$
+                notConfigOnly ? "[][][grow][]" : "[][grow][]")); // $NON-NLS-1$
         if (notConfigOnly) {
             urlBar.add(method);
         }
         urlBar.add((Component) protocol);
         urlBar.add(domain, "wmin 260, growx"); // $NON-NLS-1$
-        urlBar.add(port, "w 100!"); // $NON-NLS-1$
-        urlBar.add(path, "growx"); // $NON-NLS-1$
+        urlBar.add(port, "w 100!, wrap"); // $NON-NLS-1$
+        // Path gets its own full-width row: long paths and query strings need the room
+        urlBar.add((Component) path, "span, split 2, growx, pushx, aligny top"); // $NON-NLS-1$
+        if (notConfigOnly) {
+            urlBar.add(createQueryParamsButton(), "aligny top"); // $NON-NLS-1$
+        }
         return urlBar;
+    }
+
+    private JButton createQueryParamsButton() {
+        queryParamsButton = new JButton();
+        JFactory.small(queryParamsButton);
+        queryParamsButton.addActionListener(e -> {
+            if (canMoveQueryToParams()) {
+                moveQueryToParams();
+            } else if (canMoveParamsToQuery()) {
+                moveParamsToQuery();
+            }
+        });
+        ((UrlPathField) path).getTextArea().getDocument().addDocumentListener(new DocumentListener() {
+            @Override
+            public void insertUpdate(DocumentEvent e) {
+                updateQueryParamsButton();
+            }
+
+            @Override
+            public void removeUpdate(DocumentEvent e) {
+                updateQueryParamsButton();
+            }
+
+            @Override
+            public void changedUpdate(DocumentEvent e) {
+                updateQueryParamsButton();
+            }
+        });
+        method.addChangeListener(e -> updateQueryParamsButton());
+        updateQueryParamsButton();
+        return queryParamsButton;
+    }
+
+    /**
+     * Show the move that applies right now: the query in Path goes to Params first;
+     * otherwise movable Params can go back into Path.
+     */
+    private void updateQueryParamsButton() {
+        if (queryParamsButton == null || argsPanel == null) {
+            return;
+        }
+        boolean toParams = canMoveQueryToParams();
+        boolean toQuery = !toParams && canMoveParamsToQuery();
+        String key = toQuery ? "web_request_params_to_query" : "web_request_query_to_params"; // $NON-NLS-1$ // $NON-NLS-2$
+        queryParamsButton.setText(JMeterUtils.getResString(key));
+        queryParamsButton.setToolTipText(JMeterUtils.getResString(key + "_tip")); // $NON-NLS-1$
+        queryParamsButton.setEnabled(toParams || toQuery);
+    }
+
+    /**
+     * Params end up in the query string only for these methods; for others they form
+     * the body, and in raw-body mode the Params tab is not in use.
+     */
+    private boolean paramsGoToQueryString() {
+        String selected = method.getText();
+        boolean queryMethod = HTTPConstants.GET.equals(selected)
+                || HTTPConstants.DELETE.equals(selected)
+                || HTTPConstants.OPTIONS.equals(selected);
+        return queryMethod && (postBodyContent == null || postBodyContent.getText().isEmpty());
+    }
+
+    boolean canMoveQueryToParams() {
+        return paramsGoToQueryString() && PathQuery.split(path.getText()) != null;
+    }
+
+    boolean canMoveParamsToQuery() {
+        if (!paramsGoToQueryString() || !PathQuery.canAppendQuery(path.getText())) {
+            return false;
+        }
+        List<HTTPArgument> sent = sentParameters();
+        return !sent.isEmpty() && sent.stream().allMatch(PathQuery::isMovableToPath);
+    }
+
+    /**
+     * Move the query string from Path to the top of the Params table, so the sampler
+     * still sends Path's query ahead of the existing Params.
+     */
+    void moveQueryToParams() {
+        if (!canMoveQueryToParams()) {
+            return;
+        }
+        PathQuery.Split split = PathQuery.split(path.getText());
+        Arguments moved = new Arguments();
+        split.parameters().forEach(moved::addArgument);
+        Arguments existing = argsPanel.createTestElement();
+        for (JMeterProperty property : existing.getArguments()) {
+            moved.addArgument((HTTPArgument) property.getObjectValue());
+        }
+        argsPanel.configure(moved);
+        path.setText(split.path());
+        postContentTabbedPane.setSelectedIndex(TAB_PARAMETERS);
+        updateContentTabTitles();
+        updateQueryParamsButton();
+    }
+
+    /**
+     * Append the Params rows the sampler would send to Path, leaving disabled and
+     * nameless rows (which the sampler skips) in the table.
+     */
+    void moveParamsToQuery() {
+        if (!canMoveParamsToQuery()) {
+            return;
+        }
+        List<HTTPArgument> sent = sentParameters();
+        Arguments remaining = new Arguments();
+        Arguments existing = argsPanel.createTestElement();
+        for (JMeterProperty property : existing.getArguments()) {
+            HTTPArgument argument = (HTTPArgument) property.getObjectValue();
+            if (!isSent(argument)) {
+                remaining.addArgument(argument);
+            }
+        }
+        path.setText(PathQuery.appendQuery(path.getText(), PathQuery.join(sent)));
+        argsPanel.configure(remaining);
+        updateContentTabTitles();
+        updateQueryParamsButton();
+    }
+
+    private List<HTTPArgument> sentParameters() {
+        List<HTTPArgument> sent = new ArrayList<>();
+        Arguments arguments = argsPanel.createTestElement();
+        for (JMeterProperty property : arguments.getArguments()) {
+            HTTPArgument argument = (HTTPArgument) property.getObjectValue();
+            if (isSent(argument)) {
+                sent.add(argument);
+            }
+        }
+        return sent;
+    }
+
+    private static boolean isSent(HTTPArgument argument) {
+        return argument.isEnabled() && StringUtilities.isNotEmpty(argument.getName());
     }
 
     private static JPanel createSidePanel() {
@@ -470,7 +641,7 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
             case "Domain" -> EditorMatchHighlighter.text(domain, expected, start, end);
             case "Protocol" -> EditorMatchHighlighter.text((Component) protocol, expected, start, end);
             case "Port" -> EditorMatchHighlighter.text(port, expected, start, end);
-            case "Path" -> EditorMatchHighlighter.text(path, expected, start, end);
+            case "Path" -> EditorMatchHighlighter.text((Component) path, expected, start, end);
             case "Body" -> EditorMatchHighlighter.text(postBodyContent,
                     expected.replace("\r\n", "\n"), expected.substring(0, start).replace("\r\n", "\n").length(),
                     expected.substring(0, end).replace("\r\n", "\n").length());
@@ -592,7 +763,9 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
      *         KeepAlive' elements.
      */
     protected Component getPathPanel() {
-        path = new JLabeledTextField(JMeterUtils.getResString("path"), 80); //$NON-NLS-1$
+        path = modernLayout
+                ? new UrlPathField(JMeterUtils.getResString("path")) //$NON-NLS-1$
+                : new JLabeledTextField(JMeterUtils.getResString("path"), 80); //$NON-NLS-1$
         // CONTENT_ENCODING
         contentEncoding = new JLabeledTextField(JMeterUtils.getResString("content_encoding"), 7); // $NON-NLS-1$
 
@@ -628,6 +801,8 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
                     HTTPSamplerBaseSchema.INSTANCE.getUseBrowserCompatibleMultipart(),
                     "use_multipart_mode_browser",
                     JMeterUtils::getResString);
+            useBrowserCompatibleMultipartMode.setToolTipText(
+                    JMeterUtils.getResString("use_multipart_mode_browser_help"));
             JFactory.small(useBrowserCompatibleMultipartMode);
             useBrowserCompatibleMultipartMode.setVisible(getUrlConfigDefaults().isUseBrowserCompatibleMultipartModeVisible());
         }
@@ -636,7 +811,7 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
         if (notConfigOnly){
             pathPanel.add(method);
         }
-        pathPanel.add(path);
+        pathPanel.add((Component) path);
         pathPanel.add(contentEncoding);
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -669,6 +844,7 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
             headersPanel = new HeaderTablePanel(false);
             headersPanel.addTableModelListener(e -> updateContentTabTitles());
             headersTabTitle = JMeterUtils.getResString("web_request_headers");
+            headersPanel.putClientProperty(VIEWPORT_FIT_TAB, true);
             postContentTabbedPane.add(headersTabTitle, headersPanel);// $NON-NLS-1$
         }
 
@@ -693,7 +869,9 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
             });
             bodyTabTitle = JMeterUtils.getResString(
                     modernLayout ? "web_request_tab_body" : "post_body");
-            postContentTabbedPane.add(bodyTabTitle, JTextScrollPane.getInstance(postBodyContent));// $NON-NLS-1$
+            JTextScrollPane bodyPane = JTextScrollPane.getInstance(postBodyContent);
+            bodyPane.putClientProperty(VIEWPORT_FIT_TAB, true);
+            postContentTabbedPane.add(bodyTabTitle, bodyPane);// $NON-NLS-1$
         }
 
         if(showFileUploadPane) {
@@ -715,6 +893,7 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
         updatingContentTabTitles = true;
         try {
             setTabTitle(TAB_PARAMETERS, paramsTabTitle, argsPanel.getParameterCount());
+            updateQueryParamsButton();
             if (headersPanel != null && tabHeadersIndex >= 0) {
                 setTabTitle(tabHeadersIndex, headersTabTitle, headersPanel.getHeaderCount());
             }
@@ -751,19 +930,20 @@ public class UrlConfigGui extends JPanel implements org.apache.jmeter.gui.util.R
         @Override
         public Dimension getMinimumSize() {
             Dimension minimum = super.getMinimumSize();
-            if (headersPanel != null && getSelectedComponent() == headersPanel) {
-                // Swing reserves room for the largest hidden tab. Only the visible headers
-                // table and its action bar determine when this editor needs outer scrolling.
+            Component selected = getSelectedComponent();
+            if (selected != null && (modernLayout || selected == headersPanel)) {
+                // Hidden tabs must not force the visible content beyond the viewport.
+                // Preserve the selected tab's minimum so its controls remain reachable.
                 int largestContentHeight = 0;
                 for (int i = 0; i < getTabCount(); i++) {
                     largestContentHeight = Math.max(largestContentHeight, getComponentAt(i).getMinimumSize().height);
                 }
-                minimum.height += headersPanel.getMinimumSize().height - largestContentHeight;
-                if (headersPanel.getWidth() > 0) {
+                minimum.height += selected.getMinimumSize().height - largestContentHeight;
+                if (selected.getWidth() > 0) {
                     // The minimum-size calculation can assume fewer tab rows than the current
                     // narrow layout. Include the actual tab strip and content-border height.
                     minimum.height = Math.max(minimum.height,
-                            headersPanel.getMinimumSize().height + getHeight() - headersPanel.getHeight());
+                            selected.getMinimumSize().height + getHeight() - selected.getHeight());
                 }
             }
             return minimum;

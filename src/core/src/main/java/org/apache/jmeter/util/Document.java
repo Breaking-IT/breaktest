@@ -17,10 +17,7 @@
 
 package org.apache.jmeter.util;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
-import java.io.InputStream;
-
+import org.apache.tika.io.TikaInputStream;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.parser.AutoDetectParser;
 import org.apache.tika.parser.ParseContext;
@@ -53,25 +50,18 @@ public class Document {
         ContentHandler handler = new BodyContentHandler(MAX_DOCUMENT_SIZE > 0 ? MAX_DOCUMENT_SIZE : -1); // -1 to disable the write limit
         Metadata metadata = new Metadata();
         ParseContext context = new ParseContext();
-        InputStream stream = new ByteArrayInputStream(document); // open the stream
-        try {
+        try (TikaInputStream stream = TikaInputStream.get(document)) {
             parser.parse(stream, handler, metadata, context);
             response = handler.toString();
         } catch (Exception e) {
             response = e.toString();
             log.warn("Error document parsing.", e);
-        } catch (NoClassDefFoundError e) {
-            // put a warning if tika-app.jar missing (or some dependencies in only tika-core|parsers packages are using)
+        } catch (LinkageError e) {
+            // put a warning if tika-app.jar is missing or incompatible with the bundled tika-core (e.g. a Tika 3 tika-app in lib)
             if (!System.getProperty("java.class.path").contains("tika-app")) { // $NON-NLS-1$ $NON-NLS-2$
                 log.warn(errMissingTika);
             } else {
                 log.warn(errMissingTika, e);
-            }
-        } finally {
-            try {
-                stream.close(); // close the stream
-            } catch (IOException ioe) {
-                log.warn("Error closing document stream", ioe);// $NON-NLS-1$
             }
         }
 

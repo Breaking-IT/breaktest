@@ -129,10 +129,11 @@ public class XPath2Extractor
                 List<SampleResult> samples = getSampleList(previousResult);
                 int size = samples.size();
                 for(int i = 0;i<size;i++) {
-                    getValuesForXPath(getXPathQuery(), matches, matchNumber,previousResult.getResponseDataAsString());
+                    getValuesForXPath(getXPathQuery(), matches, matchNumber, samples.get(i).getResponseDataAsString());
                 }
             }
             final int matchCount = matches.size();
+            ExtractorEvidence.outcome(this, matchCount > 0, getXPathQuery(), "");
             vars.put(matchNR, String.valueOf(matchCount));
             if (matchCount > 0){
                 String value = matches.get(0);
@@ -159,6 +160,27 @@ public class XPath2Extractor
             }
             addAssertionFailure(previousResult, e, false);
         }
+    }
+
+    /** Evaluates recorded XML and propagates parse/query errors to the tester. */
+    public ExtractorTestResult extractForTesting(SampleResult sample) throws Exception {
+        JMeterVariables variables = ExtractorTestResult.newVariables(this);
+        String reference = getRefName();
+        variables.put(reference, getDefaultValue());
+        List<String> matches = new ArrayList<>();
+        for (SampleResult result : getSampleList(sample)) {
+            getValuesForXPath(getXPathQuery(), matches, getMatchNumber(), result.getResponseDataAsString());
+        }
+        variables.put(concat(reference, REF_MATCH_NR), Integer.toString(matches.size()));
+        if (!matches.isEmpty() && matches.get(0) != null) {
+            variables.put(reference, matches.get(0));
+        }
+        for (int i = 0; i < matches.size(); i++) {
+            if (matches.get(i) != null) {
+                variables.put(concat(reference, i + 1), matches.get(i));
+            }
+        }
+        return ExtractorTestResult.from(variables, reference, matches.size());
     }
 
     private void addAssertionFailure(final SampleResult previousResult,

@@ -138,8 +138,16 @@ public final class AiEngineChooser {
                 }
             });
             try {
-                processCommand.writePrompt(process);
-                output = AiAutoScriptingAction.streamOutput(process.getInputStream(), tool);
+                try {
+                    processCommand.writePrompt(process);
+                    output = AiAutoScriptingAction.streamOutput(process.getInputStream(), tool);
+                } catch (IOException ex) {
+                    // Stopping the process closes its streams, so a write or read in progress
+                    // can fail first. Report the stop or timeout below instead of that error.
+                    if (!stopped.get() && !timedOut.get()) {
+                        throw ex;
+                    }
+                }
                 int exitCode = process.waitFor();
                 if (stopped.get()) {
                     throw new CancellationException(tool.displayName() + " was stopped.");

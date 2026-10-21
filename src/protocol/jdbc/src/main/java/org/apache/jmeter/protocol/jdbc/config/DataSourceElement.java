@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.jdbc.config;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -240,7 +241,7 @@ public class DataSourceElement extends AbstractTestElement
         dataSource.setRollbackOnReturn(false);
         dataSource.setMaxIdle(poolSize);
         dataSource.setMaxTotal(poolSize);
-        dataSource.setMaxWaitMillis(Long.parseLong(getTimeout()));
+        dataSource.setMaxWait(Duration.ofMillis(Long.parseLong(getTimeout())));
 
         dataSource.setDefaultAutoCommit(isAutocommit());
 
@@ -267,8 +268,8 @@ public class DataSourceElement extends AbstractTestElement
             } else {
                 dataSource.setValidationQuery(validationQuery);
             }
-            dataSource.setSoftMinEvictableIdleTimeMillis(Long.parseLong(getConnectionAge()));
-            dataSource.setTimeBetweenEvictionRunsMillis(Integer.parseInt(getTrimInterval()));
+            dataSource.setSoftMinEvictableIdle(Duration.ofMillis(Long.parseLong(getConnectionAge())));
+            dataSource.setDurationBetweenEvictionRuns(Duration.ofMillis(Long.parseLong(getTrimInterval())));
         }
 
         int transactionIsolation = DataSourceElementBeanInfo.getTransactionIsolationMode(getTransactionIsolation());
@@ -346,7 +347,7 @@ public class DataSourceElement extends AbstractTestElement
             builder.append("shared:").append(sharedDSC != null)
                 .append(", driver:").append(dsc.getDriverClassName())
                 .append(", url:").append(dsc.getUrl())
-                .append(", user:").append(dsc.getUsername());
+                .append(", user:").append(dsc.getUserName());
             return builder.toString();
         }
 

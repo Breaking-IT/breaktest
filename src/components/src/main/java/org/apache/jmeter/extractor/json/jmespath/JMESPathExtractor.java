@@ -24,7 +24,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.apache.jmeter.extractor.ExtractorEvidence;
 import org.apache.jmeter.extractor.ExtractorFailure;
+import org.apache.jmeter.extractor.ExtractorTestResult;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testelement.AbstractScopedTestElement;
@@ -86,6 +88,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
         clearOldRefVars(vars, refName);
         if (jsonResponse.isEmpty()) {
             handleEmptyResponse(vars, refName, defaultValue);
+            ExtractorEvidence.outcome(this, false, jsonPathExpression, "");
             if (isFailOnNoMatch()) {
                 ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }
@@ -110,6 +113,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
                 foundMatch = handleListResult(vars, refName, defaultValue, matchNumber, resultList);
             } else if (resultList.isEmpty()){
                 handleNullResult(vars, refName, defaultValue, matchNumber);
+                ExtractorEvidence.outcome(this, false, jsonPathExpression, "");
                 if (isFailOnNoMatch()) {
                     ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
                 }
@@ -119,6 +123,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
                 handleSingleResult(vars, refName, matchNumber, resultList);
                 foundMatch = true;
             }
+            ExtractorEvidence.outcome(this, foundMatch, jsonPathExpression, "");
             if (!foundMatch && isFailOnNoMatch()) {
                 ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }
@@ -132,6 +137,39 @@ public class JMESPathExtractor extends AbstractScopedTestElement
             }
             vars.put(refName, defaultValue);
         }
+    }
+
+    /** Evaluates recorded JSON without changing runtime variables or assertions. */
+    public ExtractorTestResult extractForTesting(SampleResult sample) throws IOException {
+        JMeterVariables variables = ExtractorTestResult.newVariables(this);
+        String reference = getRefName();
+        int matchNumber = StringUtilities.isBlank(getMatchNumber()) ? 0 : Integer.parseInt(getMatchNumber());
+        List<String> responses = getSampleList(sample).stream()
+                .map(SampleResult::getResponseDataAsString).filter(StringUtilities::isNotBlank)
+                .collect(Collectors.toList());
+        if (responses.isEmpty()) {
+            handleEmptyResponse(variables, reference, getDefaultValue());
+            return ExtractorTestResult.from(variables, reference, 0);
+        }
+        Expression<JsonNode> expression = JMESPathCache.getInstance().get(getJmesPathExpression().trim());
+        List<String> matches = new ArrayList<>();
+        for (String response : responses) {
+            JsonNode result = expression.search(OBJECT_MAPPER.readValue(response, JsonNode.class));
+            if (!result.isNull()) {
+                matches.addAll(splitJson(result));
+            }
+        }
+        if (matches.isEmpty()) {
+            handleNullResult(variables, reference, getDefaultValue(), matchNumber);
+        } else {
+            if (matches.size() > 1) {
+                handleListResult(variables, reference, getDefaultValue(), matchNumber, matches);
+            } else {
+                handleSingleResult(variables, reference, matchNumber, matches);
+            }
+            variables.put(reference + REF_MATCH_NR, Integer.toString(matches.size()));
+        }
+        return ExtractorTestResult.from(variables, reference, matches.size());
     }
 
     private static void handleSingleResult(JMeterVariables vars, String refName, int matchNumber, List<String> resultList) {

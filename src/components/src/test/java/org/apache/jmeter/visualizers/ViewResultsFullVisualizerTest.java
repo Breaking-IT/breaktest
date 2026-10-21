@@ -107,6 +107,36 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
     }
 
     @Test
+    public void replayFromHereRequiresTheExactValidationResult() {
+        org.apache.jmeter.threads.ValidationCheckpoints.clear();
+        JMeterContextService.setValidationRun(true);
+        try {
+            SampleResult result = new SampleResult();
+            result.setSuccessful(true);
+            assertFalse(ValidationReplayMenu.createMenuItem(result).isEnabled());
+            ThreadGroup group = new ThreadGroup();
+            DebugSampler sampler = new DebugSampler();
+            org.apache.jmeter.threads.ValidationCheckpoints.register(group, group);
+            org.apache.jmeter.threads.ValidationCheckpoints.register(sampler, sampler);
+            var tree = new org.apache.jorphan.collections.ListedHashTree();
+            tree.add(sampler);
+            var context = JMeterContextService.getContext();
+            context.setVariables(new org.apache.jmeter.threads.JMeterVariables());
+            org.apache.jmeter.threads.ValidationCheckpoints.beforeSampler(tree, sampler, context);
+            org.apache.jmeter.threads.ValidationCheckpoints.afterSampler(sampler, group, result);
+            JMenuItem replay = ValidationReplayMenu.createMenuItem(result);
+            assertEquals("Replay from here", replay.getText());
+            assertTrue(replay.isEnabled());
+            assertFalse(ValidationReplayMenu.createMenuItem(new SampleResult()).isEnabled());
+            assertFalse(ValidationReplayMenu.createMenuItem(null).isEnabled());
+            org.apache.jmeter.threads.ValidationCheckpoints.clear();
+            assertFalse(ValidationReplayMenu.createMenuItem(result).isEnabled());
+        } finally {
+            org.apache.jmeter.threads.ValidationCheckpoints.clear();
+        }
+    }
+
+    @Test
     public void responseTimeoutStackTraceIsCompactedForDisplay() throws Exception {
         SampleResult result = new SampleResult();
         result.setDataType(SampleResult.TEXT);

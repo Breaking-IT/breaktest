@@ -97,7 +97,7 @@ class TestKerberosAuthentication {
         WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         HTTPSamplerProxy sampler = sampler(protocol, server.port(), "/basic");
-        HTTPJavaHttp3Impl http3 = new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.PREFER_HTTP3);
+        HTTPJavaHttp3Impl http3 = new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
         try {
             server.stubFor(WireMock.get("/basic").willReturn(WireMock.aResponse().withStatus(401)
                     .withHeader("WWW-Authenticate", "Basic realm=\"fixture\"")));

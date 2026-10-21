@@ -39,6 +39,7 @@ public final class ActionNames {
     public static final String ANALYZE_FILE     = "Analyze File"; // $NON-NLS-1$
     public static final String AI_AUTO_SCRIPTING = "ai_auto_scripting"; // $NON-NLS-1$
     public static final String WELCOME_RECORDER = "welcome_recorder"; // $NON-NLS-1$
+    public static final String OPENAPI_IMPORT   = "openapi_import"; // $NON-NLS-1$
     public static final String HAR_IMPORT       = "har_import"; // $NON-NLS-1$
     /** Legacy action id for AI Auto Scripting toolbar compatibility. */
     public static final String CODEX_AI_REPAIR  = "codex_ai_repair"; // $NON-NLS-1$
@@ -119,7 +120,16 @@ public final class ActionNames {
     public static final String MOVE_TO_TEST_FRAGMENTS = "move_to_test_fragments"; // $NON-NLS-1$
     public static final String SAVE_BEFORE_RUN  = "save_before_run"; //$NON-NLS-1$
     public static final String THREAD_DUMP      = "thread_dump"; // $NON-NLS-1$
+    public static final String RESUME_VALIDATION = "resume_validation"; //$NON-NLS-1$
+
+    public static final String RESUME_ALL_FAILED = "resume_all_failed";
+    public static final String VALIDATE_ALL = "validate_all";
+    public static final String VALIDATE_ALL_SEQUENTIALLY = "validate_all_sequentially";
     public static final String VALIDATE_TG      = "validate_tg"; //$NON-NLS-1$
+    public static final String VALIDATE_READINESS = "validate_readiness"; //$NON-NLS-1$
+    public static final String CHECK_SCRIPT_READINESS = "check_script_readiness"; //$NON-NLS-1$
+    public static final String CHECK_READINESS_TG = "check_readiness_threadgroup"; //$NON-NLS-1$
+    public static final String CHECK_READINESS_ALL = "check_readiness_all"; //$NON-NLS-1$
     public static final String ZOOM_IN          = "zoom_in"; //$NON-NLS-1$
     public static final String ZOOM_OUT         = "zoom_out"; //$NON-NLS-1$
     public static final String PARSE_CURL       = "parse_curl"; //$NON-NLS-1$

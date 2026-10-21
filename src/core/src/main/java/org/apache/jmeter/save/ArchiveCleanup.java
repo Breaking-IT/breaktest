@@ -22,6 +22,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -46,10 +47,11 @@ public final class ArchiveCleanup {
         int retainedExchanges = 0;
         for (Map.Entry<String, Group> group : owners.entrySet()) {
             String entry = group.getKey();
-            String checksum = group.getValue().checksum();
             Set<String> liveIds = group.getValue().liveIds();
-            Map<String, byte[]> bundle = JmxArchiveEntryStore.findBundle(entry, checksum)
-                    .orElseThrow(() -> new IOException("Recording is unavailable: " + entry));
+            Map<String, Set<String>> idsByChecksum = group.getValue().idsByChecksum();
+            String checksum = resolveChecksum(entry, idsByChecksum.keySet());
+            Map<String, byte[]> bundle = JmxArchiveEntryStore.findBundle(entry, checksum).orElseThrow();
+            requireStaleExchanges(entry, bundle, checksum, idsByChecksum);
             before.putAll(bundle);
             boolean canRemoveOrphans = removeOrphans && !liveIds.isEmpty();
             if (removeOrphans && liveIds.isEmpty() && mode != RecordingStorageMode.NONE) {
@@ -70,8 +72,42 @@ public final class ArchiveCleanup {
         return new Prepared(List.copyOf(updates), beforeBytes, afterBytes, removed.size(), retainedExchanges, unlinkedRecordings);
     }
 
+    // Loaded plans can retain stale checksums on other owners of the same manifest.
+    // Only reconcile them when the cache provides one unambiguous recording version.
+    private static String resolveChecksum(String entry, Set<String> checksums) throws IOException {
+        String resolved = null;
+        for (String checksum : checksums) {
+            if (JmxArchiveEntryStore.findBundle(entry, checksum).isEmpty()) {
+                continue;
+            }
+            if (resolved != null) {
+                throw new IOException("Conflicting recording references: " + entry);
+            }
+            resolved = checksum;
+        }
+        if (resolved == null) {
+            throw new IOException("Recording is unavailable: " + entry);
+        }
+        return resolved;
+    }
+
+    // A stale owner may only move to the resolved version if its exchanges still exist there.
+    private static void requireStaleExchanges(String entry, Map<String, byte[]> bundle, String checksum,
+            Map<String, Set<String>> idsByChecksum) throws IOException {
+        Set<String> staleIds = new LinkedHashSet<>();
+        idsByChecksum.forEach((owned, ids) -> {
+            if (!owned.equals(checksum)) {
+                staleIds.addAll(ids);
+            }
+        });
+        if (!staleIds.isEmpty() && !RecordedExchangeStore.cleanArchive(entry, bundle, RecordingStorageMode.ALL, null)
+                .exchangeIds().containsAll(staleIds)) {
+            throw new IOException("Conflicting recording references: " + entry);
+        }
+    }
+
     private static void collectOwners(HashTree tree, String inheritedEntry, String inheritedChecksum,
-            Map<String, Group> groups) throws IOException {
+            Map<String, Group> groups) {
         for (Object node : tree.list()) {
             String entry = inheritedEntry;
             String checksum = inheritedChecksum;
@@ -85,14 +121,14 @@ public final class ArchiveCleanup {
                 if (!entry.isEmpty() && (!ownEntry.isEmpty() || !id.isEmpty())) {
                     Group group = groups.get(entry);
                     if (group == null) {
-                        group = new Group(checksum, new ArrayList<>(), new LinkedHashSet<>());
+                        group = new Group(new LinkedHashMap<>(), new ArrayList<>(), new LinkedHashSet<>());
                         groups.put(entry, group);
                     }
-                    if (!checksum.equals(group.checksum())) {
-                        throw new IOException("Conflicting recording references: " + entry);
-                    }
+                    Set<String> ids = group.idsByChecksum().computeIfAbsent(
+                            checksum.trim().toLowerCase(Locale.ROOT), key -> new LinkedHashSet<>());
                     group.owners().add(element);
                     if (!id.isEmpty()) {
+                        ids.add(id);
                         group.liveIds().add(id);
                     }
                 }
@@ -101,7 +137,7 @@ public final class ArchiveCleanup {
         }
     }
 
-    private record Group(String checksum, List<TestElement> owners, Set<String> liveIds) {
+    private record Group(Map<String, Set<String>> idsByChecksum, List<TestElement> owners, Set<String> liveIds) {
     }
 
     private record Update(List<TestElement> owners, RecordedExchangeStore.Archive archive) {

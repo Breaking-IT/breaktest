@@ -13,6 +13,149 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# Unreleased — Script Readiness
+
+## Check Whether a Script Is Ready to Run
+
+- **Tools > Check script readiness...** opens a wizard that checks the selected or all thread groups: successful validation, transaction verification coverage, unused and unmatched extractions, extractor processing time, think time, unresolved `${...}` values sent in requests, files and configuration, validation exercise coverage, hardcoded recorded values, and optional repeatability in a fresh session.
+- **Runtime evidence from a normal validation.** The readiness validation goes through the usual validation path with per-run settings. Supported extractors report every match outcome, extractor time is measured apart from the request (also offline against captured responses), and sent URLs, headers and request data are scanned for literal and URL-encoded `${...}`.
+- **An honest verdict.** Ready, Needs attention or Not verified, with counts instead of a score. Runtime checks without current evidence are Not verified; a content fingerprint marks evidence stale after any plan edit. Running a subset of the checks never gives Ready.
+- **Response bodies that scripts need, and those nobody needs.** A script reading the previous response body (JSR223 or BeanShell, or `${__groovy(...)}` in a field) is a warning when requests of its thread group discard successful bodies, since validation keeps every body and would not show the script reading an empty one. Without such scripts, a suggestion points out requests whose successful bodies nothing needs and recommends Store on error only, usually once on HTTP Request Defaults. Suggestions never change the verdict.
+- **Accepted exceptions travel with the script.** Accept a finding with a reason, mark an extractor optional or a transaction as background activity. Exceptions are stored on the element in the JMX, are undoable, and unused ones are listed.
+
+Evidence stays in memory, is redacted and never logged at INFO or above. Large or binary request bodies may be truncated in recorded request data, so unresolved values in them are not verified. Exceptions can be dropped by the few legacy editors that rebuild their element on edit. See the user manual section *Script readiness* for details.
+
+# BreakTest 2026.10.16 — OpenAPI Import, Structured Data Sets, and Resumable Validation
+
+This feature release expands how you build and debug tests: generate reusable requests from an API specification, drive iterations with JSON, XML, or YAML data, and continue validation from a failed request after editing the plan. Request replay and cURL export make individual calls easier to investigate, alongside editor improvements and a Groovy 6 upgrade.
+
+## Turn API Specifications into Reusable Requests
+
+- **Import OpenAPI 3.x and Swagger 2.0 JSON.** Use **File > Import OpenAPI JSON...** or the welcome screen to create an editable Test Fragment, with HTTP requests grouped by operation tag or path. Call the fragment from a Module Controller or copy requests into a thread group.
+- **Start with populated requests.** The importer resolves references within the file and generates query, header, cookie, and body values from examples, defaults, enums, and schemas. Generated placeholders are stable and field-specific, making repeated values easier to find and replace. JSON, text, URL-encoded, and multipart form bodies are supported.
+- **Reuse your environment settings.** Hostname, protocol, and port inherit HTTP Request Defaults; paths retain the effective server path or Swagger basePath. Configure authentication separately. Importing does not send requests.
+
+The importer accepts JSON specifications, not YAML. External references are rejected without adding a partial fragment. Unsupported body media types and multipart file fields produce warnings so you can complete those requests manually; generated values still need review against application-specific constraints.
+
+Sources: [#261](https://github.com/Breaking-IT/breaktest/pull/261).
+
+## Drive Tests with JSON, XML, and YAML
+
+- **Three new native data set configurations.** JSON Data Set Config reads objects or arrays of objects; XML Data Set Config selects records with XPath; YAML Data Set Config reads mappings, lists of mappings, and multiple documents. Each iteration receives a record as variables, with an optional prefix.
+- **Use nested data directly.** Nested fields expose dotted variable paths, arrays expose one-based indexes and match counts, and complete nested values remain available as JSON strings or XML fragments. Missing fields and counts are cleared between records so shorter records do not reuse old values.
+- **Preview and edit data inside BreakTest.** Read the first ten samples without advancing record positions, edit and validate local or archived files, create missing files, and export copies. Embed data files in the JMX archive to keep a plan and its inputs together.
+- **Control how records are shared.** Share positions across all threads, within a thread group, per thread, or by a custom identifier. Recycling and stop-on-EOF controls support finite and repeating data sets. Files are loaded once per run and shared positions reset between runs.
+
+Sources: [#258](https://github.com/Breaking-IT/breaktest/pull/258).
+
+## Fix a Request and Continue Validation
+
+- **Resume after editing.** GUI validation captures in-memory checkpoints before samplers. Use **Resume validation** on a sampler or failed thread group, or **Replay from here** on a validation result, to restore supported client state and continue with the current plan edits.
+- **Validate and repair groups in batches.** **Validate all**, **Validate all one by one**, and **Resume all failed** support working through multiple thread groups. Resume also supports requests reached through Module Controllers and restores supported HTTP manager state and CSV record positions.
+- **Inspect a single request independently.** The raw request view adds **Copy cURL** and **Replay**. Replay runs local curl and displays its response, with a 60-second timeout; curl must support the recorded HTTP version.
+
+Checkpoints belong to the latest GUI validation and are not saved in JMX files. Resume requires one validation thread and one iteration, and rejects changed execution structure or unsupported state, including parallel/fork execution and live WebSocket/SSE state. It does not roll back server-side effects. The new JSON/XML/YAML data sets do not support checkpoint restoration; run fresh validation for those plans. Local curl replay sends the captured request independently of the validation checkpoint workflow.
+
+Sources: [#262](https://github.com/Breaking-IT/breaktest/pull/262).
+
+## Editor and Runtime Reliability
+
+- **Editors fit the available space.** HTTP headers, request content, recorded tabs, and search controls use the available viewport more consistently, with recorded tabs available when their content exists.
+- **More reliable recording maintenance.** A dedicated Clean up orphans action separates unused-file cleanup from recording trimming. Cleanup reconciles stale recording references when there is one unambiguous valid version and preserves referenced data files. HLS recorded-exchange display is also improved.
+- **Correct transaction timing.** Timer pauses are measured using the transaction's clock so excluded pauses are accounted for consistently.
+- **Reliable menus and fork cleanup.** Menus remain available when lib/ext contains no BreakTest jars, and a fork SKIP race at iteration boundaries is fixed.
+
+Sources: [#259](https://github.com/Breaking-IT/breaktest/pull/259), [#260](https://github.com/Breaking-IT/breaktest/pull/260), [#263](https://github.com/Breaking-IT/breaktest/pull/263), [#264](https://github.com/Breaking-IT/breaktest/pull/264), [#266](https://github.com/Breaking-IT/breaktest/pull/266).
+
+## Upgrade Notes
+
+Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later.
+
+**Bundled Groovy moves from 5.0.4 to 6.0.0.** Replay existing scripts before production load runs. Changes include map membership, loop-variable capture, stricter generic syntax, JSON/XML parsing limits, and quoted interpolation in Groovy SQL. Scripts or plugins relying on the Ivy backend for @Grab or the classic non-invokedynamic runtime need the corresponding optional modules and dependencies. See the repository's dependency review for details.
+
+Runtime libraries also receive updates, including HttpClient 5, Jackson, Log4j, JDBC pooling, Bouncy Castle, and the desktop UI libraries.
+
+Sources: [#265](https://github.com/Breaking-IT/breaktest/pull/265).
+
+[Full changelog since 2026.10.15](https://github.com/Breaking-IT/breaktest/compare/2026.10.15...2026.10.16)
+
+# BreakTest 2026.10.15 — Guided Review, Extractor Previews, and Faster Execution
+
+This release adds step-by-step review for plan changes, more precise correlation controls, and recorded-response testers for more extractors. It also reduces scripting and HTTP execution overhead, makes long request paths easier to edit, and fixes replay storage and editor behavior.
+
+## Review Changes in Context
+
+- **Inspect each proposed change in its editor.** Correlation processing, HAR import, search/replace, and deletion share a step-by-step review wizard. Each step opens the matching element and tab, scrolls the original value into view, and highlights the occurrence.
+- **Accept, reject, or navigate before deciding.** Accept All applies pending matches that can be shown in the editor, including previously skipped matches, while preserving rejections. Matches that cannot be revealed remain pending with an explanation. Large visibility checks run in batches and can be cancelled.
+- **Review imported correlations after import.** HAR imports defer reviewed replacements until the imported elements can be inspected in the same wizard. Deletion review covers elements, parameters, and headers.
+
+Sources: [#248](https://github.com/Breaking-IT/breaktest/pull/248).
+
+## More Precise Correlation
+
+- **Limit where a rule replaces values.** Select multiple replacement scopes, enable **Match whole value only**, or supply a field regex to restrict replacements to the relevant part of a request. Explicit query keys and header names remain literal.
+- **Correlate more sampler types.** Discovery can use recorded responses from any sampler. Replacement supports WebSocket messages and UDP Data, as well as request fields exposed by compatible plugins. Automatic discovery still requires a recorded response.
+- **Organize custom rules in batches.** Move selected rules to an existing or new group, delete multiple rules or a custom group with confirmation, and toggle selected rules together with Space. Built-in rules remain protected.
+- **Keep problematic rules available for repair.** Invalid saved regex rules remain in the catalog with diagnostics and make no replacements. Regex work is bounded and cancellable; scans report affected rules while continuing with other fields and rules.
+
+Sources: [#247](https://github.com/Breaking-IT/breaktest/pull/247), [#249](https://github.com/Breaking-IT/breaktest/pull/249).
+
+## Extractor Previews and Recorded Bodies
+
+- **Test extractors against recorded responses.** JSONPath, Boundary, CSS Selector, XPath, XPath2, and JSON JMESPath extractors now have live preview panels showing variables, match counts, full values, and replacement actions for later samplers. Previews refresh as settings change and run in the background.
+- **Spot slow extraction.** Extractor testers, including Regex, show microseconds below 1 ms and milliseconds otherwise. The timing value turns red above 10 ms; it includes parsing, extraction, and variable creation.
+- **Pretty-print recorded HTTP content.** Recorded Request and Recorded Response tabs offer reversible Pretty print toggles. Search navigation restores raw text so highlighted offsets stay accurate.
+- **Correct XPath2 extraction from sub-samples.** Each selected sub-sample is now read individually instead of repeatedly extracting from its parent.
+
+Sources: [#255](https://github.com/Breaking-IT/breaktest/pull/255).
+
+## Lower Execution Overhead
+
+- **Less overhead for cached Groovy scripts.** JSR223 execution reuses eligible cached Groovy engines and evaluates supported compiled scripts directly, with fresh bindings for each execution. Element loggers and counter formatters are also cached without losing name, format, or locale updates.
+- **Less contention when handing samples to backend listeners.** A bounded concurrent queue and batched draining reduce producer contention while retaining capacity limits, blocking when full, and FIFO ordering.
+- **Fewer platform threads for HTTP/2 and HTTP/3.** HTTP/3 client tasks use a shared virtual-thread executor. HTTP/2 IO reactors use virtual threads by default on Java 25 and later; Java 21–24 retain platform reactors. Each virtual user keeps its own clients, connections, and TLS state.
+- **Smaller response-buffer allocations.** Unknown-length responses size their stored-body buffer after the first non-empty read, preserving response retention, truncation, and checksum behavior.
+
+In the PR's CPU-limited Java 27 benchmark with 400 virtual users and a 1,021-byte JSON response, HTTP/3 throughput increased from roughly 1,700 to 7,460 requests per second. Results depend on the workload, runtime, and available CPU; these figures are not a general throughput guarantee.
+
+Sources: [#251](https://github.com/Breaking-IT/breaktest/pull/251), [#252](https://github.com/Breaking-IT/breaktest/pull/252), [#253](https://github.com/Breaking-IT/breaktest/pull/253).
+
+## Easier HTTP Request Editing
+
+- **Read long paths without horizontal scrolling.** In the modern HTTP Request editor, Path has its own full-width row and wraps to up to five rows while focused, then scrolls. It collapses to one row when focus leaves. Classic layout and HTTP Request Defaults retain their existing editors.
+- **Move query strings between Path and Params.** The conversion button preserves existing percent escapes and creates unencoded parameter rows. It is disabled for body-producing methods, raw-body use, full-URL paths, dynamic parameter names, and other unsupported cases. Moving Params back to Path requires unencoded rows.
+- **Send spaces in unencoded URL parameters as `%20`.** Form-body generation remains unchanged.
+
+Correlated resource paths beginning with a literal `/` remain eligible for conversion. **Known limitation:** if a path variable resolves to a value containing `?`, conversion can change the query separator and therefore the request URL. Parameter-value expressions remain supported.
+
+Sources: [#256](https://github.com/Breaking-IT/breaktest/pull/256).
+
+## Plan Editing and Reliability Fixes
+
+- **Open plans with useful tree expansion.** A single enabled ordinary thread group expands on load; multiple eligible groups stay collapsed. The explicit expand-whole-tree preference still takes precedence. HAR import preserves existing expansion and reveals the imported group.
+- **Preview profile-based think times in the tree.** Transaction labels resolve shared variables and workload profiles, showing `(?s)` when the context is missing or ambiguous. These editor previews do not reflect separate command-line profile overrides.
+- **Keep focus after Insert Parent.** Selection, active editor, tree order, and nesting are preserved, including multiple selections. Subsequent edits are saved correctly.
+- **Store replay for reusable transactions.** Samplers in transactions directly under the Test Fragments section can now store replay data without a Thread Group or legacy Test Fragment controller.
+- **Report AI CLI timeouts consistently.** Stopping a CLI no longer lets a stream-closure error hide the intended timeout or cancellation result.
+
+Sources: [#247](https://github.com/Breaking-IT/breaktest/pull/247), [#250](https://github.com/Breaking-IT/breaktest/pull/250), [#254](https://github.com/Breaking-IT/breaktest/pull/254), [#256](https://github.com/Breaking-IT/breaktest/pull/256).
+
+## Upgrade Notes
+
+Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later. Existing correlation rules retain their default replacement scopes when the new filters are absent.
+
+To opt out of the new execution paths, set the relevant properties in `user.properties`:
+
+```properties
+jsr223.groovy.direct_eval=false
+httpsampler.http2.virtual_reactor_threads=false
+httpsampler.http3.virtual_executor=false
+```
+
+Groovy direct evaluation does not register cross-script global methods. Scripts that rely on that engine behavior can use the opt-out above. Undefined-method diagnostics may name the script class instead of the Groovy script engine.
+
+[Full changelog since 2026.10.08](https://github.com/Breaking-IT/breaktest/compare/2026.10.08...2026.10.15)
+
 # BreakTest 2026.10.08 — Better Correlation, Variable Search, and HTTP Fixes
 
 This maintenance release makes correlation rules easier to apply and review, adds quick variable search in results, improves browser recorder shortcuts, and fixes headers and file bodies in HTTP replay.

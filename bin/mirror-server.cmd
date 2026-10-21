@@ -26,9 +26,8 @@ set JMETER_CMD_LINE_ARGS=%*
 
 cd /D %~dp0
 
-set CP=..\lib\ext\ApacheJMeter_http.jar;..\lib\ext\ApacheJMeter_core.jar;..\lib\jorphan.jar;..\lib\oro-2.0.8.jar
-set CP=%CP%;..\lib\slf4j-api-1.7.36.jar;..\lib\jcl-over-slf4j-1.7.36.jar;..\lib\log4j-slf4j-impl-2.22.1.jar
-set CP=%CP%;..\lib\log4j-api-2.22.1.jar;..\lib\log4j-core-2.22.1.jar
+rem lib\* is a Java classpath wildcard, so library upgrades do not require script changes
+set CP=..\lib\ext\ApacheJMeter_http.jar;..\lib\ext\ApacheJMeter_core.jar;..\lib\*
 
 java -cp %CP% org.apache.jmeter.protocol.http.control.HttpMirrorServer %JMETER_CMD_LINE_ARGS%
 

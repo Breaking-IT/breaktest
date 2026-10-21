@@ -20,13 +20,14 @@ package org.apache.jmeter.protocol.http.proxy;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.sampler.HTTPNullSampler;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.samplers.SampleResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-public class TestProxyControl {
+public class TestProxyControl extends JMeterTestCase {
 
     private HTTPSamplerBase sampler;
     private ProxyControl control;

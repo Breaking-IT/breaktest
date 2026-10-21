@@ -939,7 +939,7 @@ class AiAutoScriptingActionTest {
             IOException timeout = assertThrows(IOException.class,
                     () -> engine.run("Change the script", workDir.toFile(), Duration.ofMillis(500)));
 
-            assertTrue(timeout.getMessage().contains("did not finish within"));
+            assertTrue(timeout.getMessage().contains("did not finish within"), timeout.getMessage());
             assertTrue(Duration.ofNanos(System.nanoTime() - started).toSeconds() < 10,
                     "The hanging CLI must be stopped, not awaited");
         } finally {

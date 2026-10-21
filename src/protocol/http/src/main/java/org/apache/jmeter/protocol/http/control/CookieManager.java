@@ -37,6 +37,7 @@ import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.ValidationCheckpointParticipant;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.reflect.ClassTools;
 import org.apache.jorphan.util.JMeterException;
@@ -49,7 +50,7 @@ import org.slf4j.LoggerFactory;
  * This class provides an interface to the netscape cookies file to pass cookies
  * along with a request.
  */
-public class CookieManager extends ConfigTestElement implements TestStateListener, TestIterationListener, Serializable {
+public class CookieManager extends ConfigTestElement implements ValidationCheckpointParticipant, TestStateListener, TestIterationListener, Serializable {
     private static final long serialVersionUID = 234L;
 
     private static final Logger log = LoggerFactory.getLogger(CookieManager.class);
@@ -141,6 +142,16 @@ public class CookieManager extends ConfigTestElement implements TestStateListene
 
     public void setCookiePolicy(String policy){
         setProperty(POLICY, policy, DEFAULT_POLICY);
+    }
+
+    @Override
+    public Object captureValidationState() {
+        return getCookies().clone();
+    }
+
+    @Override
+    public void restoreValidationState(Object state) {
+        setProperty(((CollectionProperty) state).clone());
     }
 
     public CollectionProperty getCookies() {

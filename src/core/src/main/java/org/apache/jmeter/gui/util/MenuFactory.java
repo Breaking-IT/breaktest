@@ -76,6 +76,7 @@ import org.apache.jmeter.testelement.NonTestElement;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
 import org.apache.jmeter.threads.AbstractThreadGroup;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.visualizers.Printable;
 import org.apache.jorphan.gui.GuiUtils;
@@ -276,12 +277,18 @@ public final class MenuFactory {
         }
     }
 
-    private static void separateItemsWithExplicitOrder(Collection<? extends List<MenuInfo>> menus) {
+    @VisibleForTesting
+    static void separateItemsWithExplicitOrder(Collection<? extends List<MenuInfo>> menus) {
         for (List<MenuInfo> menu : menus) {
+            // A menu can be empty or hold only explicitly ordered items, e.g. when lib/ext
+            // has not been populated by createDist yet; then there is nothing to separate.
             Optional<MenuInfo> firstDefaultSortItem = menu.stream()
                     .filter(info -> info.getSortOrder() == MenuInfo.SORT_ORDER_DEFAULT)
                     .findFirst();
-            int index = menu.indexOf(firstDefaultSortItem.orElseThrow(IllegalStateException::new));
+            if (firstDefaultSortItem.isEmpty()) {
+                continue;
+            }
+            int index = menu.indexOf(firstDefaultSortItem.get());
             if (index > 0) {
                 menu.add(index, new MenuSeparatorInfo());
             }
@@ -476,6 +483,12 @@ public final class MenuFactory {
         pop.add(makeMenus(new String[]{CONTROLLERS},
                 JMeterUtils.getResString("insert_parent"),// $NON-NLS-1$
                 ActionNames.ADD_PARENT));
+        JMenuItem resume = makeMenuItemRes("resume_validation", ActionNames.RESUME_VALIDATION);
+        resume.setToolTipText(JMeterUtils.getResString("resume_validation_tooltip"));
+        GuiPackage gui = GuiPackage.getInstance();
+        resume.setEnabled(gui != null && !JMeterUtils.isTestRunning()
+                && ValidationCheckpoints.canResume(gui.getCurrentElement()));
+        pop.add(resume);
         MenuFactory.addEditMenu(pop, true);
         MenuFactory.addFileMenu(pop);
         return pop;

@@ -19,10 +19,13 @@ package org.apache.jmeter.gui.action;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.lang.reflect.Field;
+import java.util.List;
+import java.util.Set;
 
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.config.Arguments;
@@ -30,9 +33,14 @@ import org.apache.jmeter.control.GenericController;
 import org.apache.jmeter.control.TestFragmentController;
 import org.apache.jmeter.engine.PreCompiler;
 import org.apache.jmeter.gui.GuiPackage;
+import org.apache.jmeter.gui.action.validation.ValidationSettings;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
+import org.apache.jmeter.readiness.PlanFingerprint;
+import org.apache.jmeter.readiness.evidence.ReadinessEvidenceStore;
+import org.apache.jmeter.readiness.evidence.RunKind;
+import org.apache.jmeter.readiness.evidence.RunSegment;
 import org.apache.jmeter.scenario.ScenarioPlanMigration;
 import org.apache.jmeter.scenario.ScenarioResolver;
 import org.apache.jmeter.scenario.TestFragmentsSection;
@@ -42,14 +50,73 @@ import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.Isolated;
 
+@Isolated
+@Execution(ExecutionMode.SAME_THREAD)
 class StartTest {
     private final JMeterTreeModel model = new JMeterTreeModel(new TestPlan());
     private final AbstractThreadGroup first = addThreadGroup();
     private final AbstractThreadGroup second = addThreadGroup();
+
+    @Test
+    void resumeFingerprintCoversOriginalGroupsAndDetectsChangesOutsideResumedGroup() {
+        first.setName("First");
+        first.setThreadGroupId("first");
+        second.setName("Second");
+        second.setThreadGroupId("second");
+        ValidationSettings settings = new ValidationSettings(1, true, 1, true);
+        AbstractThreadGroup[] original = {first, second};
+        String fingerprint = PlanFingerprint.compute(Start.validationTree(model.getTestPlan(), original),
+                settings, Start.readinessScope(original));
+        RunSegment main = new RunSegment(RunKind.MAIN, fingerprint, settings,
+                List.of(ValidationCheckpoints.sourceIdOfSource(first), ValidationCheckpoints.sourceIdOfSource(second)),
+                ValidationCheckpoints.generation(), Set.of());
+        ReadinessEvidenceStore.begin(main);
+        ReadinessEvidenceStore.end(main);
+        try {
+            AbstractThreadGroup[] resumed = {second};
+            String subset = PlanFingerprint.compute(Start.validationTree(model.getTestPlan(), resumed),
+                    settings, Start.readinessScope(resumed));
+            assertNotEquals(fingerprint, subset);
+            assertEquals(fingerprint, Start.resumeReadinessFingerprint(model, settings));
+            first.setNumThreads(17);
+            assertNotEquals(fingerprint, Start.resumeReadinessFingerprint(model, settings));
+            model.removeNodeFromParent(model.getNodeOf(first));
+            assertNotEquals(fingerprint, Start.resumeReadinessFingerprint(model, settings));
+        } finally {
+            ReadinessEvidenceStore.clear();
+            ValidationCheckpoints.clear();
+        }
+    }
+
+    @Test
+    void validateAllSelectsOnlyEnabledGroupsInSectionOrder() {
+        JMeterTreeNode plan = (JMeterTreeNode) model.getNodeOf(first).getParent();
+        JMeterTreeNode section = addChild(new org.apache.jmeter.scenario.ThreadGroupsSection(), plan);
+        ThreadGroup alpha = new ThreadGroup();
+        ThreadGroup disabled = new ThreadGroup();
+        disabled.setEnabled(false);
+        ThreadGroup beta = new ThreadGroup();
+        addChild(alpha, section);
+        addChild(disabled, section);
+        addChild(new Arguments(), section);
+        addChild(beta, section);
+        assertArrayEquals(new AbstractThreadGroup[]{alpha, beta}, Start.findSectionValidationThreadGroups(section));
+        assertEquals(0, Start.findSectionValidationThreadGroups(plan).length);
+        assertArrayEquals(new AbstractThreadGroup[]{first, second, alpha, beta},
+                Start.findAllValidationThreadGroups(model));
+        section.setEnabled(false);
+        assertEquals(0, Start.findSectionValidationThreadGroups(section).length);
+        first.setEnabled(false);
+        assertArrayEquals(new AbstractThreadGroup[]{second}, Start.findAllValidationThreadGroups(model));
+    }
 
     @Test
     void validationPrefersPlanResultsTreeOverGroupListener() {

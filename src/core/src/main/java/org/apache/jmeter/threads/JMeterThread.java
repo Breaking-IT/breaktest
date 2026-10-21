@@ -64,6 +64,7 @@ import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.MainFrame;
 import org.apache.jmeter.processor.PostProcessor;
 import org.apache.jmeter.processor.PreProcessor;
+import org.apache.jmeter.readiness.evidence.ReadinessRecorder;
 import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleEvent;
 import org.apache.jmeter.samplers.SampleIgnorePolicy;
@@ -832,9 +833,8 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void cleanupFinishedFork(Future<?> task, ExecutorService executor, ForkController sourceController) {
-        forkTasks.removeIf(candidate -> candidate == task);
-        forkExecutions.removeIf(execution -> execution.task() == task);
-        forkExecutors.remove(executor);
+        // Release the running-check entry first: once the iteration boundary no longer finds this
+        // fork in forkExecutions, the next start of the same controller must not see it as running.
         if (sourceController != null) {
             synchronized (activeForkTasksByController) {
                 if (activeForkTasksByController.get(sourceController) == task) {
@@ -842,6 +842,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
             }
         }
+        forkTasks.removeIf(candidate -> candidate == task);
+        forkExecutions.removeIf(execution -> execution.task() == task);
+        forkExecutors.remove(executor);
         executor.shutdown();
     }
 
@@ -1408,6 +1411,43 @@ public class JMeterThread implements Runnable, Interruptible {
             Function<? super Sampler, ? extends Sampler> sourceSampler,
             boolean recoverControllers) {
 
+        if (JMeterContextService.isValidationRun()) {
+            try {
+                ValidationCheckpoints.beforeSampler(testTree, current, threadContext);
+            } catch (ValidationCheckpoints.RestoreException ex) {
+                // The context may be partially restored; never execute this group further.
+                stopThread();
+                SamplePackage failedPack = configureSamplerLocked(current, sourceSampler);
+                try {
+                    SampleResult failure = new SampleResult();
+                    failure.setSampleLabel(current.getName());
+                    failure.sampleStart();
+                    failure.sampleEnd();
+                    failure.setSuccessful(false);
+                    failure.setResponseCode("VALIDATION_RESTORE_FAILED");
+                    failure.setResponseMessage(ex.getMessage());
+                    RunningTransaction transaction = threadContext.getCurrentTransaction();
+                    if (transaction != null) {
+                        failure.setParentTransaction(transaction.getRef());
+                    }
+                    for (RunningTransaction currentTransaction = transaction; currentTransaction != null;
+                            currentTransaction = currentTransaction.getEnclosing()) {
+                        currentTransaction.addSample(failure);
+                    }
+                    setLastSampleOk(threadContext.getVariables(), false);
+                    fillThreadInformation(failure, threadGroup.getNumberOfThreads(),
+                            JMeterContextService.getNumberOfThreads());
+                    setSourceTestElementPath(failure, failedPack.getSourceTestElementPath());
+                    threadContext.setPreviousResult(failure);
+                    ValidationCheckpoints.afterSampler(current, threadContext.getThreadGroup(), failure);
+                    List<SampleListener> listeners = failedPack.getSampleListeners();
+                    notifyListeners(listeners, failure, sampleResultMetadataRequirements(listeners), false);
+                    return failure;
+                } finally {
+                    doneLocked(failedPack, recoverControllers);
+                }
+            }
+        }
         threadContext.setCurrentSampler(current);
         // Get the sampler ready to sample
         SamplePackage pack = configureSamplerLocked(current, sourceSampler);
@@ -1425,7 +1465,7 @@ public class JMeterThread implements Runnable, Interruptible {
             if (timerPause != null) {
                 for (RunningTransaction transaction = threadContext.getCurrentTransaction(); transaction != null;
                         transaction = transaction.getEnclosing()) {
-                    transaction.addTimerPause(timerPause.startTime, timerPause.endTime);
+                    transaction.addTimerPauseEndingNow(timerPause.durationMillis);
                 }
             }
             SampleResult result = null;
@@ -1459,8 +1499,8 @@ public class JMeterThread implements Runnable, Interruptible {
                         }
                     }
                     threadContext.setPreviousResult(result);
-                    runPostProcessors(pack.getPostProcessors());
-                    JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
+                    runPostProcessors(pack.getPostProcessors(), threadContext);
+                    var evaluatedAssertions = JMeterThreadAssertions.check(pack.getAssertions(), result, threadContext);
                     if (isCurrentSampleCancelledWithoutResult()) {
                         packageDone = true;
                         doneLocked(pack, recoverControllers);
@@ -1469,6 +1509,13 @@ public class JMeterThread implements Runnable, Interruptible {
                     SampleIgnorePolicy.from(pack.getSampler()).apply(result);
                     // PostProcessors and the sampler policy can call setIgnore, so reevaluate here
                     if (!result.isIgnore()) {
+                        if (JMeterContextService.isValidationRun()) {
+                            ValidationCheckpoints.afterSampler(current, threadContext.getThreadGroup(), result);
+                            if (ReadinessRecorder.isActive()) {
+                                ReadinessRecorder.sampleCompleted(current, evaluatedAssertions,
+                                        pack.getPostProcessors(), result, threadContext);
+                            }
+                        }
                         List<SampleListener> sampleListeners = pack.getSampleListeners();
                         int metadataRequirements = sampleResultMetadataRequirements(sampleListeners);
                         if (needsSourceTestElementPath(metadataRequirements)) {
@@ -1496,6 +1543,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
                 // Explicit sampler actions still apply; thread-group error policy is main-flow only.
                 boolean mainFlowError = !isForkWorkerThread() && !result.isSuccessful() && forkIterationEndAction == null;
+                if (ReadinessRecorder.isActive()) {
+                    recordReadinessStop(threadContext, current, result, mainFlowError);
+                }
                 if (result.isStopThread() || (mainFlowError && onErrorStopThread)) {
                     stopThread();
                 }
@@ -2137,10 +2187,24 @@ public class JMeterThread implements Runnable, Interruptible {
         log.info("Stop Thread detected by thread: {}", threadName);
     }
 
-    private static void runPostProcessors(List<? extends PostProcessor> extractors) {
+    private static void runPostProcessors(List<? extends PostProcessor> extractors, JMeterContext context) {
         for (PostProcessor ex : extractors) {
             TestBeanHelper.prepare((TestElement) ex);
-            ex.process();
+            if (ReadinessRecorder.isActive()) {
+                ReadinessRecorder.runPostProcessor(ex, context);
+            } else {
+                ex.process();
+            }
+        }
+    }
+
+    private void recordReadinessStop(JMeterContext context, Sampler sampler, SampleResult result,
+            boolean mainFlowError) {
+        String name = sampler.getName();
+        if (mainFlowError && (onErrorStopThread || onErrorStopTest || onErrorStopTestNow)) {
+            ReadinessRecorder.threadStopping(context, true, "stopped after failed sampler '" + name + "'");
+        } else if (result.isStopThread() || result.isStopTest() || result.isStopTestNow()) {
+            ReadinessRecorder.threadStopping(context, false, "stopped by '" + name + "'");
         }
     }
 
@@ -2179,8 +2243,9 @@ public class JMeterThread implements Runnable, Interruptible {
                 return null;
             }
             // Timers such as the Synchronizing Timer block inside delay() and return 0, so the
-            // pause starts before the timers are evaluated, not when the sleep starts
-            long start = System.currentTimeMillis();
+            // pause starts before the timers are evaluated, not when the sleep starts.
+            // Measured on the monotonic clock: each transaction places it on its own sample clock.
+            long start = System.nanoTime();
             long totalDelay = 0;
             for (Timer timer : timers) {
                 TestBeanHelper.prepare((TestElement) timer);
@@ -2222,8 +2287,8 @@ public class JMeterThread implements Runnable, Interruptible {
                     }
                 }
             }
-            long pauseEnd = System.currentTimeMillis();
-            return pauseEnd > start ? new TimerPause(start, pauseEnd) : null;
+            long pauseMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            return pauseMillis > 0 ? new TimerPause(pauseMillis) : null;
         } finally {
             currentTimersForInterruption = null;
             synchronized (activeTimerWorkers) {
@@ -2239,7 +2304,7 @@ public class JMeterThread implements Runnable, Interruptible {
         }
     }
 
-    private record TimerPause(long startTime, long endTime) {
+    private record TimerPause(long durationMillis) {
     }
 
     void notifyTestListeners() {

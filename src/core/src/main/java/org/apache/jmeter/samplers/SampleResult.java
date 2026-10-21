@@ -148,6 +148,8 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     private static final String[] NON_BINARY_TYPES = {
         "audio/x-mpegurl",  //$NON-NLS-1$ (HLS Media Manifest)
         "audio/mpegurl",    //$NON-NLS-1$ (HLS Media Manifest)
+        "application/vnd.apple.mpegurl", //$NON-NLS-1$ (HLS Media Manifest)
+        "application/x-mpegurl", //$NON-NLS-1$ (HLS Media Manifest)
         "video/f4m",        //$NON-NLS-1$ (Flash Media Manifest)
         "image/svg+xml"     //$NON-NLS-1$ (SVG is xml)
         };
@@ -280,7 +282,10 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     private long latency = 0;
 
     /** time to end connecting */
-    private long connectTime = 0;
+    /** Sentinel for transports that cannot measure connection establishment. */
+    public static final long CONNECT_TIME_UNAVAILABLE = -1;
+
+    private long connectTime = CONNECT_TIME_UNAVAILABLE;
 
     /** Way to signal what to do on Test */
     private TestLogicalAction testLogicalAction = TestLogicalAction.CONTINUE;
@@ -1308,10 +1313,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         setEndTime(end);
     }
 
-    /**
-     * Record the start time of a sample
-     *
-     */
+    /** Record the start time of a sample. */
     public void sampleStart() {
         if (startTime == 0) {
             setStartTime(currentTimeInMillis());
@@ -1320,15 +1322,26 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
         }
     }
 
-    /**
-     * Record the end time of a sample and calculate the elapsed time
-     *
-     */
+    /** Record the end time of a sample and calculate the elapsed time. */
     public void sampleEnd() {
         if (endTime == 0) {
             setEndTime(currentTimeInMillis());
         } else {
             log.error("sampleEnd called twice", new Throwable(INVALID_CALL_SEQUENCE_MSG));
+        }
+    }
+
+    /** Exclude a successful initial connection-pool wait from the request's time window. */
+    public void excludeConnectionPoolWait(long millis) {
+        if (millis > 0 && startTime != 0 && endTime == 0) {
+            setStartTime(startTime + millis);
+        }
+    }
+
+    /** Aggregate measured connection times, ignoring missing measurements. */
+    public void addConnectTime(long millis) {
+        if (millis >= 0) {
+            connectTime = Math.max(0, connectTime) + millis;
         }
     }
 
@@ -1519,7 +1532,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     }
 
     /**
-     * @return Returns the connect time.
+     * @return Connect time in milliseconds, or {@link #CONNECT_TIME_UNAVAILABLE} when unknown.
      */
     public long getConnectTime() {
         return connectTime;
@@ -1535,7 +1548,7 @@ public class SampleResult implements Serializable, Cloneable, Searchable {
     /**
      * This is only intended for use by SampleResultConverter!
      *
-     * @param time The connect time to set.
+     * @param time Connect time in milliseconds, or {@link #CONNECT_TIME_UNAVAILABLE}.
      */
     public void setConnectTime(long time) {
         this.connectTime = time;

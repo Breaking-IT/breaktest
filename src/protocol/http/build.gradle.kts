@@ -28,20 +28,74 @@ val liveHttp3 = providers.environmentVariable("BREAKTEST_HTTP3_LIVE").orElse("")
 extensions.configure<TestEnvironmentInputs> {
     listOf(
         "BREAKTEST_HTTP2_LIVE", "BREAKTEST_HTTP_LIVE", "BREAKTEST_HTTP3_LIVE",
-        "BREAKTEST_HTTP3_CERT_LIVE", "BREAKTEST_HC5_LIFECYCLE_BENCHMARK"
+        "BREAKTEST_HTTP3_CERT_LIVE", "BREAKTEST_HTTP3_COALESCING_LIVE", "BREAKTEST_HC5_LIFECYCLE_BENCHMARK"
     ).forEach { flags.put(it, providers.environmentVariable(it).orElse("")) }
     listOf(
-        "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR"
+        "BREAKTEST_HTTP3_FIXTURE", "BREAKTEST_HTTP3_SELF_SIGNED_URL", "BREAKTEST_UPLOAD_HAR",
+        "BREAKTEST_HTTP3_RESUMPTION_SERVER"
     ).forEach { paths.put(it, providers.environmentVariable(it).orElse("")) }
 }
 
-tasks.test {
+// The largest suite runs its classes sequentially; CI spreads it over several JVMs.
+val httpTestForks = providers.gradleProperty("httpTestForks").map { it.toInt() }.orElse(1)
+// The recorder tests generate CA and host certificates with external keytool processes; one JVM
+// generates them once, while each forked JVM would repeat that and exceed the tests' timeouts.
+val proxyTestClasses = "org/apache/jmeter/protocol/http/proxy/**"
+
+fun Test.excludeLiveHttp3() {
     if (splitHttp3LiveTests.get()) {
         useJUnitPlatform { excludeTags("live-http3") }
         extensions.configure<TestEnvironmentInputs> {
             // The excluded workload runs in http3LiveTest with the real flag value.
             flags.put("BREAKTEST_HTTP3_LIVE", "")
         }
+    }
+}
+
+tasks.test {
+    if (providers.environmentVariable("BREAKTEST_HTTP3_COALESCING_LIVE").orElse("").get() == "true") {
+        // Read native connection identities in the opt-in diagnostic, without production hooks.
+        jvmArgs(
+            "--add-opens=java.net.http/jdk.internal.net.http=ALL-UNNAMED",
+            "--add-opens=java.net.http/jdk.internal.net.http.quic=ALL-UNNAMED",
+            "--add-opens=java.base/jdk.internal.net.quic=ALL-UNNAMED"
+        )
+    }
+    require(httpTestForks.get() > 0) { "httpTestForks must be positive" }
+    if (httpTestForks.get() > 1) {
+        maxParallelForks = httpTestForks.get()
+        exclude(proxyTestClasses)
+    }
+    excludeLiveHttp3()
+}
+
+val httpProxyTest by tasks.registering(Test::class) {
+    description = "Runs the proxy recording tests in one JVM while the HTTP suite is forked"
+    group = "verification"
+    testClassesDirs = sourceSets.test.get().output.classesDirs
+    classpath = sourceSets.test.get().runtimeClasspath
+    include(proxyTestClasses)
+    onlyIf { httpTestForks.get() > 1 }
+    excludeLiveHttp3()
+}
+
+tasks.withType<Test>().configureEach {
+    // Menu and resource lookups scan JMeter home's lib/ext, which createDist populates.
+    mustRunAfter(":src:dist:createDist")
+    // A fresh checkout or worktree has no BreakTest jars in lib/ext until createDist runs, which
+    // leaves every GUI menu empty. Point search_paths at the module jars on the test classpath
+    // instead; JMeterUtils uses system properties as defaults for every properties reload.
+    val libExt = rootProject.layout.projectDirectory.dir("lib/ext").asFile
+    val testClasspath = classpath
+    jvmArgumentProviders += CommandLineArgumentProvider {
+        val distJars = libExt.listFiles { _, name -> name.startsWith("ApacheJMeter") && name.endsWith(".jar") }
+        if (!distJars.isNullOrEmpty()) {
+            return@CommandLineArgumentProvider emptyList()
+        }
+        val moduleJars = testClasspath.files
+            .filter { it.name.startsWith("ApacheJMeter_") && it.name.endsWith(".jar") }
+            .joinToString(";")
+        if (moduleJars.isEmpty()) emptyList() else listOf("-Dsearch_paths=$moduleJars")
     }
 }
 
@@ -53,10 +107,11 @@ val http3LiveTest by tasks.registering(Test::class) {
     useJUnitPlatform { includeTags("live-http3") }
     onlyIf { liveHttp3.get() == "true" }
     // Avoid overlapping global/network-sensitive HTTP suites within this project.
-    mustRunAfter(tasks.test)
+    mustRunAfter(tasks.test, httpProxyTest)
 }
 
 tasks.check {
+    dependsOn(httpProxyTest)
     if (splitHttp3LiveTests.get()) {
         dependsOn(http3LiveTest)
     }
@@ -117,14 +172,10 @@ dependencies {
     testImplementation(projects.src.protocol.udp)
     testImplementation(testFixtures(projects.src.core))
     testImplementation(testFixtures(projects.src.testkitWiremock))
-    testImplementation("org.wiremock:wiremock")
+    testImplementation("org.wiremock:wiremock-jetty12")
     testImplementation("io.mockk:mockk")
-    // For some reason JMeter bundles just tika-core and tika-parsers without transitive
-    // dependencies. So we exclude those
+    // Only tika-core is bundled (MIME detection); document parsers come from a user-installed tika-app
     implementation("org.apache.tika:tika-core") {
-        isTransitive = false
-    }
-    runtimeOnly("org.apache.tika:tika-parsers") {
         isTransitive = false
     }
 }

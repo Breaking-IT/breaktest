@@ -32,7 +32,6 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.Locale;
 import java.util.StringJoiner;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
@@ -122,6 +121,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
     private JCheckBox emptyDefaultValue;
     private JCheckBox failOnNoMatch;
     private JLabel testResultStatus;
+    private ExtractorTestTiming testParseTime;
     private JTable testResultTable;
     private DefaultTableModel testResultModel;
     private SampleResult recordedSampleResult;
@@ -365,6 +365,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
 
     private JPanel makeTestResultPanel() {
         testResultStatus = new JLabel();
+        testParseTime = new ExtractorTestTiming();
         testResultStatus.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
         testResultModel = new DefaultTableModel(
                 new Object[] {
@@ -438,7 +439,10 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         JPanel panel = new JPanel(new BorderLayout());
         panel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("regexp_tester_title"))); //$NON-NLS-1$
-        panel.add(testResultStatus, BorderLayout.NORTH);
+        JPanel statusPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        statusPanel.add(testResultStatus);
+        statusPanel.add(testParseTime);
+        panel.add(statusPanel, BorderLayout.NORTH);
         panel.add(testResultPane, BorderLayout.CENTER);
         return panel;
     }
@@ -509,6 +513,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
     private void showStatus(String status) {
         if (testResultStatus != null) {
             testResultStatus.setText(status);
+            testParseTime.setVisible(false);
         }
     }
 
@@ -601,9 +606,8 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
                         .append(random == null ? "" : random.value()); //$NON-NLS-1$
             }
         }
-        status.append("  ").append(JMeterUtils.getResString("regex_test_parse_time")) //$NON-NLS-1$
-                .append(' ').append(formatElapsedMillis(elapsedNanos));
         showStatus(status.toString());
+        testParseTime.setElapsed(elapsedNanos);
     }
 
     private static List<ReplacementCandidate> buildCandidates(List<TestMatch> matches, RegexExtractor extractor) {
@@ -788,10 +792,6 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         updateTestResult();
     }
 
-    private static String formatElapsedMillis(long elapsedNanos) {
-        return String.format(Locale.ROOT, "%.1f ms", elapsedNanos / 1_000_000d); //$NON-NLS-1$
-    }
-
     private static ThreadFactory daemonThreadFactory(String name) {
         return runnable -> {
             Thread thread = Executors.defaultThreadFactory().newThread(runnable);
@@ -840,9 +840,7 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
                 if (finished.compareAndSet(false, true)) {
                     cancelTimeout();
                     showResult(JMeterUtils.getResString("regex_test_error") //$NON-NLS-1$
-                            + " " + e + "\n" //$NON-NLS-1$
-                            + JMeterUtils.getResString("regex_test_parse_time") //$NON-NLS-1$
-                            + " " + formatElapsedMillis(elapsed)); //$NON-NLS-1$
+                            + " " + e, elapsed); //$NON-NLS-1$
                 }
             }
         }
@@ -876,10 +874,17 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
         }
 
         private void showResult(String result) {
+            showResult(result, -1L);
+        }
+
+        private void showResult(String result, long elapsedNanos) {
             SwingUtilities.invokeLater(() -> {
                 if (previewGeneration.get() == generation && testResultStatus != null) {
                     clearTestTable();
                     showStatus(result);
+                    if (elapsedNanos >= 0) {
+                        testParseTime.setElapsed(elapsedNanos);
+                    }
                 }
             });
         }

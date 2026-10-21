@@ -135,19 +135,30 @@ val generatedVersionDir = layout.buildDirectory.dir("generated/sources/version")
 
 val versionClass by tasks.registering(Sync::class) {
     val lastEditYear: String by rootProject.extra
-    val displayVersion: String by rootProject.extra
-    inputs.property("@VERSION@", displayVersion)
     inputs.property("@YEAR@", lastEditYear)
     outputs.dir(generatedVersionDir)
 
     from("$projectDir/src/main/version") {
         include("**/*.java")
         filter { x: String ->
-            x.replace("@VERSION@", displayVersion)
-                .replace("@YEAR@", lastEditYear)
+            x.replace("@YEAR@", lastEditYear)
         }
     }
     into(generatedVersionDir)
+}
+
+// The snapshot version includes the Git commit id. Keep it out of the compiled sources, so a new
+// commit does not invalidate the (cacheable) compilation of this module and everything kapt does.
+val generatedVersionResourcesDir = layout.buildDirectory.dir("generated/resources/version")
+
+val versionProperties by tasks.registering(WriteProperties::class) {
+    val displayVersion: String by rootProject.extra
+    destinationFile = generatedVersionResourcesDir.map { it.file("org/apache/jmeter/util/version.properties") }
+    property("version", displayVersion)
+}
+
+sourceSets.main {
+    resources.srcDir(files(generatedVersionResourcesDir).builtBy(versionProperties))
 }
 
 // For some reason, using `ide { ... }` sometimes causes

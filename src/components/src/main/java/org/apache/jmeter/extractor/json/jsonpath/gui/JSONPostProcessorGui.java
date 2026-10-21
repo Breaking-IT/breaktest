@@ -18,17 +18,24 @@
 package org.apache.jmeter.extractor.json.jsonpath.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
 
+import javax.swing.AbstractButton;
 import javax.swing.Box;
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
+import javax.swing.JTextField;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 
+import org.apache.jmeter.extractor.gui.ExtractorTesterPanel;
 import org.apache.jmeter.extractor.json.jsonpath.JSONPostProcessor;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
@@ -54,6 +61,8 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
     private JLabeledTextField matchNumbersField;
     private JCheckBox computeConcatenationField;
     private JCheckBox failOnNoMatch;
+    private ExtractorTesterPanel<JSONPostProcessor> tester;
+    private boolean configuring;
 
     public JSONPostProcessorGui() {
         super();
@@ -73,6 +82,16 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
 
     @Override
     public void configure(TestElement element) {
+        configuring = true;
+        try {
+            configureFields(element);
+        } finally {
+            configuring = false;
+        }
+        tester.configure(element);
+    }
+
+    private void configureFields(TestElement element) {
         super.configure(element);
         JSONPostProcessor config = (JSONPostProcessor) element;
         showScopeSettings(config, true);
@@ -118,6 +137,16 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
      */
     @Override
     public void clearGui() {
+        configuring = true;
+        try {
+            clearFields();
+        } finally {
+            configuring = false;
+        }
+        tester.clear();
+    }
+
+    private void clearFields() {
         super.clearGui();
         refNamesField.setText(""); //$NON-NLS-1$
         jsonPathExpressionsField.setText(""); //$NON-NLS-1$
@@ -134,9 +163,17 @@ public class JSONPostProcessorGui extends AbstractPostProcessorGui {
 
         Box box = Box.createVerticalBox();
         box.add(makeTitlePanel());
-        box.add(createScopePanel(true));
+        JPanel scope = createScopePanel(true);
+        box.add(scope);
         add(box, BorderLayout.NORTH);
-        add(makeParameterPanel(), BorderLayout.CENTER);
+        JPanel editor = new JPanel(new BorderLayout(0, 16));
+        editor.add(makeParameterPanel(), BorderLayout.NORTH);
+        tester = new ExtractorTesterPanel<>("jsonpath_tester_title", () -> (JSONPostProcessor) createTestElement(),
+                e -> !e.getJsonPathExpressions().isBlank(), JSONPostProcessor::extractForTesting);
+        editor.add(tester, BorderLayout.CENTER);
+        add(editor, BorderLayout.CENTER);
+        tester.watch(editor.getComponent(0), () -> configuring);
+        tester.watch(scope, () -> configuring);
 
     }
 

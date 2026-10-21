@@ -112,6 +112,7 @@ public class HtmlExtractor extends AbstractScopedTestElement implements PostProc
             String match;
             if (matchNumber >= 0) {// Original match behaviour
                 match = getCorrectMatch(matches, matchNumber);
+                ExtractorEvidence.outcome(this, match != null, expression, "");
                 if (match != null) {
                     vars.put(refName, match);
                 } else if (isFailOnNoMatch()) {
@@ -120,6 +121,7 @@ public class HtmlExtractor extends AbstractScopedTestElement implements PostProc
             } else // < 0 means we save all the matches
             {
                 matchCount = matches.size();
+                ExtractorEvidence.outcome(this, matchCount > 0, expression, "");
                 if (matchCount == 0 && isFailOnNoMatch()) {
                     ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
                 }
@@ -142,6 +144,37 @@ public class HtmlExtractor extends AbstractScopedTestElement implements PostProc
                 log.warn("{}: Error while generating result. {}", getName(), e.toString());
             }
         }
+    }
+
+    /** Evaluates recorded HTML with a fresh parser, bypassing runtime sampler caches. */
+    public ExtractorTestResult extractForTesting(SampleResult sample) {
+        JMeterVariables variables = ExtractorTestResult.newVariables(this);
+        String reference = getRefName();
+        if (!getDefaultValue().isEmpty() || isEmptyDefaultValue()) {
+            variables.put(reference, getDefaultValue());
+        }
+        List<String> matches = new ArrayList<>();
+        Extractor parser = getExtractorImpl(getExtractor());
+        int found = 0;
+        for (SampleResult result : getSampleList(sample)) {
+            found = parser.extract(getExpression(), getAttribute(), -1,
+                    result.getResponseDataAsString(), matches, found, null);
+        }
+        int matchNumber = getMatchNumber();
+        if (matchNumber >= 0) {
+            String match = getCorrectMatch(matches, matchNumber);
+            if (match != null) {
+                variables.put(reference, match);
+            }
+        } else {
+            variables.put(reference + REF_MATCH_NR, Integer.toString(matches.size()));
+            for (int i = 0; i < matches.size(); i++) {
+                if (matches.get(i) != null) {
+                    variables.put(reference + UNDERSCORE + (i + 1), matches.get(i));
+                }
+            }
+        }
+        return ExtractorTestResult.from(variables, reference, matches.size());
     }
 
     /**

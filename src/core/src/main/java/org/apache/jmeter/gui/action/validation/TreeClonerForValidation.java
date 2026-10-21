@@ -17,11 +17,17 @@
 
 package org.apache.jmeter.gui.action.validation;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.engine.TreeCloner;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.PropertyIterator;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jmeter.threads.openmodel.OpenModelThreadGroup;
 import org.apache.jmeter.timers.Timer;
 import org.apache.jmeter.util.JMeterUtils;
@@ -34,6 +40,8 @@ import org.slf4j.LoggerFactory;
  * @since 3.0
  */
 public class TreeClonerForValidation extends TreeCloner {
+
+    private final List<String> checkpointParents = new ArrayList<>();
 
     private static final Logger log = LoggerFactory.getLogger(TreeClonerForValidation.class);
 
@@ -57,6 +65,11 @@ public class TreeClonerForValidation extends TreeCloner {
      */
     protected static final int VALIDATION_ITERATIONS = JMeterUtils.getPropDefault("testplan_validation.number_iterations", 1); //$NON-NLS-1$
 
+    static final ValidationSettings DEFAULT_SETTINGS = new ValidationSettings(
+            VALIDATION_NUMBER_OF_THREADS, VALIDATION_IGNORE_TIMERS, VALIDATION_ITERATIONS, VALIDATION_IGNORE_BACKENDS);
+
+    private ValidationSettings settings = DEFAULT_SETTINGS;
+
     static {
         log.info("Running validation with number of threads:{}, ignoreTimers:{}, number of iterations:{}",
                 VALIDATION_NUMBER_OF_THREADS, VALIDATION_IGNORE_TIMERS, VALIDATION_ITERATIONS);
@@ -71,12 +84,30 @@ public class TreeClonerForValidation extends TreeCloner {
     }
 
     /**
+     * Overrides the settings of this run only; the properties keep defining ordinary validation.
+     *
+     * @param settings settings to clone with
+     */
+    public void setSettings(ValidationSettings settings) {
+        this.settings = settings;
+    }
+
+    /**
+     * @return settings this cloner applies
+     */
+    public ValidationSettings getSettings() {
+        return settings;
+    }
+
+    /**
      * @see org.apache.jmeter.engine.TreeCloner#addNodeToTree(java.lang.Object)
      */
     @Override
     protected Object addNodeToTree(Object node) {
-        if((VALIDATION_IGNORE_TIMERS && node instanceof Timer) ||
-                (VALIDATION_IGNORE_BACKENDS && node instanceof Backend)) {
+        String parent = checkpointParents.isEmpty() ? "" : checkpointParents.get(checkpointParents.size() - 1);
+        checkpointParents.add(parent);
+        if((settings.ignoreTimers() && node instanceof Timer) ||
+                (settings.ignoreBackends() && node instanceof Backend)) {
             return node; // don't add timer or backend
         } else {
             Object nodeToClone = node instanceof OpenModelThreadGroup openModelThreadGroup
@@ -90,21 +121,37 @@ public class TreeClonerForValidation extends TreeCloner {
                 tg.setClosedModelMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
                 tg.setClosedModelSchedule("");
                 tg.setOpenModelSchedule("");
-                tg.setNumThreads(VALIDATION_NUMBER_OF_THREADS);
+                tg.setNumThreads(settings.threadsPerThreadGroup());
                 tg.setScheduler(false);
                 tg.setProperty(ThreadGroup.DELAY, 0);
                 if (!tg.getPropertyAsString(AbstractThreadGroup.VALIDATION_ON_ERROR).isEmpty()) {
                     // Thread groups whose error handling is set per scenario only choose how validation reacts
                     tg.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, tg.isValidationStopOnError()
-                            ? AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTEST
+                            ? AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTHREAD
                             : AbstractThreadGroup.ON_SAMPLE_ERROR_CONTINUE);
                 }
+                // A validation failure must not stop the other groups in Validate all.
+                if (tg.getOnErrorStopTest() || tg.getOnErrorStopTestNow()) {
+                    tg.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTHREAD);
+                }
                 if(((AbstractThreadGroup)clonedNode).getSamplerController() instanceof LoopController) {
-                    ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(VALIDATION_ITERATIONS);
+                    ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(settings.iterations());
+                }
+            }
+            if (node instanceof TestElement source && clonedNode instanceof TestElement clone) {
+                String executionId = ValidationCheckpoints.register(source, clone, parent);
+                if (source instanceof Controller) {
+                    checkpointParents.set(checkpointParents.size() - 1, executionId);
                 }
             }
             return clonedNode;
         }
+    }
+
+    @Override
+    public void subtractNode() {
+        super.subtractNode();
+        checkpointParents.remove(checkpointParents.size() - 1);
     }
 
     private static ThreadGroup convertToStandardThreadGroup(OpenModelThreadGroup source) {

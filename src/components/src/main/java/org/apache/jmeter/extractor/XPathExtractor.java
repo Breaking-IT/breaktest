@@ -148,6 +148,7 @@ public class XPathExtractor extends AbstractScopedTestElement implements
                 }
             }
             final int matchCount = matches.size();
+            ExtractorEvidence.outcome(this, matchCount > 0, getXPathQuery(), "");
             vars.put(matchNR, String.valueOf(matchCount));
             if (matchCount > 0){
                 String value = matches.get(0);
@@ -193,6 +194,29 @@ public class XPathExtractor extends AbstractScopedTestElement implements
             // Will already have been logged by XPathUtil
             addAssertionFailure(previousResult, e, true); // fail the sample
         }
+    }
+
+    /** Evaluates recorded XML and propagates parse/query errors to the tester. */
+    public ExtractorTestResult extractForTesting(SampleResult sample) throws Exception {
+        JMeterVariables variables = ExtractorTestResult.newVariables(this);
+        String reference = getRefName();
+        variables.put(reference, getDefaultValue());
+        List<String> matches = new ArrayList<>();
+        for (SampleResult result : getSampleList(sample)) {
+            // Never fetch external DTDs from a GUI preview that runs on selection and on each edit.
+            getValuesForXPath(parseResponse(result.getResponseDataAsString(), false),
+                    getXPathQuery(), matches, getMatchNumber());
+        }
+        variables.put(concat(reference, REF_MATCH_NR), Integer.toString(matches.size()));
+        if (!matches.isEmpty() && matches.get(0) != null) {
+            variables.put(reference, matches.get(0));
+        }
+        for (int i = 0; i < matches.size(); i++) {
+            if (matches.get(i) != null) {
+                variables.put(concat(reference, i + 1), matches.get(i));
+            }
+        }
+        return ExtractorTestResult.from(variables, reference, matches.size());
     }
 
     private void addAssertionFailure(final SampleResult previousResult,
@@ -306,6 +330,12 @@ public class XPathExtractor extends AbstractScopedTestElement implements
     private Document parseResponse(String unicodeData)
       throws IOException, ParserConfigurationException,SAXException,TidyException
     {
+      return parseResponse(unicodeData, isDownloadDTDs());
+    }
+
+    private Document parseResponse(String unicodeData, boolean downloadDTDs)
+      throws IOException, ParserConfigurationException,SAXException,TidyException
+    {
       //TODO: validate contentType for reasonable types?
 
       // NOTE: responseData encoding is server specific
@@ -317,7 +347,7 @@ public class XPathExtractor extends AbstractScopedTestElement implements
       boolean isXML = JOrphanUtils.isXML(utf8data);
       // this method assumes UTF-8 input data
       return XPathUtil.makeDocument(in,false,false,useNameSpace(),isTolerant(),isQuiet(),showWarnings(),reportErrors()
-              ,isXML, isDownloadDTDs());
+              ,isXML, downloadDTDs);
     }
 
     /**

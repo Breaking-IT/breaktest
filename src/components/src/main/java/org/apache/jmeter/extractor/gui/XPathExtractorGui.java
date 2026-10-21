@@ -18,6 +18,7 @@
 package org.apache.jmeter.extractor.gui;
 
 import java.awt.BorderLayout;
+import java.awt.Container;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.util.List;
@@ -46,6 +47,8 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
 
 
     private static final long serialVersionUID = 240L;
+    private ExtractorTesterPanel<XPathExtractor> tester;
+    private boolean configuring;
 
     private final JLabeledTextField defaultField =
         new JLabeledTextField(JMeterUtils.getResString("default_value_field"));//$NON-NLS-1$
@@ -85,6 +88,16 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
 
     @Override
     public void configure(TestElement el) {
+        configuring = true;
+        try {
+            configureFields(el);
+        } finally {
+            configuring = false;
+        }
+        tester.configure(el);
+    }
+
+    private void configureFields(TestElement el) {
         super.configure(el);
         XPathExtractor xpe = (XPathExtractor) el;
         showScopeSettings(xpe,true);
@@ -125,6 +138,16 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
      */
     @Override
     public void clearGui() {
+        configuring = true;
+        try {
+            clearFields();
+        } finally {
+            configuring = false;
+        }
+        tester.clear();
+    }
+
+    private void clearFields() {
         super.clearGui();
 
         xpathQueryField.setText(""); // $NON-NLS-1$
@@ -140,7 +163,8 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
         setBorder(makeBorder());
 
         Box box = Box.createVerticalBox();
-        box.add(makeTitlePanel());
+        Container title = makeTitlePanel();
+        box.add(title);
         box.add(createScopePanel(true, true, true));
         xml.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("xpath_assertion_option"))); //$NON-NLS-1$
@@ -148,6 +172,11 @@ public class XPathExtractorGui extends AbstractPostProcessorGui {
         box.add(getFragment);
         box.add(makeParameterPanel());
         add(box, BorderLayout.NORTH);
+        tester = new ExtractorTesterPanel<>("xpath_tester_title", () -> (XPathExtractor) createTestElement(),
+                e -> !e.getXPathQuery().isBlank(), XPathExtractor::extractForTesting);
+        tester.watch(this, () -> configuring, title);
+        this.add(tester, BorderLayout.CENTER);
+
     }
 
 

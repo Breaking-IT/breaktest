@@ -113,6 +113,8 @@ public class BoundaryExtractor extends AbstractScopedTestElement implements Post
         try {
             prevCount = removePrevCount(vars, refName);
             List<String> matches = extractMatches(previousResult, vars, matchNumber);
+            ExtractorEvidence.outcome(this, !matches.isEmpty(), getLeftBoundary() + "…" + getRightBoundary(),
+                    getLeftBoundary());
             if (matches.isEmpty() && isFailOnNoMatch()) {
                 ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }
@@ -127,6 +129,24 @@ public class BoundaryExtractor extends AbstractScopedTestElement implements Post
                 vars.remove(refName + UNDERSCORE + i);
             }
         }
+    }
+
+    /** Evaluates recorded input without changing runtime variables or assertions. */
+    public ExtractorTestResult extractForTesting(SampleResult sample) {
+        JMeterVariables variables = ExtractorTestResult.newVariables(this);
+        String reference = getRefName();
+        if (StringUtilities.isEmpty(reference)) {
+            throw new IllegalArgumentException("A variable name is required");
+        }
+        if (StringUtilities.isNotBlank(getDefaultValue()) || isEmptyDefaultValue()) {
+            variables.put(reference, getDefaultValue());
+        }
+        List<String> matches = extractMatches(sample, variables, -1);
+        int matchNumber = getMatchNumber();
+        List<String> selected = matchNumber > 0
+                ? (matchNumber <= matches.size() ? List.of(matches.get(matchNumber - 1)) : List.of()) : matches;
+        saveMatches(variables, reference, matchNumber, selected);
+        return ExtractorTestResult.from(variables, reference, matches.size());
     }
 
     private int removePrevCount(JMeterVariables vars, String refName) {

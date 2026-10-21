@@ -44,6 +44,7 @@ import org.apache.jmeter.threads.JMeterContext;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.ThreadGroup;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 
@@ -191,6 +192,7 @@ public final class ScenarioResolver {
             } else {
                 // A copy, so the profile variables do not end up in the edited test plan
                 AbstractThreadGroup copy = (AbstractThreadGroup) threadGroup.clone();
+                ValidationCheckpoints.inheritSourceIdentity(threadGroup, copy);
                 flattener.addThreadGroup(threadGroup.getThreadGroupId(), copy,
                         withProfile(copy, defaultProfile, entry.subTree(), evaluator));
             }
@@ -330,7 +332,17 @@ public final class ScenarioResolver {
     }
 
     private static HashTree deepClone(HashTree subTree) {
-        TreeCloner cloner = new TreeCloner(false);
+        TreeCloner cloner = new TreeCloner(false) {
+            @Override
+            protected Object addNodeToTree(Object node) {
+                Object clone = super.addNodeToTree(node);
+                if (node instanceof TestElement source && clone instanceof TestElement target) {
+                    // Profile copies are rebuilt on every run, but resume must recognize their managers.
+                    ValidationCheckpoints.inheritSourceIdentity(source, target);
+                }
+                return clone;
+            }
+        };
         subTree.traverse(cloner);
         return cloner.getClonedTree();
     }
@@ -537,6 +549,7 @@ public final class ScenarioResolver {
             if (element instanceof TestPlan testPlan) {
                 Map<String, String> variables = testPlan.getUserDefinedVariables();
                 TestPlan copy = (TestPlan) testPlan.clone();
+                ValidationCheckpoints.inheritSourceIdentity(testPlan, copy);
                 if (!variables.isEmpty()) {
                     copy.setUserDefinedVariables(evaluated(variables));
                 }
@@ -544,6 +557,7 @@ public final class ScenarioResolver {
             }
             if (element != null && element.getClass() == Arguments.class) {
                 Arguments copy = (Arguments) ((Arguments) element).clone();
+                ValidationCheckpoints.inheritSourceIdentity((Arguments) element, copy);
                 Arguments values = evaluated(copy.getArgumentsAsMap());
                 copy.removeAllArguments();
                 values.getArgumentsAsMap().forEach(copy::addArgument);

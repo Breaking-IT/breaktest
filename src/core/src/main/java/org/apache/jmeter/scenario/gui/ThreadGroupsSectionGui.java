@@ -19,11 +19,16 @@
 package org.apache.jmeter.scenario.gui;
 
 import javax.swing.JMenu;
+import javax.swing.JMenuItem;
+import javax.swing.JPopupMenu;
 
 import org.apache.jmeter.gui.action.ActionNames;
+import org.apache.jmeter.gui.action.ActionRouter;
+import org.apache.jmeter.gui.action.Start;
 import org.apache.jmeter.gui.util.MenuFactory;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.util.JMeterUtils;
 
 public class ThreadGroupsSectionGui extends TestPlanSectionGui {
     private static final long serialVersionUID = 1L;
@@ -36,6 +41,29 @@ public class ThreadGroupsSectionGui extends TestPlanSectionGui {
     @Override
     public TestElement makeTestElement() {
         return new ThreadGroupsSection();
+    }
+
+    @Override
+    public JPopupMenu createPopupMenu() {
+        JPopupMenu popup = super.createPopupMenu();
+        if (isEnabled() && !JMeterUtils.isTestRunning()) {
+            popup.insert(new JPopupMenu.Separator(), 1);
+            popup.insert(validationItem("validate_all", ActionNames.VALIDATE_ALL), 2);
+            popup.insert(validationItem("validate_all_sequentially", ActionNames.VALIDATE_ALL_SEQUENTIALLY), 3);
+            int index = 4;
+            if (Start.canResumeAllFailed()) {
+                popup.insert(validationItem("resume_all_failed", ActionNames.RESUME_ALL_FAILED), index++);
+            }
+            popup.insert(validationItem("check_readiness_all", ActionNames.CHECK_READINESS_ALL), index);
+        }
+        return popup;
+    }
+
+    private static JMenuItem validationItem(String label, String action) {
+        JMenuItem item = new JMenuItem(JMeterUtils.getResString(label));
+        item.setActionCommand(action);
+        item.addActionListener(ActionRouter.getInstance());
+        return item;
     }
 
     @Override

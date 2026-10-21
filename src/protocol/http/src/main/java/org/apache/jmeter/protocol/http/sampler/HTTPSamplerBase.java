@@ -54,6 +54,7 @@ import java.util.function.Predicate;
 import java.util.regex.PatternSyntaxException;
 
 import org.apache.hc.client5.http.ConnectTimeoutException;
+import org.apache.hc.core5.http.ConnectionRequestTimeoutException;
 import org.apache.hc.core5.util.Timeout;
 import org.apache.jmeter.config.Argument;
 import org.apache.jmeter.config.Arguments;
@@ -146,6 +147,13 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             ));
 
     //+ JMX names - do not change
+    public static final String HTTP2_COALESCING = "HTTPSampler.http2_coalescing";
+
+    public static final String HTTP3_UPGRADE = "HTTPSampler.http3_upgrade";
+
+    /** Defaults-only keep-alive override; samplers always save their own use_keepalive. */
+    public static final String CONNECTION_REUSE = "HTTPSampler.connection_reuse";
+
     public static final String ARGUMENTS = "HTTPsampler.Arguments"; // $NON-NLS-1$
 
     public static final String AUTH_MANAGER = "HTTPSampler.auth_manager"; // $NON-NLS-1$
@@ -476,6 +484,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
          * body for HTTP error responses, where it is usually needed for triage.
          * Without assertions or post-processors, only the HTTP status is consulted.
          * When either applies, the effective mode stores all response bodies.
+         * With embedded resource retrieval, the body is kept until the page is parsed.
          */
         STORE_ON_ERROR("response_processing_store_on_error"), //$NON-NLS-1$
 
@@ -698,6 +707,11 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
     public boolean getUseKeepAlive() {
+        // Config merge cannot override the sampler's saved use_keepalive, so Defaults use their own key.
+        JMeterProperty reuse = getPropertyOrNull(CONNECTION_REUSE);
+        if (reuse != null && !reuse.getStringValue().isBlank()) {
+            return Boolean.parseBoolean(reuse.getStringValue().trim());
+        }
         return get(getSchema().getUseKeepalive());
     }
 
@@ -1128,6 +1142,22 @@ public abstract class HTTPSamplerBase extends AbstractSampler
         return getString(getSchema().getDomain());
     }
 
+    public int getMaxConnectionsPerHost() {
+        return get(getSchema().getMaxConnectionsPerHost());
+    }
+
+    public void setMaxConnectionsPerHost(String value) {
+        set(getSchema().getMaxConnectionsPerHost(), value);
+    }
+
+    public int getConnectionAvailabilityTimeout() {
+        return get(getSchema().getConnectionAvailabilityTimeout());
+    }
+
+    public void setConnectionAvailabilityTimeout(String value) {
+        set(getSchema().getConnectionAvailabilityTimeout(), value);
+    }
+
     public void setConnectTimeout(String value) {
         set(getSchema().getConnectTimeout(), value);
     }
@@ -1463,6 +1493,13 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * @return the modified sampling result containing details of the Exception.
      */
     protected HTTPSampleResult errorResult(Throwable e, HTTPSampleResult res) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConnectionRequestTimeoutException) {
+                String message = "Connection availability timeout waiting for a free HTTP/1.1 connection: "
+                        + formatNetworkPath(res);
+                return normalizedErrorResult(res, "Connection availability timeout", message, message);
+            }
+        }
         ConnectTimeoutException connectTimeout = findConnectTimeout(e);
         if (connectTimeout != null) {
             String message = formatConnectTimeout(connectTimeout, res);
@@ -1880,7 +1917,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             // Get the query string encoded in specified encoding
             // If no encoding is specified by user, we will get it
             // encoded in UTF-8, which is what the HTTP spec says
-            String queryString = getQueryString(getContentEncoding());
+            // Unencoded parameters may hold spaces; send them as %20, as the path does.
+            // Only the URL needs this: getQueryString() also builds POST bodies.
+            String queryString = encodeSpaces(getQueryString(getContentEncoding()));
             if (!queryString.isEmpty()) {
                 if (path.contains(QRY_PFX)) {// Already contains a prefix
                     pathAndQuery.append(QRY_SEP);
@@ -2551,6 +2590,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             }
         }
 
+        HTTPSampleResult page = res;
+        boolean createdResourceContainer = false;
         if (res.isSuccessful() && SampleResult.TEXT.equals(res.getDataType()) && isImageParser() ) {
             if (frameDepth > MAX_FRAME_DEPTH) {
                 HTTPSampleResult errSubResult = new HTTPSampleResult(res);
@@ -2567,10 +2608,36 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                     HTTPSampleResult container = (HTTPSampleResult) (
                             areFollowingRedirect ? res.getParent() : SEPARATE_CONTAINER ? null : res);
                     res = downloadPageResources(res, container, frameDepth);
+                    createdResourceContainer = container == null && res != page;
                 }
             }
         }
+        if (discardBodyKeptForEmbeddedResources(page)) {
+            // A new container shares the page body; release that reference too
+            if (createdResourceContainer) {
+                res.setResponseData(new byte[0]);
+            }
+        }
         return res;
+    }
+
+    /**
+     * Body-discarding modes keep the body while reading when embedded resources are retrieved,
+     * because the page has to be parsed for resource URLs. Once parsing is done, apply the
+     * configured mode to the page result so the memory saving still holds.
+     *
+     * @return true if the body was discarded
+     */
+    private boolean discardBodyKeptForEmbeddedResources(HTTPSampleResult result) {
+        ResponseProcessingMode configured = getResponseProcessingMode();
+        if (!isImageParser() || !isBodyDiscardingMode(configured) || isBodyRequiredAfterSample()) {
+            return false;
+        }
+        if (configured == ResponseProcessingMode.STORE_ON_ERROR && isErrorResponse(result)) {
+            return false;
+        }
+        result.setResponseData(new byte[0]);
+        return true;
     }
 
     /**
@@ -2746,23 +2813,36 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     /**
      * Preserve bodies for validation and for assertions or post-processors in the current
      * execution package (including inherited elements). Scripted post-processors can read
-     * bodies too, so all post-processors conservatively require storage. Explicit checksum
-     * modes are left intact so assertions can still check the requested digest.
+     * bodies too, so all post-processors conservatively require storage. Embedded resource
+     * retrieval needs the body to parse the page; {@link #resultProcessing} discards it again
+     * afterwards when nothing else requires it. Explicit checksum modes are left intact so
+     * assertions can still check the requested digest.
      */
-    private static ResponseProcessingMode effectiveResponseProcessingMode(ResponseProcessingMode configured) {
-        if (configured == ResponseProcessingMode.FETCH_AND_DISCARD
-                || configured == ResponseProcessingMode.STORE_ON_ERROR) {
-            if (JMeterContextService.isValidationRun()) {
-                return ResponseProcessingMode.STORE_COMPRESSED;
-            }
-            Object currentPackage = JMeterContextService.getContext().getVariables()
-                    .getObject(JMeterThread.PACKAGE_OBJECT);
-            if (currentPackage instanceof SamplePackage pack
-                    && (!pack.getAssertions().isEmpty() || !pack.getPostProcessors().isEmpty())) {
-                return ResponseProcessingMode.STORE_COMPRESSED;
-            }
+    private static ResponseProcessingMode effectiveResponseProcessingMode(ResponseProcessingMode configured,
+            boolean parsesEmbeddedResources) {
+        if (isBodyDiscardingMode(configured) && (parsesEmbeddedResources || isBodyRequiredAfterSample())) {
+            return ResponseProcessingMode.STORE_COMPRESSED;
         }
         return configured;
+    }
+
+    private static boolean isBodyDiscardingMode(ResponseProcessingMode mode) {
+        return mode == ResponseProcessingMode.FETCH_AND_DISCARD
+                || mode == ResponseProcessingMode.STORE_ON_ERROR;
+    }
+
+    /**
+     * @return true if a validation run or the current package's assertions or post-processors
+     *         may read the response body after sampling
+     */
+    private static boolean isBodyRequiredAfterSample() {
+        if (JMeterContextService.isValidationRun()) {
+            return true;
+        }
+        Object currentPackage = JMeterContextService.getContext().getVariables()
+                .getObject(JMeterThread.PACKAGE_OBJECT);
+        return currentPackage instanceof SamplePackage pack
+                && (!pack.getAssertions().isEmpty() || !pack.getPostProcessors().isEmpty());
     }
 
     /**
@@ -2794,7 +2874,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      * @throws IOException if reading the result fails
      */
     public void readResponse(SampleResult sampleResult, InputStream in, long length, @Nullable String contentEncoding) throws IOException {
-        ResponseProcessingMode responseProcessingMode = effectiveResponseProcessingMode(getResponseProcessingMode());
+        ResponseProcessingMode responseProcessingMode = effectiveResponseProcessingMode(getResponseProcessingMode(), isImageParser());
         if (responseProcessingMode == ResponseProcessingMode.CHECKSUM_DECODED_MD5) {
             // Closing the original HTTP input does not release resources owned by the decoder.
             try (InputStream decoded = ResponseDecoderRegistry.decodeStream(contentEncoding, in)) {

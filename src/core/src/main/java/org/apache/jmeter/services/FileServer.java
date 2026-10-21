@@ -42,6 +42,7 @@ import java.util.concurrent.ThreadLocalRandom;
 import org.apache.jmeter.gui.JMeterFileFilter;
 import org.apache.jmeter.save.ArchiveFiles;
 import org.apache.jmeter.save.CSVSaveService;
+import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.io.BomInputStream;
 import org.apache.jorphan.util.StringUtilities;
@@ -390,6 +391,7 @@ public class FileServer {
                 }
                 line = reader.readLine();
             }
+            recordRead(fileEntry, false, recycle, ignoreFirstLine, ',');
             log.debug("Read:{}", line);
             return line;
         }
@@ -411,7 +413,9 @@ public class FileServer {
             return readRandomParsedLine(fileEntry, recycle, ignoreFirstLine, delim);
         }
         BufferedReader reader = getReader(alias, recycle, ignoreFirstLine);
-        return CSVSaveService.csvReadFile(reader, delim);
+        String[] values = CSVSaveService.csvReadFile(reader, delim);
+        recordRead(fileEntry, true, recycle, ignoreFirstLine, delim);
+        return values;
     }
 
     private static String readHeaderLine(FileEntry fileEntry) throws IOException {
@@ -612,6 +616,7 @@ public class FileServer {
             log.info("Close: {}", name);
             fileEntry.inputOutputObject.close();
             fileEntry.inputOutputObject = null;
+            fileEntry.reads = null;
         }
     }
 
@@ -668,7 +673,83 @@ public class FileServer {
         return resolveFileFromPath(path);
     }
 
+    private boolean restoringReadPosition;
+
+    private record ReadStep(ReadStep previous, boolean parsed, boolean recycle, boolean ignoreHeader, char delimiter) {
+    }
+
+    private record ReadPosition(File file, String encoding, boolean randomOrder, String header,
+            ReadStep reads, List<String> randomLines, int lineIndex,
+            List<String[]> parsedLines, int parsedIndex, long size, long modified) {
+    }
+
+    private void recordRead(FileEntry entry, boolean parsed, boolean recycle, boolean ignoreHeader, char delimiter) {
+        if (JMeterContextService.isValidationRun() && !restoringReadPosition) {
+            entry.reads = new ReadStep(entry.reads, parsed, recycle, ignoreHeader, delimiter);
+        }
+    }
+
+    /** Capture an independent CSV cursor, including the order of randomized rows. */
+    public synchronized Object captureReadPosition(String alias) {
+        FileEntry entry = files.get(alias);
+        if (entry == null) {
+            throw new IllegalStateException("CSV file is no longer reserved: " + alias);
+        }
+        return new ReadPosition(entry.file, entry.charSetEncoding, entry.randomOrder, entry.headerLine,
+                entry.reads, entry.randomLines == null ? null : List.copyOf(entry.randomLines), entry.randomLineIndex,
+                copyRows(entry.randomParsedLines), entry.randomParsedLineIndex,
+                entry.file.length(), entry.file.lastModified());
+    }
+
+    /** Restore a captured position under the alias of the new validation thread. */
+    public synchronized void restoreReadPosition(String alias, Object snapshot) throws IOException {
+        ReadPosition saved = (ReadPosition) snapshot;
+        FileEntry current = files.get(alias);
+        if (current == null || !current.file.equals(saved.file())
+                || current.file.length() != saved.size() || current.file.lastModified() != saved.modified()) {
+            throw new IllegalStateException("CSV file changed since the checkpoint. Run a fresh validation.");
+        }
+        closeFile(alias, current);
+        FileEntry restored = new FileEntry(current.file, null, saved.encoding(), saved.randomOrder());
+        restored.headerLine = saved.header();
+        restored.randomLines = saved.randomLines() == null ? null : new ArrayList<>(saved.randomLines());
+        restored.randomLineIndex = saved.lineIndex();
+        restored.randomParsedLines = copyRows(saved.parsedLines());
+        restored.randomParsedLineIndex = saved.parsedIndex();
+        files.put(alias, restored);
+        List<ReadStep> steps = new ArrayList<>();
+        for (ReadStep step = saved.reads(); step != null; step = step.previous()) {
+            steps.add(step);
+        }
+        restoringReadPosition = true;
+        try {
+            for (int i = steps.size() - 1; i >= 0; i--) {
+                ReadStep step = steps.get(i);
+                if (step.parsed()) {
+                    getParsedLine(alias, step.recycle(), step.ignoreHeader(), step.delimiter());
+                } else {
+                    readLine(alias, step.recycle(), step.ignoreHeader());
+                }
+            }
+            restored.reads = saved.reads();
+        } finally {
+            restoringReadPosition = false;
+        }
+    }
+
+    private static List<String[]> copyRows(List<String[]> rows) {
+        if (rows == null) {
+            return null;
+        }
+        List<String[]> copy = new ArrayList<>(rows.size());
+        for (String[] row : rows) {
+            copy.add(row.clone());
+        }
+        return copy;
+    }
+
     private static class FileEntry{
+        private ReadStep reads;
         private String headerLine;
         private Throwable exception;
         private final File file;

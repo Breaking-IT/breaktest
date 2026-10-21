@@ -30,6 +30,7 @@ import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.testelement.property.NullProperty;
+import org.apache.jmeter.threads.ValidationCheckpoints;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.apache.jorphan.util.JMeterStopTestException;
@@ -219,6 +220,8 @@ public class ModuleController extends GenericController implements ReplaceableCo
     private static JMeterTreeNode cloneTreeNode(JMeterTreeNode node) {
         JMeterTreeNode treeNode = (JMeterTreeNode) node.clone();
         treeNode.setUserObject(((TestElement) node.getUserObject()).clone());
+        ValidationCheckpoints.inheritSourceIdentity(
+                node.getTestElement(), treeNode.getTestElement());
         cloneChildren(treeNode, node);
         return treeNode;
     }
@@ -230,6 +233,8 @@ public class ModuleController extends GenericController implements ReplaceableCo
             JMeterTreeNode child = (JMeterTreeNode) enumr.nextElement();
             JMeterTreeNode childClone = (JMeterTreeNode) child.clone();
             childClone.setUserObject(((TestElement) child.getUserObject()).clone());
+            ValidationCheckpoints.inheritSourceIdentity(
+                    child.getTestElement(), childClone.getTestElement());
             to.add(childClone);
             cloneChildren((JMeterTreeNode) to.getLastChild(), child);
         }

@@ -58,6 +58,83 @@ import org.junit.jupiter.params.provider.ValueSource;
 public class TestHTTPJavaHttp3Impl {
 
     @Test
+    void cooldownWinsOverLateParallelAdvertisement() throws Exception {
+        var alternativesMethod = HTTPJavaHttp3Impl.class.getDeclaredMethod("alternatives");
+        var brokenMethod = HTTPJavaHttp3Impl.class.getDeclaredMethod("brokenAlternatives");
+        var selectMethod = HTTPJavaHttp3Impl.class.getDeclaredMethod("hasHttp3Alternative", URL.class);
+        alternativesMethod.setAccessible(true);
+        brokenMethod.setAccessible(true);
+        selectMethod.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        var alternatives = (java.util.Map<String, Long>) alternativesMethod.invoke(null);
+        @SuppressWarnings("unchecked")
+        var broken = (java.util.Map<String, Long>) brokenMethod.invoke(null);
+        URL origin = new URI("https://cooldown.test/").toURL();
+        URL other = new URI("https://unaffected.test/").toURL();
+        String key = HTTPJavaHttp3Impl.trustedOrigin(origin);
+        String otherKey = HTTPJavaHttp3Impl.trustedOrigin(other);
+        var publish = new java.util.concurrent.CountDownLatch(1);
+        var worker = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            long expiry = System.currentTimeMillis() + 300_000;
+            alternatives.put(key, expiry);
+            alternatives.put(otherKey, expiry);
+            assertTrue((boolean) selectMethod.invoke(null, origin));
+            // Model a response that already passed the cooldown check, but whose
+            // advertisement is published after the failure handler removes the entry.
+            var lateResponse = worker.submit(() -> {
+                assertTrue(publish.await(5, java.util.concurrent.TimeUnit.SECONDS));
+                alternatives.put(key, expiry);
+                return null;
+            });
+            broken.put(key, expiry);
+            alternatives.remove(key);
+            publish.countDown();
+            lateResponse.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            assertFalse((boolean) selectMethod.invoke(null, origin), "Late Alt-Svc must not bypass cooldown");
+            assertTrue((boolean) selectMethod.invoke(null, other), "Cooldown is scoped to one origin");
+            broken.put(key, System.currentTimeMillis() - 1);
+            assertTrue((boolean) selectMethod.invoke(null, origin), "Upgrade is eligible after cooldown expires");
+        } finally {
+            publish.countDown();
+            worker.shutdownNow();
+            alternatives.remove(key);
+            alternatives.remove(otherKey);
+            broken.remove(key);
+        }
+    }
+
+    @Test
+    void automaticWrapperKeepsPlainHttpOnHc5() throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", exchange -> {
+            exchange.getResponseHeaders().add("Alt-Svc", "h3=\":443\"");
+            exchange.sendResponseHeaders(200, -1);
+            exchange.close();
+        });
+        server.start();
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setProtocol("http");
+        sampler.setDomain("127.0.0.1");
+        sampler.setPort(server.getAddress().getPort());
+        sampler.setPath("/");
+        sampler.setConnectTimeout("5000");
+        sampler.setResponseTimeout("5000");
+        HTTPAbstractImpl impl = HTTPSamplerFactory.getImplementation("", sampler, true, true);
+        try {
+            assertEquals(HTTPJavaHttp3Impl.class, impl.getClass());
+            for (int i = 0; i < 2; i++) {
+                HTTPSampleResult result = impl.sample(sampler.getUrl(), HTTPConstants.GET, false, 0);
+                assertEquals("200", result.getResponseCode(), result.getResponseMessage());
+                assertEquals("HTTP/1.1", result.getProtocolVersion(), "Plain HTTP must not upgrade from Alt-Svc");
+            }
+        } finally {
+            impl.threadFinished();
+            server.stop(0);
+        }
+    }
+
+    @Test
     public void authenticationFallbackIsScopedToEachRequest() throws Exception {
         HTTPSamplerProxy sampler = new HTTPSamplerProxy();
         AuthManager manager = new AuthManager();
@@ -100,7 +177,7 @@ public class TestHTTPJavaHttp3Impl {
             HTTPSampleResult result = client.sample(new URI("https://login.test/").toURL(),
                     HTTPConstants.GET, false, 0);
             assertFalse(result.isSuccessful());
-            assertTrue(result.getResponseMessage().contains("disable HTTP/3-only mode"));
+            assertTrue(result.getResponseMessage().contains("select Automatic protocol"));
         } finally {
             client.threadFinished();
         }
@@ -151,6 +228,37 @@ public class TestHTTPJavaHttp3Impl {
         assertFalse(HTTPJavaHttp3Impl.isDisallowedHeader("Accept", "*/*"));
         // The JDK client must accept the header we now let through.
         HttpRequest.newBuilder(URI.create("https://example.test/")).header("te", "trailers").build();
+    }
+
+    @Test
+    public void savedUpgradeChoiceOverridesLegacyPreference() {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setProtocol("https");
+        sampler.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, true);
+        assertEquals(HTTPJavaHttp3Impl.class,
+                HTTPSamplerFactory.getImplementation("", sampler, true, false).getClass());
+        sampler.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, false);
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation("", sampler, true, true).getClass());
+        sampler.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, true);
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation("", sampler, false, true).getClass());
+        sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2);
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation("", sampler, true, true).getClass());
+        sampler.setHttpProtocol(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_3);
+        assertEquals(HTTPHC5H2Impl.class,
+                HTTPSamplerFactory.getImplementation("", sampler, false, true).getClass());
+    }
+
+    @Test
+    public void legacyFallbackUsesMeasuredAutomaticModeAndNewProfilesAreStrict() {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        assertEquals(HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE,
+                HTTPJavaHttp3Impl.explicitDiscovery(sampler, false));
+        sampler.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, true);
+        assertEquals(HTTPJavaHttp3Impl.Http3Discovery.HTTP3_ONLY,
+                HTTPJavaHttp3Impl.explicitDiscovery(sampler, false));
     }
 
     @Test
@@ -206,10 +314,11 @@ public class TestHTTPJavaHttp3Impl {
     @Test
     public void preferForDefaultRoutesBlankProtocolToHttp3Client() {
         HTTPSamplerProxy blank = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        blank.setProtocol("https");
 
         assertEquals(HTTPJavaHttp3Impl.class,
                 HTTPSamplerFactory.getImplementation(blank.getImplementation(), blank, true, true).getClass());
-        // without the opt-in, or without runtime support, blank stays on HttpClient5
+        // Explicit opt-out or missing runtime support keeps TCP negotiation.
         assertEquals(HTTPHC5H2Impl.class,
                 HTTPSamplerFactory.getImplementation(blank.getImplementation(), blank, true, false).getClass());
         assertEquals(HTTPHC5H2Impl.class,
@@ -232,11 +341,13 @@ public class TestHTTPJavaHttp3Impl {
     @Test
     public void preferForDefaultKeepsUnsupportedConfigurationsOnHttpClient5() {
         HTTPSamplerProxy multipart = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        multipart.setProtocol("https");
         multipart.setDoMultipart(true);
         assertEquals(HTTPHC5H2Impl.class,
                 HTTPSamplerFactory.getImplementation(multipart.getImplementation(), multipart, true, true).getClass());
 
         HTTPSamplerProxy proxied = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
+        proxied.setProtocol("https");
         proxied.setProxyHost("proxy.example.test");
         proxied.setProxyPortInt("8080");
         assertEquals(HTTPHC5H2Impl.class,
@@ -398,7 +509,7 @@ public class TestHTTPJavaHttp3Impl {
         sampler.setConnectTimeout("5000");
         sampler.setResponseTimeout("10000");
         HTTPJavaHttp3Impl impl =
-                new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.PREFER_HTTP3);
+                new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
 
         try {
             HTTPSampleResult result = impl.sample(

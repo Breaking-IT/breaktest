@@ -22,7 +22,10 @@ plugins {
 dependencies {
     api(projects.src.core)
 
-    implementation("org.apache.commons:commons-dbcp2")
+    implementation("org.apache.commons:commons-dbcp2") {
+        // Only needed by DBCP managed (JTA) connections, which are not used
+        exclude("jakarta.transaction", "jakarta.transaction-api")
+    }
 
     testImplementation(testFixtures(projects.src.core))
     testImplementation("io.mockk:mockk")
