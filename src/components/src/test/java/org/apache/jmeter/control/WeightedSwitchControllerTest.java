@@ -28,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.apache.jmeter.JMeter;
 import org.apache.jmeter.engine.PreCompiler;
@@ -49,6 +51,11 @@ import org.apache.jmeter.threads.TestCompiler;
 import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -215,16 +222,89 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
     }
 
     @Test
-    void invalidWeightLoadedFromAPlanIsTreatedAsZero() {
+    void invalidLiteralWeightLoadedFromAPlanFailsAtInitialize() {
+        for (String literal : new String[]{"NaN", "-1", "abc", "1e309"}) {
+            WeightedSwitchController controller = new WeightedSwitchController();
+            controller.setName("weighted");
+            TestSampler invalid = new TestSampler("invalid");
+            invalid.setProperty(WeightedSwitchController.CHILD_WEIGHT, literal);
+            controller.addTestElement(invalid);
+            controller.addTestElement(new TestSampler("valid"));
+            IllegalArgumentException error = assertThrows(IllegalArgumentException.class, controller::initialize);
+            assertTrue(error.getMessage().contains("'" + literal + "'"), error.getMessage());
+            assertTrue(error.getMessage().contains("child 'invalid'"), error.getMessage());
+            assertTrue(error.getMessage().contains("Controller 'weighted'"), error.getMessage());
+        }
+    }
+
+    @Test
+    void initializeAcceptsExpressionsAndIgnoresDisabledChildren() {
         WeightedSwitchController controller = new WeightedSwitchController();
-        TestSampler invalid = new TestSampler("invalid");
-        invalid.setProperty(WeightedSwitchController.CHILD_WEIGHT, "NaN");
-        controller.addTestElement(invalid);
+        TestSampler expression = new TestSampler("expression");
+        WeightedSwitchController.setWeight(expression, "${weight}");
+        TestSampler disabled = new TestSampler("disabled");
+        disabled.setProperty(WeightedSwitchController.CHILD_WEIGHT, "NaN");
+        disabled.setEnabled(false);
         TestSampler valid = new TestSampler("valid");
+        controller.addTestElement(expression);
+        controller.addTestElement(disabled);
         controller.addTestElement(valid);
         controller.initialize();
-        assertSame(valid, controller.next());
-        assertNull(controller.next());
+    }
+
+    @Test
+    void invalidRuntimeWeightIsWarnedOncePerChildAcrossThreadsAndTests() throws Exception {
+        JMeterVariables previous = JMeterContextService.getContext().getVariables();
+        JMeterVariables variables = new JMeterVariables();
+        JMeterContextService.getContext().setVariables(variables);
+        List<LogEvent> events = new CopyOnWriteArrayList<>();
+        AbstractAppender appender = new AbstractAppender(
+                "weighted-switch-controller-test", null, null, false, Property.EMPTY_ARRAY) {
+            @Override
+            public void append(LogEvent event) {
+                events.add(event.toImmutable());
+            }
+        };
+        appender.start();
+        org.apache.logging.log4j.core.Logger logger =
+                (org.apache.logging.log4j.core.Logger) LogManager.getLogger(WeightedSwitchController.class);
+        Level previousLevel = logger.getLevel();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        try {
+            WeightedSwitchController controller = new WeightedSwitchController();
+            controller.setName("weighted");
+            TestSampler child = new TestSampler("variable child");
+            WeightedSwitchController.setWeight(child, "${weight}");
+            new ValueReplacer().replaceValues(child);
+            child.setRunningVersion(true);
+            controller.addTestElement(child);
+            controller.addTestElement(new TestSampler("literal child"));
+            controller.testStarted();
+            WeightedSwitchController otherThread = (WeightedSwitchController) controller.clone();
+            otherThread.addTestElement(child);
+            otherThread.addTestElement(new TestSampler("literal child"));
+            variables.put("weight", "abc");
+
+            controller.selectChild(0);
+            controller.selectChild(0);
+            otherThread.selectChild(0);
+            assertEquals(List.of(Level.WARN, Level.DEBUG, Level.DEBUG),
+                    events.stream().map(LogEvent::getLevel).toList());
+            String warning = events.get(0).getMessage().getFormattedMessage();
+            assertTrue(warning.contains("Invalid weight 'abc'"), warning);
+            assertTrue(warning.contains("child 'variable child'"), warning);
+            assertTrue(warning.contains("Controller 'weighted'"), warning);
+
+            controller.testStarted();
+            controller.selectChild(0);
+            assertEquals(Level.WARN, events.get(3).getLevel(), "A new test reports the invalid weight again");
+        } finally {
+            logger.removeAppender(appender);
+            logger.setLevel(previousLevel);
+            appender.stop();
+            JMeterContextService.getContext().setVariables(previous);
+        }
     }
 
     @Test
