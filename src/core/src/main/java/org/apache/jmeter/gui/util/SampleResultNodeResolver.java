@@ -44,6 +44,18 @@ public final class SampleResultNodeResolver {
     private static final Map<SampleResult, WeakReference<JMeterTreeNode>> NAVIGATION_TARGETS =
             Collections.synchronizedMap(new WeakHashMap<>());
 
+    private static final Map<SampleResult, WeakReference<JMeterTreeNode>> REPLAY_SOURCES =
+            Collections.synchronizedMap(new WeakHashMap<>());
+
+    /** Keeps a manual replay linked to the original sampler, even after renaming or moving it. */
+    public static void inheritReplaySource(SampleResult original, SampleResult replay) {
+        replay.setSourceTestElementPath(original.getSourceTestElementPath());
+        JMeterTreeNode source = findForNavigation(original);
+        if (source != null) {
+            REPLAY_SOURCES.put(replay, new WeakReference<>(source));
+        }
+    }
+
     private SampleResultNodeResolver() {
     }
 
@@ -89,6 +101,11 @@ public final class SampleResultNodeResolver {
         GuiPackage guiPackage = GuiPackage.getInstance();
         if (guiPackage == null) {
             return null;
+        }
+        WeakReference<JMeterTreeNode> replaySource = REPLAY_SOURCES.get(sampleResult);
+        if (replaySource != null) {
+            JMeterTreeNode node = replaySource.get();
+            return node != null && node.getRoot() == guiPackage.getTreeModel().getRoot() ? node : null;
         }
         JMeterTreeNode root = (JMeterTreeNode) guiPackage.getTreeModel().getRoot();
         JMeterTreeNode sourceNode = findBySourcePath(root, sampleResult.getSourceTestElementPath());

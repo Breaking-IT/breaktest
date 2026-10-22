@@ -18,6 +18,7 @@
 package org.apache.jmeter.visualizers;
 
 import java.awt.Color;
+import java.util.function.Consumer;
 
 import javax.swing.JTabbedPane;
 
@@ -30,6 +31,11 @@ import org.apache.jorphan.reflect.JMeterService;
  */
 @JMeterService
 public interface ResultRenderer {
+
+    /** Sets the destination for results produced by manual request replay. */
+    default void setReplayResultConsumer(Consumer<SampleResult> consumer) {
+        // Renderers without replay actions need no destination.
+    }
 
     void clearData();
 

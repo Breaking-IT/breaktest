@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.event.MouseEvent;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
@@ -36,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -525,6 +527,24 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         assertTrue(threadGroup.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty());
         assertTrue(RecordedHarExchangeResolver.resolveFor(samplerNode, null).exchange().isPresent());
         assertTrue(RecordedHarExchangeResolver.resolveFor(replay).exchange().isPresent());
+
+        SampleResult manualReplay = new SampleResult();
+        manualReplay.setSampleLabel("Replay: Shared request");
+        SampleResultNodeResolver.inheritReplaySource(replay, manualReplay);
+        assertEquals(replay.getSourceTestElementPath(), manualReplay.getSourceTestElementPath());
+        sampler.setName("Renamed after replay");
+        assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(manualReplay));
+        assertEquals(RecordedHarExchangeResolver.resolveFor(samplerNode, null).responseText(),
+                RecordedHarExchangeResolver.resolveFor(manualReplay).responseText());
+        assertTrue(RecordedHarExchangeResolver.resolveFor(manualReplay).exchange().isPresent());
+        SampleResult repeatedReplay = new SampleResult();
+        repeatedReplay.setSampleLabel("Replay: Replay: Shared request");
+        SampleResultNodeResolver.inheritReplaySource(manualReplay, repeatedReplay);
+        assertSame(samplerNode, SampleResultNodeResolver.findForNavigation(repeatedReplay));
+        assertTrue(RecordedHarExchangeResolver.resolveFor(repeatedReplay).exchange().isPresent());
+        samplerNode.removeFromParent();
+        assertNull(SampleResultNodeResolver.findForNavigation(repeatedReplay));
+        assertFalse(RecordedHarExchangeResolver.resolveFor(repeatedReplay).exchange().isPresent());
     }
 
     @Test
@@ -1314,6 +1334,97 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         JTable table = (JTable) visualizerField(visualizer, "resultTable");
         assertTrue(table.convertColumnIndexToView(ResultTableModel.HTTP_CODE) >= 0);
         assertEquals(-1, table.convertColumnIndexToView(ResultTableModel.COMPRESSION));
+    }
+
+    @Test
+    void doubleClickTableRowRestoresCollapsedDetails() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                SampleResult sample = new SampleResult();
+                sample.setSampleLabel("request");
+                visualizer.add(sample);
+                refresh(visualizer);
+                ((JTabbedPane) visualizerField(visualizer, "resultListTabs")).setSelectedIndex(1);
+                JTable table = (JTable) visualizerField(visualizer, "resultTable");
+                ResultListSplitPane split = (ResultListSplitPane) visualizerField(visualizer, "mainSplit");
+                split.setSize(1000, 800);
+                split.setDividerLocation(790);
+                split.doLayout();
+                MouseEvent click = new MouseEvent(table, MouseEvent.MOUSE_CLICKED,
+                        System.currentTimeMillis(), 0, 5, 5, 2, false, MouseEvent.BUTTON1);
+                for (var listener : table.getMouseListeners()) {
+                    listener.mouseClicked(click);
+                }
+                split.doLayout();
+                assertSame(sample, visualizerField(visualizer, "resultsObject"));
+                assertTrue(split.getBottomComponent().getHeight() >= 400);
+                assertTrue(split.getTopComponent().getHeight() >= 300);
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, false", "true, false", "false, true", "true, true"})
+    void replayResultAppendsThroughTheListenerEntryPoint(boolean changeRenderer, boolean tableMode) throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                SampleResult original = new SampleResult();
+                original.setSampleLabel("Original");
+                visualizer.add(original);
+                refresh(visualizer);
+                if (changeRenderer) {
+                    var selector = (javax.swing.JComboBox<?>) visualizerField(visualizer, "selectRenderPanel");
+                    selector.setSelectedIndex((selector.getSelectedIndex() + 1) % selector.getItemCount());
+                }
+                if (tableMode) {
+                    ((JTabbedPane) visualizerField(visualizer, "resultListTabs")).setSelectedIndex(1);
+                    JTable table = (JTable) visualizerField(visualizer, "resultTable");
+                    table.getRowSorter().toggleSortOrder(ResultTableModel.LABEL);
+                    table.getRowSorter().toggleSortOrder(ResultTableModel.LABEL);
+                }
+                SamplerResultTab renderer = (SamplerResultTab) visualizerField(visualizer, "resultsRender");
+                renderer.ensureInitialized();
+                var panelField = SamplerResultTab.class.getDeclaredField("requestPanel");
+                panelField.setAccessible(true);
+                var viewsField = RequestPanel.class.getDeclaredField("listRequestView");
+                viewsField.setAccessible(true);
+                var views = (java.util.Deque<?>) viewsField.get(panelField.get(renderer));
+                RequestViewRaw raw = (RequestViewRaw) views.getFirst();
+                var consumerField = RequestViewRaw.class.getDeclaredField("replayResultConsumer");
+                consumerField.setAccessible(true);
+                @SuppressWarnings("unchecked")
+                Consumer<SampleResult> consumer = (Consumer<SampleResult>) consumerField.get(raw);
+                SampleResult replay = new SampleResult();
+                replay.setSampleLabel("Replay: Original");
+                replay.setResponseCode("503");
+                replay.setSuccessful(false);
+                replay.setResponseData("replayed response", StandardCharsets.UTF_8.name());
+                consumer.accept(replay);
+                refresh(visualizer);
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+                assertEquals(2, root.getChildCount());
+                assertSame(original, ((DefaultMutableTreeNode) root.getChildAt(0)).getUserObject());
+                DefaultMutableTreeNode last = (DefaultMutableTreeNode) root.getChildAt(1);
+                assertSame(replay, last.getUserObject());
+                assertSame(replay, visualizerField(visualizer, "resultsObject"));
+                if (!tableMode) {
+                    assertSame(last, tree.getLastSelectedPathComponent());
+                }
+                ResultTableModel table = (ResultTableModel) visualizerField(visualizer, "resultTableModel");
+                assertSame(replay, table.sampleAt(table.getRowCount() - 1));
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
     }
 
     private static Object visualizerField(ViewResultsFullVisualizer visualizer, String name)
