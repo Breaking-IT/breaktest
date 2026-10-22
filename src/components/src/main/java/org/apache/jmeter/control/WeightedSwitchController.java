@@ -23,10 +23,13 @@ import org.apache.jmeter.engine.util.CompoundVariable;
 import org.apache.jmeter.functions.InvalidVariableException;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.TestElement;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Selects one direct child per iteration using non-negative relative weights. */
 public class WeightedSwitchController extends GenericController {
     private static final long serialVersionUID = 1L;
+    private static final Logger log = LoggerFactory.getLogger(WeightedSwitchController.class);
 
     // Store the weight on the child so renaming, reordering and duplicate names are safe.
     // The BreakTest namespace also preserves this metadata when a child's GUI clears its properties.
@@ -88,8 +91,8 @@ public class WeightedSwitchController extends GenericController {
                 try {
                     weights[i] = parseWeight(getWeight(child));
                 } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException("Invalid weight for child '" + child.getName()
-                            + "' in Weighted Switch Controller '" + getName() + "'", e);
+                    log.warn("Invalid weight for child '{}' in Weighted Switch Controller '{}'; "
+                            + "treating it as zero for this iteration", child.getName(), getName());
                 }
                 maximum = Math.max(maximum, weights[i]);
             }

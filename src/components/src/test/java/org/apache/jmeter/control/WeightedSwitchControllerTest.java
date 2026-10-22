@@ -18,6 +18,7 @@
 package org.apache.jmeter.control;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -29,16 +30,23 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.apache.jmeter.JMeter;
+import org.apache.jmeter.engine.PreCompiler;
+import org.apache.jmeter.engine.TurnElementsOn;
 import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.junit.stubs.TestSampler;
 import org.apache.jmeter.sampler.DebugSampler;
+import org.apache.jmeter.samplers.Entry;
+import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.ListenerNotifier;
 import org.apache.jmeter.threads.TestCompiler;
+import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.Test;
@@ -96,13 +104,12 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
             assertEquals(1, controller.selectChild(0));
             for (String invalid : new String[]{"", "abc", "-1", "NaN", "Infinity", "1e309"}) {
                 variables.put("weight", invalid);
-                IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-                        () -> controller.selectChild(0));
-                assertTrue(error.getMessage().contains("child 'variable child'"));
-                assertTrue(error.getMessage().contains("Controller 'weighted'"));
+                assertEquals(1, controller.selectChild(0));
             }
             variables.remove("weight");
-            assertThrows(IllegalArgumentException.class, () -> controller.selectChild(0));
+            assertEquals(1, controller.selectChild(0));
+            variables.put("weight", "1");
+            assertEquals(0, controller.selectChild(0));
         } finally {
             JMeterContextService.getContext().setVariables(previous);
         }
@@ -208,15 +215,62 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
     }
 
     @Test
-    void invalidWeightLoadedFromAPlanFailsInsteadOfSilentlySelectingAnotherChild() {
+    void invalidWeightLoadedFromAPlanIsTreatedAsZero() {
         WeightedSwitchController controller = new WeightedSwitchController();
         TestSampler invalid = new TestSampler("invalid");
         invalid.setProperty(WeightedSwitchController.CHILD_WEIGHT, "NaN");
         controller.addTestElement(invalid);
-        controller.addTestElement(new TestSampler("valid"));
+        TestSampler valid = new TestSampler("valid");
+        controller.addTestElement(valid);
         controller.initialize();
-        IllegalArgumentException error = assertThrows(IllegalArgumentException.class, controller::next);
-        assertTrue(error.getMessage().contains("child 'invalid'"));
+        assertSame(valid, controller.next());
+        assertNull(controller.next());
+    }
+
+    @Test
+    void invalidVariableWeightDoesNotStopVirtualUserAndCanRecover() throws Exception {
+        for (String initialWeight : new String[]{null, "abc"}) {
+            LoopController loop = new LoopController();
+            loop.setLoops(2);
+            loop.setContinueForever(false);
+            WeightedSwitchController controller = new WeightedSwitchController();
+            controller.setName("weighted");
+            TestSampler child = new TestSampler("variable child");
+            WeightedSwitchController.setWeight(child, "${weight}");
+            TestSampler after = new TestSampler("after weighted controller") {
+                @Override
+                public SampleResult sample(Entry entry) {
+                    JMeterContextService.getContext().getVariables().put("weight", "1");
+                    return super.sample(entry);
+                }
+            };
+            HashTree tree = new ListedHashTree();
+            HashTree iterations = tree.add(loop);
+            iterations.add(controller).add(child);
+            iterations.add(after);
+            tree.traverse(new PreCompiler());
+            tree.traverse(new TurnElementsOn());
+            ThreadGroup group = new ThreadGroup();
+            group.setNumThreads(1);
+            JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier(), true);
+            user.setThreadGroup(group);
+            JMeterVariables variables = new JMeterVariables();
+            if (initialWeight != null) {
+                variables.put("weight", initialWeight);
+            }
+            user.putVariables(variables);
+            Thread runner = new Thread(user, "weighted-controller-test");
+            runner.start();
+            runner.join(10000);
+            if (runner.isAlive()) {
+                user.stop();
+                runner.interrupt();
+                runner.join(1000);
+            }
+            assertFalse(runner.isAlive(), "Virtual user should finish");
+            assertEquals(2, after.getSamples(), "Invalid weight must not stop the virtual user");
+            assertEquals(1, child.getSamples(), "Child should become selectable when its weight becomes valid");
+        }
     }
 
     @Test
@@ -267,12 +321,23 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
         assertEquals(1, executable.getTree(runtime).size());
         TestElement runtimeModule = (TestElement) executable.getTree(runtime).getArray()[0];
         assertEquals("${weight}", WeightedSwitchController.getWeight(runtimeModule));
-        WeightedSwitchController.setWeight(runtimeModule, "5");
-        executable.traverse(new TestCompiler(executable));
-        runtime.initialize();
-        for (int i = 0; i < 5; i++) {
-            assertTrue(runtime.next() instanceof DebugSampler);
+        JMeterVariables previous = JMeterContextService.getContext().getVariables();
+        JMeterVariables variables = new JMeterVariables();
+        JMeterContextService.getContext().setVariables(variables);
+        try {
+            executable.traverse(new PreCompiler());
+            executable.traverse(new TurnElementsOn());
+            executable.traverse(new TestCompiler(executable));
+            runtime.initialize();
+            variables.put("weight", "0");
             assertNull(runtime.next());
+            variables.put("weight", "5");
+            for (int i = 0; i < 5; i++) {
+                assertTrue(runtime.next() instanceof DebugSampler);
+                assertNull(runtime.next());
+            }
+        } finally {
+            JMeterContextService.getContext().setVariables(previous);
         }
     }
 }
