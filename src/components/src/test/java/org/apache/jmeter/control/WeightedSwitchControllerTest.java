@@ -29,12 +29,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import org.apache.jmeter.JMeter;
+import org.apache.jmeter.engine.util.ValueReplacer;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.junit.stubs.TestSampler;
 import org.apache.jmeter.sampler.DebugSampler;
 import org.apache.jmeter.save.SaveService;
 import org.apache.jmeter.testelement.TestElement;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.threads.TestCompiler;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
@@ -66,6 +69,43 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
         WeightedSwitchController.setWeight(second, "0.1");
         assertEquals(0, controller.selectChild(0.74));
         assertEquals(1, controller.selectChild(0.76));
+    }
+
+    @Test
+    void variableWeightsAreResolvedForEverySelection() throws Exception {
+        JMeterVariables previous = JMeterContextService.getContext().getVariables();
+        JMeterVariables variables = new JMeterVariables();
+        JMeterContextService.getContext().setVariables(variables);
+        try {
+            WeightedSwitchController controller = new WeightedSwitchController();
+            controller.setName("weighted");
+            TestSampler first = new TestSampler("variable child");
+            TestSampler second = new TestSampler("literal child");
+            WeightedSwitchController.setWeight(first, " ${weight} ");
+            assertEquals("${weight}", WeightedSwitchController.getWeight(first));
+            new ValueReplacer().replaceValues(first);
+            first.setRunningVersion(true);
+            controller.addTestElement(first);
+            controller.addTestElement(second);
+            variables.put("weight", "3");
+            assertEquals(0, controller.selectChild(0.74));
+            assertEquals(1, controller.selectChild(0.75));
+            variables.put("weight", "0.5");
+            assertEquals(1, controller.selectChild(0.5));
+            variables.put("weight", "0");
+            assertEquals(1, controller.selectChild(0));
+            for (String invalid : new String[]{"", "abc", "-1", "NaN", "Infinity", "1e309"}) {
+                variables.put("weight", invalid);
+                IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                        () -> controller.selectChild(0));
+                assertTrue(error.getMessage().contains("child 'variable child'"));
+                assertTrue(error.getMessage().contains("Controller 'weighted'"));
+            }
+            variables.remove("weight");
+            assertThrows(IllegalArgumentException.class, () -> controller.selectChild(0));
+        } finally {
+            JMeterContextService.getContext().setVariables(previous);
+        }
     }
 
     @Test
@@ -200,7 +240,7 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
         ModuleController module = new ModuleController();
         module.setName("module");
         module.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.control.gui.ModuleControllerGui");
-        WeightedSwitchController.setWeight(module, "5");
+        WeightedSwitchController.setWeight(module, "${weight}");
         DebugSampler disabled = new DebugSampler();
         disabled.setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.testbeans.gui.TestBeanGUI");
         disabled.setEnabled(false);
@@ -216,7 +256,7 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
         HashTree loaded = SaveService.loadTree(file.toFile());
         WeightedSwitchController loadedController = (WeightedSwitchController) loaded.getArray()[0];
         ModuleController loadedModule = (ModuleController) loaded.getTree(loadedController).getArray()[1];
-        assertEquals("5", WeightedSwitchController.getWeight(loadedModule));
+        assertEquals("${weight}", WeightedSwitchController.getWeight(loadedModule));
         TransactionController transaction = new TransactionController();
         JMeterTreeNode target = new JMeterTreeNode(transaction, null);
         DebugSampler sample = new DebugSampler();
@@ -226,7 +266,8 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
         WeightedSwitchController runtime = (WeightedSwitchController) executable.getArray()[0];
         assertEquals(1, executable.getTree(runtime).size());
         TestElement runtimeModule = (TestElement) executable.getTree(runtime).getArray()[0];
-        assertEquals("5", WeightedSwitchController.getWeight(runtimeModule));
+        assertEquals("${weight}", WeightedSwitchController.getWeight(runtimeModule));
+        WeightedSwitchController.setWeight(runtimeModule, "5");
         executable.traverse(new TestCompiler(executable));
         runtime.initialize();
         for (int i = 0; i < 5; i++) {

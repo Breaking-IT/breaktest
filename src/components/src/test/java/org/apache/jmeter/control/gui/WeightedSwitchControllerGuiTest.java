@@ -151,6 +151,13 @@ class WeightedSwitchControllerGuiTest implements JMeterSerialTest {
                 table.getCellEditor().cancelCellEditing();
                 assertEquals("8", table.getValueAt(2, 1));
 
+                assertTrue(table.editCellAt(2, 1));
+                ((JTextField) table.getEditorComponent()).setText(" ${weight} ");
+                assertTrue(table.getCellEditor().stopCellEditing());
+                gui.modifyTestElement(controller);
+                gui.configure(controller);
+                assertEquals("${weight}", table.getValueAt(2, 1));
+
                 tree.removeNodeFromParent(transactionNode);
                 assertEquals(2, table.getRowCount());
                 gui.clearGui();

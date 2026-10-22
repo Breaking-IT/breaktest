@@ -19,6 +19,8 @@ package org.apache.jmeter.control;
 
 import java.util.concurrent.ThreadLocalRandom;
 
+import org.apache.jmeter.engine.util.CompoundVariable;
+import org.apache.jmeter.functions.InvalidVariableException;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testelement.TestElement;
 
@@ -35,8 +37,24 @@ public class WeightedSwitchController extends GenericController {
     }
 
     public static void setWeight(TestElement child, String weight) {
-        parseWeight(weight);
+        validateWeight(weight);
         child.setProperty(CHILD_WEIGHT, weight.trim(), "1");
+    }
+
+    /** Validates a configured weight without evaluating variables or functions. */
+    public static void validateWeight(String weight) {
+        if (weight.contains("${")) {
+            CompoundVariable expression = new CompoundVariable();
+            try {
+                expression.setParameters(weight.trim());
+            } catch (InvalidVariableException e) {
+                throw new IllegalArgumentException("Invalid weight expression", e);
+            }
+            if (expression.hasFunction()) {
+                return;
+            }
+        }
+        parseWeight(weight);
     }
 
     public static double parseWeight(String weight) {
