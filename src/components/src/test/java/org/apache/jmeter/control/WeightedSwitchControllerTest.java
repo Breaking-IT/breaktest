@@ -308,6 +308,71 @@ class WeightedSwitchControllerTest extends JMeterTestCase {
     }
 
     @Test
+    void warningIdentitySurvivesChildRemovalAcrossThreadClones() throws Exception {
+        JMeterVariables previous = JMeterContextService.getContext().getVariables();
+        JMeterVariables variables = new JMeterVariables();
+        JMeterContextService.getContext().setVariables(variables);
+        List<LogEvent> events = new CopyOnWriteArrayList<>();
+        AbstractAppender appender = new AbstractAppender(
+                "weighted-switch-controller-test", null, null, false, Property.EMPTY_ARRAY) {
+            @Override
+            public void append(LogEvent event) {
+                events.add(event.toImmutable());
+            }
+        };
+        appender.start();
+        org.apache.logging.log4j.core.Logger logger =
+                (org.apache.logging.log4j.core.Logger) LogManager.getLogger(WeightedSwitchController.class);
+        Level previousLevel = logger.getLevel();
+        logger.addAppender(appender);
+        logger.setLevel(Level.DEBUG);
+        try {
+            WeightedSwitchController controller = new WeightedSwitchController();
+            GenericController finished = new GenericController();
+            finished.setName("duplicate name");
+            TestSampler remaining = new TestSampler("duplicate name");
+            WeightedSwitchController.setWeight(finished, "${firstWeight}");
+            WeightedSwitchController.setWeight(remaining, "${secondWeight}");
+            new ValueReplacer().replaceValues(finished);
+            new ValueReplacer().replaceValues(remaining);
+            finished.setRunningVersion(true);
+            remaining.setRunningVersion(true);
+            controller.addTestElement(finished);
+            controller.addTestElement(remaining);
+            controller.testStarted();
+            WeightedSwitchController otherThread = (WeightedSwitchController) controller.clone();
+            otherThread.addTestElement((TestElement) finished.clone());
+            otherThread.addTestElement((TestElement) remaining.clone());
+            controller.initialize();
+            otherThread.initialize();
+
+            variables.put("firstWeight", "abc");
+            variables.put("secondWeight", "0");
+            assertNull(controller.next());
+            variables.put("firstWeight", "1");
+            assertNull(controller.next());
+            assertEquals(1, controller.getSubControllers().size(), "Finished child must be removed");
+            assertEquals(2, otherThread.getSubControllers().size(), "Other thread still has both children");
+            variables.put("firstWeight", "0");
+            variables.put("secondWeight", "abc");
+            assertNull(controller.next());
+            assertEquals(List.of(Level.WARN, Level.WARN),
+                    events.stream().map(LogEvent::getLevel).toList(),
+                    "The remaining child's first invalid weight must still warn");
+            assertNull(otherThread.next());
+            assertNull(controller.next());
+            assertEquals(List.of(Level.WARN, Level.WARN, Level.DEBUG, Level.DEBUG),
+                    events.stream().map(LogEvent::getLevel).toList(),
+                    "The same child must not warn again even at a different index in another thread");
+        } finally {
+            logger.removeAppender(appender);
+            logger.setLevel(previousLevel);
+            appender.stop();
+            JMeterContextService.getContext().setVariables(previous);
+        }
+    }
+
+    @Test
     void invalidVariableWeightDoesNotStopVirtualUserAndCanRecover() throws Exception {
         for (String initialWeight : new String[]{null, "abc"}) {
             LoopController loop = new LoopController();

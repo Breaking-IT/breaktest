@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.control;
 
+import java.util.IdentityHashMap;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
@@ -41,10 +42,15 @@ public class WeightedSwitchController extends GenericController implements TestS
     // The BreakTest namespace also preserves this metadata when a child's GUI clears its properties.
     public static final String CHILD_WEIGHT = "BreakTest.WeightedSwitchController.weight";
 
-    // Indexes of children whose invalid runtime weight was already logged at WARN. Shared by clone()
+    // Registration IDs of children whose invalid runtime weight was already logged at WARN. Shared by clone()
     // across the virtual users of a group and reset by testStarted(), so a bad variable is reported
     // once per child per test instead of once per selection per thread.
     private transient Set<Integer> warnedChildren = ConcurrentHashMap.newKeySet();
+
+    // Each thread registers the same children in the same order. Keep their original IDs even
+    // after completed controllers are removed from the active list. Identity keys distinguish
+    // separate children with equal properties or duplicate names.
+    private transient IdentityHashMap<TestElement, Integer> childWarningIds = new IdentityHashMap<>();
 
     public static String getWeight(TestElement child) {
         return child.getPropertyAsString(CHILD_WEIGHT, "1");
@@ -108,6 +114,14 @@ public class WeightedSwitchController extends GenericController implements TestS
     }
 
     @Override
+    public void addTestElement(TestElement child) {
+        super.addTestElement(child);
+        if (child instanceof Controller || child instanceof Sampler) {
+            childWarningIds.computeIfAbsent(child, ignored -> childWarningIds.size());
+        }
+    }
+
+    @Override
     public Sampler next() {
         if (isFirst()) {
             current = selectChild(ThreadLocalRandom.current().nextDouble());
@@ -126,7 +140,7 @@ public class WeightedSwitchController extends GenericController implements TestS
                 try {
                     weights[i] = parseWeight(weight);
                 } catch (IllegalArgumentException e) {
-                    logInvalidWeight(i, child, weight);
+                    logInvalidWeight(child, weight);
                 }
                 maximum = Math.max(maximum, weights[i]);
             }
@@ -152,8 +166,8 @@ public class WeightedSwitchController extends GenericController implements TestS
         return lastPositive;
     }
 
-    private void logInvalidWeight(int index, TestElement child, String weight) {
-        if (warnedChildren.add(index)) {
+    private void logInvalidWeight(TestElement child, String weight) {
+        if (warnedChildren.add(childWarningIds.get(child))) {
             log.warn(INVALID_WEIGHT_MESSAGE + ". Repeats for this child are logged at DEBUG.",
                     weight, child.getName(), getName());
         } else {
@@ -191,6 +205,7 @@ public class WeightedSwitchController extends GenericController implements TestS
     @Override
     protected Object readResolve() {
         super.readResolve();
+        childWarningIds = new IdentityHashMap<>();
         warnedChildren = ConcurrentHashMap.newKeySet();
         return this;
     }
