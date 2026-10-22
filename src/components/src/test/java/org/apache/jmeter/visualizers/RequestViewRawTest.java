@@ -25,6 +25,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.awt.Component;
 import java.awt.Container;
 import java.net.URI;
+import java.net.URLClassLoader;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -45,6 +48,7 @@ import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 public class RequestViewRawTest {
 
@@ -307,6 +311,33 @@ public class RequestViewRawTest {
         }
         assertEquals("HTTP/3 200\r\nX-Test: value\r\n",
                 HttpProtocolDisplay.responseHeaders("http/3.0 200\r\n:status: 200\r\nX-Test: value\r\n"));
+    }
+
+    @Test
+    void brokenReplayProviderDoesNotPreventRequestViewInitialization(@TempDir Path directory) throws Exception {
+        Path service = directory.resolve("META-INF/services/" + RequestReplay.class.getName());
+        Files.createDirectories(service.getParent());
+        Files.writeString(service, "missing.plugin.ReplayProvider\n" + HealthyReplayProvider.class.getName() + "\n");
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try (URLClassLoader loader = new URLClassLoader(new java.net.URL[] {directory.toUri().toURL()}, previous)) {
+            Thread.currentThread().setContextClassLoader(loader);
+            RequestViewRaw view = new RequestViewRaw();
+            view.init();
+            view.setSamplerResult(new SampleResult());
+            view.setReplayResultConsumer(result -> { });
+            JButton replay = buttons(view.getPanel()).stream().filter(button -> button.getText().equals(
+                    JMeterUtils.getResString("view_results_request_replay"))).findFirst().orElseThrow();
+            assertTrue(replay.isEnabled(), "Healthy providers must still load after a broken provider");
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    public static class HealthyReplayProvider implements RequestReplay {
+        @Override
+        public Callable<SampleResult> prepare(SampleResult result) {
+            return SampleResult::new;
+        }
     }
 
     private static List<JButton> buttons(Container parent) {

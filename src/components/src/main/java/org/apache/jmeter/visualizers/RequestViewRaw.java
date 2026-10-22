@@ -45,10 +45,12 @@ import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.GuiUtils;
 import org.apache.jorphan.gui.JFactory;
+import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
 import org.apache.jorphan.util.StringUtilities;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
 import org.jsoup.Jsoup;
 import org.jsoup.parser.Parser;
+import org.slf4j.LoggerFactory;
 
 import com.google.auto.service.AutoService;
 
@@ -76,8 +78,10 @@ public class RequestViewRaw implements RequestView {
     private boolean replaying;
     private Callable<SampleResult> selectedReplay;
     private Consumer<SampleResult> replayResultConsumer;
-    private final List<RequestReplay> replayProviders = ServiceLoader.load(RequestReplay.class).stream()
-            .map(ServiceLoader.Provider::get).toList();
+    private final List<RequestReplay> replayProviders = List.copyOf(JMeterUtils.loadServicesAndScanJars(
+            RequestReplay.class, ServiceLoader.load(RequestReplay.class),
+            Thread.currentThread().getContextClassLoader(),
+            new LogAndIgnoreServiceLoadExceptionHandler(LoggerFactory.getLogger(RequestViewRaw.class))));
 
     private final Supplier<JSyntaxSearchToolBar.DiffContent> diffContentSupplier;
 
