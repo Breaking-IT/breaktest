@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.regex.Pattern;
 
+import org.apache.jmeter.gui.util.HttpProtocolDisplay;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
@@ -77,14 +78,10 @@ public class HttpRequestReplay implements RequestReplay {
         String protocol = result.getProtocolVersion();
         if (protocol == null || protocol.isBlank()) {
             String status = result.getResponseHeaders();
-            protocol = status.startsWith("HTTP/") ? status.split("[ \r\n]", 2)[0] : "HTTP/1.1";
+            protocol = status.regionMatches(true, 0, "HTTP/", 0, 5) ? status.split("[ \r\n]", 2)[0] : "HTTP/1.1";
         }
-        if (protocol.equals("HTTP/2.0")) {
-            protocol = "HTTP/2";
-        } else if (protocol.equals("HTTP/3.0")) {
-            protocol = "HTTP/3";
-        }
-        if (!Set.of("HTTP/1.1", "HTTP/2", "HTTP/3").contains(protocol)) {
+        protocol = HttpProtocolDisplay.version(protocol);
+        if (!Set.of("HTTP/1.0", "HTTP/1.1", "HTTP/2", "HTTP/3").contains(protocol)) {
             throw new IllegalArgumentException("Unsupported captured HTTP version");
         }
         HeaderManager headers = new HeaderManager();

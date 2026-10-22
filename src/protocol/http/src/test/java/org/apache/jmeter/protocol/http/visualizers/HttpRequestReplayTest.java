@@ -50,7 +50,7 @@ class HttpRequestReplayTest {
     }
 
     @ParameterizedTest
-    @CsvSource({"HTTP/1.1, HTTPHC5Impl", "HTTP/2, HTTPHC5H2Impl", "HTTP/2.0, HTTPHC5H2Impl"})
+    @CsvSource({"HTTP/1.0, HTTPHC5Impl", "http/1.0, HTTPHC5Impl", "HTTP/1.1, HTTPHC5Impl", "HTTP/2, HTTPHC5H2Impl", "HTTP/2.0, HTTPHC5H2Impl"})
     void usesExistingClientForRecordedProtocol(String protocol, String implementation) throws Exception {
         HTTPSampleResult result = request();
         result.setProtocolVersion(protocol);
@@ -76,12 +76,14 @@ class HttpRequestReplayTest {
         }
     }
 
-    @Test
+    @ParameterizedTest
+    @CsvSource({"HTTP/1.0, true", "HTTP/1.0, false", "HTTP/1.1, true", "HTTP/1.1, false"})
     @Timeout(20)
-    void replaysSnapshotWithEncodedBodyCookiesAndHeadersAndDisplaysHttpErrors() throws Exception {
+    void replaysSnapshotWithEncodedBodyCookiesAndHeadersAndDisplaysHttpErrors(
+            String protocol, boolean explicitVersion) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/submit", exchange -> {
-            String received = exchange.getRequestMethod() + "|" + exchange.getRequestURI().getRawQuery()
+            String received = exchange.getProtocol() + "|" + exchange.getRequestMethod() + "|" + exchange.getRequestURI().getRawQuery()
                     + "|" + exchange.getRequestHeaders().getFirst("Cookie")
                     + "|" + exchange.getRequestHeaders().getFirst("X-Test")
                     + "|" + new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.ISO_8859_1);
@@ -97,6 +99,8 @@ class HttpRequestReplayTest {
         server.start();
         try {
             HTTPSampleResult result = request();
+            result.setProtocolVersion(explicitVersion ? protocol : "");
+            result.setResponseHeaders(protocol.toLowerCase(java.util.Locale.ROOT) + " 200 OK\n");
             result.setURL(URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/submit?q=%20").toURL());
             result.setRequestHeaders("Content-Type: text/plain; charset=ISO-8859-1\nContent-Length: 4\nX-Test: captured\n");
             result.setCookies("session=abc");
@@ -109,7 +113,7 @@ class HttpRequestReplayTest {
             assertEquals("Replay", response.getThreadName());
             assertEquals("Replay: original", response.getSampleLabel());
             assertTrue(response.getStartTime() > 0);
-            assertEquals("POST|q=%20|session=abc|captured|café", response.getResponseDataAsString());
+            assertEquals(protocol + "|POST|q=%20|session=abc|captured|café", response.getResponseDataAsString());
             assertTrue(response.getResponseHeaders().contains("403"));
             assertEquals("changed after selection", result.getQueryString());
         } finally {

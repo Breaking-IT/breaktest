@@ -202,6 +202,8 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
     public static final String HTTP_PROTOCOL_DEFAULT = ""; // $NON-NLS-1$
 
+    public static final String HTTP_PROTOCOL_HTTP_1_0 = "HTTP/1.0"; // $NON-NLS-1$
+
     public static final String HTTP_PROTOCOL_HTTP_1_1 = "HTTP/1.1"; // $NON-NLS-1$
 
     public static final String HTTP_PROTOCOL_HTTP_2 = "HTTP/2"; // $NON-NLS-1$
@@ -793,6 +795,10 @@ public abstract class HTTPSamplerBase extends AbstractSampler
 
     public boolean isHttp2Protocol() {
         return HTTP_PROTOCOL_HTTP_2.equals(getHttpProtocol());
+    }
+
+    public boolean isHttp10Protocol() {
+        return HTTP_PROTOCOL_HTTP_1_0.equals(getHttpProtocol());
     }
 
     public boolean isHttp11Protocol() {
