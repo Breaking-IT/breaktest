@@ -529,6 +529,7 @@ public final class GuiPackage implements LocaleChangeListener, HistoryListener {
 
     private void markCurrentNodeEdited() {
         if (!configuringCurrentGui) {
+            currentNodeUpdated = false;
             currentNodeEdited = true;
         }
     }

@@ -69,7 +69,7 @@ class Jsr223AiHelperTargetTest extends JMeterTestCase {
                 assertSame(originalGui, fixture.gui.getGui(fixture.other.getTestElement()), "JSR223 editors are shared");
                 editor.setText("unsaved edits to the other script");
             }
-            assertTrue(Jsr223AiHelper.applyScript(target, "generated script"));
+            assertTrue(Jsr223AiHelper.applyScript(target, editor, "generated script"));
             assertEquals("generated script", fixture.original.getTestElement().getPropertyAsString("script"));
             assertEquals("generated script", ((JSR223Sampler) fixture.original.getTestElement()).getScript());
             assertTrue(fixture.gui.isDirty());
@@ -87,6 +87,30 @@ class Jsr223AiHelperTargetTest extends JMeterTestCase {
     }
 
     @Test
+    void generatedScriptCanBeUndoneAndRedoneInTheEditor() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            Fixture fixture = new Fixture();
+            fixture.select(fixture.original);
+            JSyntaxTextArea editor = scriptEditor((Container) fixture.gui.getGui(fixture.original.getTestElement()));
+            editor.setText("latest manual edit");
+
+            assertTrue(Jsr223AiHelper.applyScript(fixture.original, editor, "generated script"));
+            assertTrue(Jsr223AiHelper.applyScript(fixture.original, editor, "second generated script"));
+            editor.undoLastAction();
+            assertEquals("generated script", editor.getText());
+            assertTrue(editor.canUndo());
+            editor.undoLastAction();
+            assertEquals("latest manual edit", editor.getText());
+            assertTrue(editor.canRedo());
+            editor.redoLastAction();
+            assertEquals("generated script", editor.getText());
+            editor.undoLastAction();
+            fixture.select(fixture.other);
+            assertEquals("latest manual edit", fixture.original.getTestElement().getPropertyAsString("script"));
+        });
+    }
+
+    @Test
     void removedOriginalDoesNotRedirectTheResultToTheSelectedScript() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             Fixture fixture = new Fixture();
@@ -94,7 +118,8 @@ class Jsr223AiHelperTargetTest extends JMeterTestCase {
             JMeterTreeNode target = Jsr223AiHelper.captureTarget();
             fixture.select(fixture.other);
             fixture.model.removeNodeFromParent(fixture.original);
-            assertFalse(Jsr223AiHelper.applyScript(target, "generated script"));
+            JSyntaxTextArea editor = scriptEditor((Container) fixture.gui.getGui(fixture.other.getTestElement()));
+            assertFalse(Jsr223AiHelper.applyScript(target, editor, "generated script"));
             assertEquals("other script", fixture.other.getTestElement().getPropertyAsString("script"));
             assertEquals("other script", scriptEditor((Container) fixture.gui.getGui(fixture.other.getTestElement())).getText());
         });
