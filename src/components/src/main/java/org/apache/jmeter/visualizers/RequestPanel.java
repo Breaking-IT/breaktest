@@ -24,6 +24,7 @@ import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 import java.util.ServiceLoader;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import javax.swing.JPanel;
@@ -108,6 +109,14 @@ public class RequestPanel {
      */
     public JPanel getPanel() {
         return panel;
+    }
+
+    public void setReplayResultConsumer(Consumer<SampleResult> consumer) {
+        for (RequestView requestView : listRequestView) {
+            if (requestView instanceof RequestViewRaw raw) {
+                raw.setReplayResultConsumer(consumer);
+            }
+        }
     }
 
     public void setDiffButtonVisible(boolean visible) {

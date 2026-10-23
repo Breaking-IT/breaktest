@@ -108,6 +108,7 @@ import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.cookie.IgnoreCookieSpecFactory;
 import org.apache.hc.client5.http.impl.io.DefaultHttpClientConnectionOperator;
+import org.apache.hc.client5.http.impl.io.ManagedHttpClientConnectionFactory;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.routing.DefaultRoutePlanner;
 import org.apache.hc.client5.http.io.ManagedHttpClientConnection;
@@ -128,11 +129,13 @@ import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.HttpRequest;
 import org.apache.hc.core5.http.HttpRequestInterceptor;
 import org.apache.hc.core5.http.HttpResponse;
+import org.apache.hc.core5.http.HttpVersion;
 import org.apache.hc.core5.http.NameValuePair;
 import org.apache.hc.core5.http.ProtocolVersion;
 import org.apache.hc.core5.http.config.Lookup;
 import org.apache.hc.core5.http.config.Registry;
 import org.apache.hc.core5.http.config.RegistryBuilder;
+import org.apache.hc.core5.http.impl.io.DefaultHttpRequestWriter;
 import org.apache.hc.core5.http.impl.io.HttpRequestExecutor;
 import org.apache.hc.core5.http.io.HttpClientConnection;
 import org.apache.hc.core5.http.io.SocketConfig;
@@ -635,6 +638,17 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     private static final HttpRequestInterceptor PREEMPTIVE_AUTH_INTERCEPTOR = new PreemptiveAuthRequestInterceptor();
 
     // see  https://stackoverflow.com/questions/26166469/measure-bandwidth-usage-with-apache-httpcomponents-httpclient
+    // HttpCore's default writer uses its configured version rather than the request version.
+    // Honor explicit HTTP/1.0 per request so pooled HTTP/1.1 clients remain unaffected.
+    private static final ManagedHttpClientConnectionFactory CONNECTION_FACTORY =
+            ManagedHttpClientConnectionFactory.builder().requestWriterFactory(() -> new DefaultHttpRequestWriter() {
+                @Override
+                protected HttpVersion protocolVersion(HttpRequest request) {
+                    return HttpVersion.HTTP_1_0.equals(request.getVersion())
+                            ? HttpVersion.HTTP_1_0 : super.protocolVersion(request);
+                }
+            }).build();
+
     private static final HttpRequestExecutor REQUEST_EXECUTOR = new HttpRequestExecutor() {
         @Override
         public ClassicHttpResponse execute(
@@ -1118,6 +1132,9 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         } else {
             throw new IllegalArgumentException("Unexpected method: '"+method+"'");
         }
+        if (testElement.isHttp10Protocol()) {
+            result.setVersion(HttpVersion.HTTP_1_0);
+        }
         return result;
     }
 
@@ -1444,7 +1461,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             PoolingHttpClientConnectionManager pHCCM =
                     new PoolingHttpClientConnectionManager(
                             new JMeterDefaultHttpClientConnectionOperator(registry, null, resolver),
-                            null, null, TimeValue.ofMilliseconds(TIME_TO_LIVE), null) {
+                            null, null, TimeValue.ofMilliseconds(TIME_TO_LIVE), CONNECTION_FACTORY) {
                         @Override
                         public org.apache.hc.client5.http.io.LeaseRequest lease(String id,
                                 org.apache.hc.client5.http.HttpRoute route, Timeout timeout, Object state) {

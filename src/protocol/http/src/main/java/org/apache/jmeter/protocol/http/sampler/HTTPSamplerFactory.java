@@ -103,7 +103,7 @@ public final class HTTPSamplerFactory {
             if (base.isHttp3Protocol()) {
                 throw new IllegalArgumentException("SSE supports HTTP/1.1 and HTTP/2; select either or the default protocol");
             }
-            return base.isHttp11Protocol() ? new HTTPHC5Impl(base) : new HTTPHC5H2Impl(base);
+            return base.isHttp11Protocol() || base.isHttp10Protocol() ? new HTTPHC5Impl(base) : new HTTPHC5H2Impl(base);
         }
         if (base.isHttp3Protocol()) {
             if (http3Supported) {
@@ -122,7 +122,7 @@ public final class HTTPSamplerFactory {
             // Browser-like: first request per origin over TCP, upgrade to HTTP/3 on Alt-Svc
             return new HTTPJavaHttp3Impl(base, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
         }
-        if (!base.isHttp11Protocol()) {
+        if (!base.isHttp11Protocol() && !base.isHttp10Protocol()) {
             return new HTTPHC5H2Impl(base);
         }
         return new HTTPHC5Impl(base);

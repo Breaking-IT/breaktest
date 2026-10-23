@@ -25,7 +25,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.ServiceLoader;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import javax.swing.JButton;
@@ -33,15 +36,21 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingWorker;
 
+import org.apache.jmeter.gui.util.HttpProtocolDisplay;
 import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
+import org.apache.jmeter.gui.util.SampleResultNodeResolver;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.gui.GuiUtils;
 import org.apache.jorphan.gui.JFactory;
+import org.apache.jorphan.reflect.LogAndIgnoreServiceLoadExceptionHandler;
 import org.apache.jorphan.util.StringUtilities;
 import org.fife.ui.rsyntaxtextarea.SyntaxConstants;
+import org.jsoup.Jsoup;
+import org.jsoup.parser.Parser;
+import org.slf4j.LoggerFactory;
 
 import com.google.auto.service.AutoService;
 
@@ -61,10 +70,18 @@ public class RequestViewRaw implements RequestView {
 
     private JSyntaxSearchToolBar searchToolBar;
 
+    private JButton prettyPrintButton;
+    private SampleResult selectedResult;
     private JButton replayButton;
     private JButton copyCurlButton;
     private CurlRequest selectedRequest;
     private boolean replaying;
+    private Callable<SampleResult> selectedReplay;
+    private Consumer<SampleResult> replayResultConsumer;
+    private final List<RequestReplay> replayProviders = List.copyOf(JMeterUtils.loadServicesAndScanJars(
+            RequestReplay.class, ServiceLoader.load(RequestReplay.class),
+            Thread.currentThread().getContextClassLoader(),
+            new LogAndIgnoreServiceLoadExceptionHandler(LoggerFactory.getLogger(RequestViewRaw.class))));
 
     private final Supplier<JSyntaxSearchToolBar.DiffContent> diffContentSupplier;
 
@@ -89,6 +106,15 @@ public class RequestViewRaw implements RequestView {
         searchToolBar = new JSyntaxSearchToolBar(requestData);
         searchToolBar.setDiffContentSupplier(diffContentSupplier);
         searchToolBar.setDiffButtonVisible(false);
+        prettyPrintButton = new JButton(JMeterUtils.getResString("view_results_pretty_print"));
+        JFactory.small(prettyPrintButton);
+        prettyPrintButton.addActionListener(event -> {
+            if (selectedResult != null) {
+                requestData.setText(formatRequest(selectedResult, true));
+                requestData.setCaretPosition(0);
+            }
+        });
+        searchToolBar.getToolBar().add(prettyPrintButton);
         replayButton = new JButton(JMeterUtils.getResString("view_results_request_replay"));
         copyCurlButton = new JButton(JMeterUtils.getResString("view_results_request_copy_curl"));
         JFactory.small(replayButton);
@@ -107,6 +133,8 @@ public class RequestViewRaw implements RequestView {
 
     @Override
     public void clearData() {
+        selectedReplay = null;
+        selectedResult = null;
         selectedRequest = null;
         updateRequestActions();
         requestData.setInitialText(""); //$NON-NLS-1$
@@ -114,7 +142,11 @@ public class RequestViewRaw implements RequestView {
 
     @Override
     public void setSamplerResult(Object objectResult) {
+        selectedResult = objectResult instanceof SampleResult result ? result : null;
         selectedRequest = objectResult instanceof SampleResult result ? CurlRequest.from(result) : null;
+        selectedReplay = selectedResult == null ? null : replayProviders.stream()
+                .map(provider -> provider.prepare(selectedResult)).filter(java.util.Objects::nonNull)
+                .findFirst().orElse(null);
         updateRequestActions();
         if (objectResult instanceof SampleResult sampleResult) {
             String data = formatRequest(sampleResult);
@@ -125,6 +157,11 @@ public class RequestViewRaw implements RequestView {
         }
     }
 
+    void setReplayResultConsumer(Consumer<SampleResult> consumer) {
+        replayResultConsumer = consumer;
+        updateRequestActions();
+    }
+
     void setDiffButtonVisible(boolean visible) {
         if (searchToolBar != null) {
             searchToolBar.setDiffButtonVisible(visible);
@@ -132,9 +169,11 @@ public class RequestViewRaw implements RequestView {
     }
 
     private void updateRequestActions() {
-        replayButton.setEnabled(selectedRequest != null && !replaying);
+        prettyPrintButton.setEnabled(selectedResult != null
+                && StringUtilities.isNotEmpty(getRequestBody(selectedResult)));
+        replayButton.setEnabled(selectedReplay != null && replayResultConsumer != null && !replaying);
         copyCurlButton.setEnabled(selectedRequest != null);
-        replayButton.setToolTipText(JMeterUtils.getResString(selectedRequest == null
+        replayButton.setToolTipText(JMeterUtils.getResString(selectedReplay == null
                 ? "view_results_request_unavailable" : "view_results_request_replay_tooltip"));
         copyCurlButton.setToolTipText(JMeterUtils.getResString(selectedRequest == null
                 ? "view_results_request_unavailable" : "view_results_request_copy_curl_tooltip"));
@@ -153,16 +192,18 @@ public class RequestViewRaw implements RequestView {
     }
 
     private void replayRequest() {
-        if (selectedRequest == null || replaying) {
+        if (selectedReplay == null || replayResultConsumer == null || replaying) {
             return;
         }
-        CurlRequest request = selectedRequest;
+        Callable<SampleResult> replay = selectedReplay;
+        SampleResult original = selectedResult;
+        Consumer<SampleResult> resultConsumer = replayResultConsumer;
         replaying = true;
         updateRequestActions();
-        new SwingWorker<String, Void>() {
+        new SwingWorker<SampleResult, Void>() {
             @Override
-            protected String doInBackground() throws Exception {
-                return request.replay();
+            protected SampleResult doInBackground() throws Exception {
+                return replay.call();
             }
 
             @Override
@@ -170,13 +211,11 @@ public class RequestViewRaw implements RequestView {
                 replaying = false;
                 updateRequestActions();
                 try {
-                    JSyntaxTextArea response = JSyntaxTextArea.getInstance(25, 100, true);
-                    response.setEditable(false);
-                    response.setText(get());
-                    response.setCaretPosition(0);
-                    JOptionPane.showMessageDialog(paneRaw, JTextScrollPane.getInstance(response),
-                            JMeterUtils.getResString("view_results_request_replay") + " - " + request.url(),
-                            JOptionPane.PLAIN_MESSAGE);
+                    SampleResult result = get();
+                    if (original != null) {
+                        SampleResultNodeResolver.inheritReplaySource(original, result);
+                    }
+                    resultConsumer.accept(result);
                 } catch (InterruptedException ex) {
                     Thread.currentThread().interrupt();
                 } catch (ExecutionException ex) {
@@ -188,6 +227,10 @@ public class RequestViewRaw implements RequestView {
     }
 
     static String formatRequest(SampleResult sampleResult) {
+        return formatRequest(sampleResult, false);
+    }
+
+    static String formatRequest(SampleResult sampleResult, boolean prettyPrint) {
         // Don't display Request headers label if rh is null or empty
         String rh = sampleResult.getRequestHeaders();
         String cookies = getCookies(sampleResult);
@@ -195,6 +238,19 @@ public class RequestViewRaw implements RequestView {
         boolean usesPseudoHeaders = usesPseudoHeaders(protocol);
         String requestHeaders = buildRequestHeaders(rh, cookies, sampleResult, usesPseudoHeaders);
         String body = getRequestBody(sampleResult);
+        if (prettyPrint && StringUtilities.isNotEmpty(body)) {
+            String contentType = rh == null ? "" : rh.lines()
+                    .filter(line -> line.regionMatches(true, 0, "Content-Type:", 0, 13))
+                    .map(line -> line.substring(13).trim().toLowerCase(Locale.ROOT))
+                    .findFirst().orElse("");
+            if (contentType.contains("xml")) {
+                body = Jsoup.parse(body, "", Parser.xmlParser()).outerHtml();
+            } else if (contentType.contains("html")) {
+                body = Jsoup.parse(body).outerHtml();
+            } else {
+                body = RenderAsJSON.prettyJSON(body);
+            }
+        }
         return buildRequestData(buildRequestLine(sampleResult, protocol), requestHeaders, body);
     }
 
@@ -244,7 +300,7 @@ public class RequestViewRaw implements RequestView {
     }
 
     static String getHttpProtocolVersion(SampleResult sampleResult) {
-        String protocolVersion = normalizedHttpProtocolVersion(sampleResult.getProtocolVersion());
+        String protocolVersion = HttpProtocolDisplay.version(sampleResult.getProtocolVersion());
         if (StringUtilities.isNotEmpty(protocolVersion)) {
             return protocolVersion;
         }
@@ -254,20 +310,7 @@ public class RequestViewRaw implements RequestView {
         }
         int separator = responseHeaders.indexOf(' ');
         String responseProtocol = separator < 0 ? responseHeaders : responseHeaders.substring(0, separator);
-        return normalizedHttpProtocolVersion(responseProtocol);
-    }
-
-    private static String normalizedHttpProtocolVersion(String protocolVersion) {
-        if (StringUtilities.isEmpty(protocolVersion)) {
-            return ""; //$NON-NLS-1$
-        }
-        if (protocolVersion.equalsIgnoreCase("HTTP/2") || protocolVersion.equalsIgnoreCase("HTTP/2.0")) { //$NON-NLS-1$ //$NON-NLS-2$
-            return "HTTP/2"; //$NON-NLS-1$
-        }
-        if (protocolVersion.equalsIgnoreCase("HTTP/3") || protocolVersion.equalsIgnoreCase("HTTP/3.0")) { //$NON-NLS-1$ //$NON-NLS-2$
-            return "HTTP/3"; //$NON-NLS-1$
-        }
-        return protocolVersion;
+        return HttpProtocolDisplay.version(responseProtocol);
     }
 
     private static boolean usesPseudoHeaders(String protocol) {

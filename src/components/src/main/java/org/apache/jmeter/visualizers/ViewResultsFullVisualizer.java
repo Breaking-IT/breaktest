@@ -654,7 +654,7 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         visualizerPanel = panel;
         add(visualizerPanel, BorderLayout.CENTER);
 
-        // init right side with first render
+        resultsRender.setReplayResultConsumer(this::addReplayResult);
         resultsRender.setRightSide(rightSide);
         resultsRender.init();
     }
@@ -1134,9 +1134,9 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         resultTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent event) {
-                jumpToTableResultTestPlanElementOnDoubleClick(event);
+                ResultReplaySupport.showTableResult(event, resultTable, mainSplit, detachedWindow != null,
+                        sample -> jumpToTestPlanElement(SampleResultNodeResolver.findForNavigation(sample)));
             }
-
             @Override
             public void mousePressed(MouseEvent event) {
                 showResultTablePopup(event);
@@ -1292,16 +1292,14 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
         jumpToTestPlanElement(SampleResultNodeResolver.findForNavigation(sampleResult));
     }
 
-    private void jumpToTableResultTestPlanElementOnDoubleClick(MouseEvent event) {
-        if (detachedWindow == null || event.getClickCount() != 2 || event.getButton() != MouseEvent.BUTTON1) {
-            return;
-        }
-        int viewRow = resultTable.rowAtPoint(event.getPoint());
-        if (viewRow < 0) {
-            return;
-        }
-        int modelRow = resultTable.convertRowIndexToModel(viewRow);
-        jumpToTestPlanElement(SampleResultNodeResolver.findForNavigation(resultTableModel.sampleAt(modelRow)));
+    private void addReplayResult(SampleResult sample) {
+        selectedThreadGroup = null;
+        selectedThreadName = null;
+        selectedLabel = null;
+        searchPanel.resetSearch();
+        add(new SampleEvent(sample, "Replay"));
+        updateGui();
+        ResultReplaySupport.selectResult(sample, jTree, resultTable, resultTableModel, mainSplit, isTableMode());
     }
 
     private void showResultTablePopup(MouseEvent event) {
@@ -1757,12 +1755,12 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
                     if (dividerLocation > 0) {
                         mainSplit.setDividerLocation(dividerLocation);
                     }
+                    resultsRender.setReplayResultConsumer(this::addReplayResult);
                     resultsRender.setRightSide(rightSide);
                     resultsRender.setLastSelectedTab(selectedTab);
                     renderedResponseObject = null;
                     log.debug("selectedTab={}", selectedTab);
                     resultsRender.init();
-                    // To display current sampler result before change
                     this.valueChanged(lastSelectionEvent, true);
                 }
             }

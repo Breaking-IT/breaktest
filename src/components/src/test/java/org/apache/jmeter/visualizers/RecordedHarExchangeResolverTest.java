@@ -54,6 +54,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 public class RecordedHarExchangeResolverTest extends JMeterTestCase implements JMeterSerialTest {
 
@@ -225,9 +227,11 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase implements J
         assertEquals("", exchange.responseBody());
     }
 
-    @Test
-    public void formatsHttp2ResponseStatusLineWithoutMinorVersionOrReasonPhrase() throws Exception {
-        String har = harWithHttp2StatusText();
+    @ParameterizedTest
+    @CsvSource({"HTTP/2.0, HTTP/2", "http/2, HTTP/2", "http/2.0, HTTP/2",
+            "HTTP/3.0, HTTP/3", "http/3, HTTP/3", "http/3.0, HTTP/3", "http/1.1, HTTP/1.1"})
+    public void formatsCanonicalHttpVersions(String recorded, String expected) throws Exception {
+        String har = harWithHttp2StatusText().replace("HTTP/2.0", recorded);
         Files.writeString(tempDir.resolve("recording.har"), har, StandardCharsets.UTF_8);
 
         JMeterTreeNode samplerNode = samplerNode("0", "GET", "https://example.invalid/http2",
@@ -240,8 +244,31 @@ public class RecordedHarExchangeResolverTest extends JMeterTestCase implements J
                 GET https://example.invalid/http2 HTTP/2
                 Accept: text/plain
                 User-Agent: Test
-                """, exchange.request());
-        assertEquals("HTTP/2 200\nContent-Type: text/plain\n\nok", exchange.response());
+                """.replace("HTTP/2", expected), exchange.request());
+        String reason = expected.equals("HTTP/1.1") ? " OK" : "";
+        assertEquals(expected + " 200" + reason + "\nContent-Type: text/plain\n\nok", exchange.response());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"http/2.0, HTTP/2", "http/3.0, HTTP/3"})
+    void recordedAndReplayedResponsesIgnoreDuplicatePseudoStatus(String recorded, String expected) throws Exception {
+        String har = harWithHttp2StatusText().replace("HTTP/2.0", recorded)
+                .replace("\"headers\": [{\"name\": \"Content-Type\"",
+                        "\"headers\": [{\"name\": \":status\", \"value\": \"200\"}, {\"name\": \"Content-Type\"");
+        Files.writeString(tempDir.resolve("recording.har"), har, StandardCharsets.UTF_8);
+        JMeterTreeNode samplerNode = samplerNode("0", "GET", "https://example.invalid/http2",
+                "2026-06-24T10:00:00.000Z", md5(har));
+        var exchange = RecordedHarExchangeResolver.findFor(samplerNode, tempDir.resolve("plan.jmx")).orElseThrow();
+        assertEquals(expected + " 200\nContent-Type: text/plain\n\nok", exchange.response());
+        for (String pseudoStatus : List.of("", ":status: 200\n")) {
+            SampleResult result = new SampleResult();
+            result.setResponseHeaders(expected + " 200\n" + pseudoStatus + "Content-Type: text/plain\n");
+            result.setResponseData("ok", StandardCharsets.UTF_8.name());
+            RenderAsText renderer = new RenderAsText();
+            renderer.setSamplerResult(result);
+            renderer.setupTabPane();
+            assertEquals(exchange.response(), renderer.replayedResponseText());
+        }
     }
 
     @Test

@@ -34,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.regex.Pattern;
 
 import javax.swing.Action;
@@ -81,6 +82,7 @@ import org.apache.jmeter.assertions.ResponseAssertion;
 import org.apache.jmeter.extractor.RegexExtractor;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.HeaderAsPropertyRenderer;
+import org.apache.jmeter.gui.util.HttpProtocolDisplay;
 import org.apache.jmeter.gui.util.JSyntaxSearchToolBar;
 import org.apache.jmeter.gui.util.JSyntaxTextArea;
 import org.apache.jmeter.gui.util.JTextScrollPane;
@@ -187,6 +189,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
 
     /** request pane content */
     private RequestPanel requestPanel;
+    private Consumer<SampleResult> replayResultConsumer;
 
     /** holds the tabbed panes */
     protected JTabbedPane rightSide;
@@ -339,6 +342,14 @@ public abstract class SamplerResultTab implements ResultRenderer {
     }
 
     @Override
+    public void setReplayResultConsumer(Consumer<SampleResult> consumer) {
+        replayResultConsumer = consumer;
+        if (requestPanel != null) {
+            requestPanel.setReplayResultConsumer(consumer);
+        }
+    }
+
+    @Override
     public void init() {
         if (initialized && results != null && stats != null && resultsScrollPane != null) {
             return;
@@ -356,6 +367,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
         }
         // Create the panels for the other tabs
         requestPanel = new RequestPanel(this::recordedRequestDiffContent);
+        requestPanel.setReplayResultConsumer(replayResultConsumer);
         resultsPane = createResponseDataPanel();
         cookiesPane = createTablePanel(cookiesModel, false);
         variablesPane = createTablePanel(variablesModel, true);
@@ -1469,6 +1481,7 @@ public abstract class SamplerResultTab implements ResultRenderer {
         if (responseHeaders == null || responseHeaders.isEmpty()) {
             return responseBody == null ? "" : responseBody; // $NON-NLS-1$
         }
+        responseHeaders = HttpProtocolDisplay.responseHeaders(responseHeaders);
         if (responseBody == null || responseBody.isEmpty()) {
             return responseHeaders;
         }
