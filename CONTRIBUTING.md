@@ -69,8 +69,9 @@ We accept patches through pull requests.
 
 Before submitting code or documentation, read and accept the
 [Contributor License Agreement](CONTRIBUTOR_LICENSE_AGREEMENT.md). BreakTest
-uses a source-available Community license and separate commercial licensing,
-so contributions cannot be accepted under an Apache-2.0-only inbound grant.
+Community uses Apache-2.0, while BreakTest Enterprise is a separate product
+under a commercial license. The contributor agreement remains required by
+project policy to support contributions across both editions.
 The contributor agreement leaves ownership with the contributor while giving
 Breaking IT the rights needed to distribute the contribution under both
 models.
