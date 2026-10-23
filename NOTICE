@@ -2,8 +2,12 @@ BreakTest
 
 Copyright 2024-2026 Breaking IT and BreakTest contributors
 
-BreakTest-specific materials are licensed under the BreakTest Community
-Source License 1.0 unless a file or component states otherwise. See LICENSE.
+BreakTest Community is licensed under the Apache License, Version 2.0,
+unless a file or component states otherwise. See LICENSE.
+
+BreakTest Enterprise is a separate product licensed under a commercial
+agreement with Breaking IT. Its proprietary components are not licensed
+under this repository's Apache License.
 
 BreakTest is a fork and derivative work of Apache JMeter.
 
@@ -22,6 +26,5 @@ logo are trademarks or registered trademarks of The Apache Software
 Foundation. BreakTest is not affiliated with, endorsed by, or sponsored by
 The Apache Software Foundation.
 
-The BreakTest name and logo are marks of Breaking IT. The Community license
-does not grant permission to use those marks except for reasonable factual
-reference to an unmodified copy of BreakTest.
+The BreakTest name and logo are marks of Breaking IT. Trademark permissions
+are governed by Section 6 of the Apache License, Version 2.0.

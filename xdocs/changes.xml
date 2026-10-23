@@ -1048,7 +1048,7 @@ test evidence, richer diagnostics, and AI-assisted scripting.
   <li>Running schedules can be paused and resumed, and Transaction Controllers support built-in think time and pacing.</li>
   <li>Extractors can fail a sampler when an expected correlation value is missing.</li>
   <li>Verified in-application updates support rollback and restart while preserving user configuration, plugins, and driver libraries.</li>
-  <li>BreakTest-specific materials are released under the BreakTest Community Source License 1.0.</li>
+  <li>BreakTest Community is released under the Apache License, Version 2.0.</li>
 </ul>
 
 <ch_section>Browser Recording and HAR Import</ch_section>
@@ -1187,10 +1187,11 @@ THREAT_MODEL.md for details.
 
 <ch_section>License and Attribution</ch_section>
 <p>
-BreakTest-specific materials are licensed under the BreakTest Community Source
-License 1.0. Community use is limited to testing systems operated by your own
-organization. Excluded commercial uses require prior written permission or a
-commercial license from Breaking IT. Requests may be sent to
+BreakTest Community is licensed under the Apache License, Version 2.0.
+Commercial use, modification, redistribution, and hosting are permitted subject
+to the license's terms. BreakTest Enterprise remains a separate product under
+a commercial license; its proprietary components are not covered by the
+Community license. Enterprise licensing requests may be sent to
 <code>info@breakingit.nl</code>.
 </p>
 <p>

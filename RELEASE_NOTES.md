@@ -1610,15 +1610,13 @@ project security model and vulnerability reporting process.
 
 ## License And Attribution
 
-BreakTest-specific materials are licensed under the BreakTest Community Source
-License 1.0. Community use covers testing systems you operate and systems you
-are authorized to test, including testing performed for clients. Reselling or
-redistributing BreakTest, offering it to third parties as a hosted or managed
-service, reusing it in another product, using it to build a competing product,
-rebranding it, and circumventing Community Limits require prior written
-permission or a commercial license from Breaking IT.
+BreakTest Community is licensed under the Apache License, Version 2.0.
+Commercial use, modification, redistribution, and hosting are permitted
+subject to the license's terms.
 
-Commercial licensing requests may be sent to `info@breakingit.nl`.
+BreakTest Enterprise remains a separate product under a commercial license;
+its proprietary components are not covered by the Community license.
+Enterprise licensing requests may be sent to `info@breakingit.nl`.
 
 BreakTest is a derivative work of Apache JMeter. Applicable copyright, license,
 and attribution notices for Apache JMeter and other third-party materials are

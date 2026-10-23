@@ -527,7 +527,7 @@ fun CrLfSpec.binaryLayout() = copySpec {
     gitattributes(gitProps)
     into(baseFolder) {
         // Generated license content covers Apache JMeter and other third-party
-        // materials. BreakTest's Community license and NOTICE come from rootDir.
+        // materials. BreakTest's Apache-2.0 license and NOTICE come from rootDir.
         from(files(binLicense)) {
             thirdPartyLicenses()
         }
@@ -567,7 +567,7 @@ fun CrLfSpec.sourceLayout() = copySpec {
     gitattributes(gitProps)
     into(baseFolder) {
         // Generated license content covers Apache JMeter and other third-party
-        // materials. BreakTest's Community license and NOTICE come from rootDir.
+        // materials. BreakTest's Apache-2.0 license and NOTICE come from rootDir.
         from(files(srcLicense)) {
             thirdPartyLicenses()
         }

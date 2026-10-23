@@ -61,14 +61,16 @@ publishing {
                     for (dependency in (dependenciesNode["dependency"] as NodeList)) {
                         dependency as Node
                         if ((dependency["optional"] as NodeList).firstOrNull()?.let { it as? Node }
-                                ?.text() == "true") {
+                            ?.text() == "true"
+                        ) {
                             dependenciesNode.remove(dependency)
                             continue
                         }
                         if ((dependency["version"] as NodeList).isEmpty()) {
                             throw IllegalStateException(
-                                "Generated pom.xml contains a dependency without <version> for dependency ${dependency}. " +
-                                "Technically speaking, the version is not mandatory, however, having explicit versions would make it easier to review the dependencies in pom")
+                                "Generated pom.xml contains a dependency without <version> for dependency $dependency. " +
+                                    "Technically speaking, the version is not mandatory, however, having explicit versions would make it easier to review the dependencies in pom"
+                            )
                         }
                     }
                 }
@@ -83,16 +85,9 @@ publishing {
             url.set("https://github.com/Breaking-IT/breaktest")
             licenses {
                 license {
-                    name.set("BreakTest Community Source License 1.0")
-                    url.set("https://github.com/Breaking-IT/breaktest/blob/main/LICENSE")
-                    distribution.set("repo")
-                    comments.set("Applies to BreakTest-specific materials; source-available, not Open Source")
-                }
-                license {
                     name.set("The Apache License, Version 2.0")
                     url.set("https://www.apache.org/licenses/LICENSE-2.0.txt")
                     distribution.set("repo")
-                    comments.set("Applies to Apache JMeter-derived and other identified Apache-licensed materials")
                 }
             }
             issueManagement {
