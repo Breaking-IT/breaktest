@@ -56,6 +56,115 @@ class RecorderWizardTest extends JMeterTestCase {
     }
 
     @Test
+    void variableMatchingIsOptInAndRequiresAcceptanceWithoutChangingPendingSamples() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        var captured = sample("app.test", false);
+        captured.sampler.setPath("/10/secret");
+        var arguments = new org.apache.jmeter.config.Arguments();
+        arguments.addArgument("limit", "10");
+        arguments.addArgument("token", "secret");
+        var recorder = new ProxyControl() {
+            @Override public List<RecordingVariableReview.Candidate> findRecordingVariables(List<RecordedSampler> samples) {
+                return RecordingVariableReview.find(samples, ignored -> List.of(arguments));
+            }
+        };
+        SwingUtilities.invokeAndWait(() -> {
+            var wizard = new RecorderWizard(null, recorder, List.of(captured));
+            try {
+                field(wizard, "next", JButton.class).doClick();
+                var optIn = field(wizard, "matchVariables", JCheckBox.class);
+                assertFalse(optIn.isSelected());
+                assertTrue(field(wizard, "finish", JButton.class).isVisible());
+                optIn.doClick();
+                assertFalse(field(wizard, "finish", JButton.class).isVisible());
+                field(wizard, "next", JButton.class).doClick();
+                assertTrue(field(wizard, "title", javax.swing.JLabel.class).getText().contains("Review user-defined variable matches"));
+                var table = field(wizard, "variables", javax.swing.table.AbstractTableModel.class);
+                assertEquals(2, table.getRowCount());
+                assertEquals(false, table.getValueAt(0, 0));
+                assertEquals(false, table.getValueAt(1, 0));
+                table.setValueAt(true, 0, 0);
+                field(wizard, "back", JButton.class).doClick();
+                field(wizard, "next", JButton.class).doClick();
+                assertEquals(true, table.getValueAt(0, 0));
+                field(wizard, "remember", JCheckBox.class).setSelected(false);
+                capturePreview(wizard);
+                field(wizard, "finish", JButton.class).doClick();
+                assertEquals(1, wizard.getResult().variables().size());
+                assertEquals("/10/secret", captured.sampler.getPath());
+                RecordingVariableReview.apply(wizard.getResult().variables());
+                assertEquals("/10/${token}", captured.sampler.getPath());
+            } finally {
+                wizard.dispose();
+            }
+        });
+    }
+
+    @Test
+    void optingOutOrPostponingDoesNotApplyAcceptedPairs() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        var captured = sample("app.test", false);
+        captured.sampler.setPath("/10");
+        var arguments = new org.apache.jmeter.config.Arguments();
+        arguments.addArgument("limit", "10");
+        var recorder = new ProxyControl() {
+            @Override public List<RecordingVariableReview.Candidate> findRecordingVariables(List<RecordedSampler> samples) {
+                return RecordingVariableReview.find(samples, ignored -> List.of(arguments));
+            }
+        };
+        SwingUtilities.invokeAndWait(() -> {
+            for (boolean postpone : List.of(false, true)) {
+                var wizard = new RecorderWizard(null, recorder, List.of(captured));
+                try {
+                    field(wizard, "next", JButton.class).doClick();
+                    field(wizard, "matchVariables", JCheckBox.class).doClick();
+                    field(wizard, "next", JButton.class).doClick();
+                    field(wizard, "variables", javax.swing.table.AbstractTableModel.class).setValueAt(true, 0, 0);
+                    if (postpone) {
+                        wizard.dispose();
+                        assertNull(wizard.getResult());
+                    } else {
+                        field(wizard, "back", JButton.class).doClick();
+                        field(wizard, "matchVariables", JCheckBox.class).doClick();
+                        field(wizard, "remember", JCheckBox.class).setSelected(false);
+                        field(wizard, "finish", JButton.class).doClick();
+                        assertTrue(wizard.getResult().variables().isEmpty());
+                    }
+                    assertEquals("/10", captured.sampler.getPath());
+                } finally {
+                    wizard.dispose();
+                }
+            }
+        });
+    }
+
+    @Test
+    void skipsVariableReviewWhenNoMatches() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        var captured = sample("app.test", false);
+        SwingUtilities.invokeAndWait(() -> {
+            var recorder = new ProxyControl() {
+                @Override public List<RecordingVariableReview.Candidate> findRecordingVariables(List<RecordedSampler> samples) {
+                    return List.of();
+                }
+            };
+            var wizard = new RecorderWizard(null, recorder, List.of(captured));
+            try {
+                field(wizard, "next", JButton.class).doClick();
+                field(wizard, "matchVariables", JCheckBox.class).doClick();
+                assertTrue(field(wizard, "finish", JButton.class).isVisible());
+                assertFalse(field(wizard, "next", JButton.class).isVisible());
+                assertTrue(field(wizard, "variableHint", javax.swing.JLabel.class).getText().startsWith("No matching"));
+                field(wizard, "remember", JCheckBox.class).setSelected(false);
+                field(wizard, "finish", JButton.class).doClick();
+                assertTrue(wizard.getResult().variables().isEmpty());
+            } finally {
+                wizard.dispose();
+            }
+        });
+    }
+
+    @Test
     void offersCorrelationReviewOnlyWhenSelectedCapturesHaveStoredExchanges() throws Exception {
         assumeFalse(GraphicsEnvironment.isHeadless());
         var stored = sample("stored.test", false);

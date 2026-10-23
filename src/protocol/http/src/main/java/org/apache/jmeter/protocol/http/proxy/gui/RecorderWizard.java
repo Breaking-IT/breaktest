@@ -49,12 +49,14 @@ import org.apache.jmeter.protocol.http.har.RecordingHostsPanel;
 import org.apache.jmeter.protocol.http.proxy.ProxyControl;
 import org.apache.jmeter.protocol.http.proxy.RecordedSampler;
 import org.apache.jmeter.protocol.http.proxy.RecorderSettings;
+import org.apache.jmeter.protocol.http.proxy.RecordingVariableReview;
 
 import net.miginfocom.swing.MigLayout;
 
 /** Reviews a stopped recording before any samplers are inserted into the plan. */
 public final class RecorderWizard extends JDialog {
-    public record Result(Set<String> hosts, Set<RecordedSampler> failed, HarImportOptions options, int grouping, boolean processCorrelations) { }
+    public record Result(Set<String> hosts, Set<RecordedSampler> failed, HarImportOptions options, int grouping, boolean processCorrelations,
+            List<RecordingVariableReview.Candidate> variables) { }
 
     private final List<RecordedSampler> samples;
     private final ProxyControl recorder;
@@ -78,6 +80,10 @@ public final class RecorderWizard extends JDialog {
     private final JCheckBox remember = new JCheckBox("Remember recorder settings for other scripts", true);
     private final JCheckBox processCorrelations = new JCheckBox("Process correlation rules", true);
     private final JLabel correlationHint = new JLabel();
+    private final JCheckBox matchVariables = new JCheckBox("Match recorded values to user-defined variables");
+    private final JLabel variableHint = new JLabel("Recorded values are kept unless you review and accept replacements.");
+    private final VariableTable variables = new VariableTable();
+    private final JTable variableMatches = new JTable(variables);
     private int step;
     private Result result;
 
@@ -95,7 +101,11 @@ public final class RecorderWizard extends JDialog {
         hosts.setEntries(samples.stream().map(RecordedSampler::entry).toList());
         cards.add(hosts, "0");
         cards.add(failurePanel(), "1");
-        cards.add(optionsPanel(), "2");
+        JScrollPane optionsScroll = new JScrollPane(optionsPanel());
+        optionsScroll.setBorder(BorderFactory.createEmptyBorder());
+        optionsScroll.getVerticalScrollBar().setUnitIncrement(16);
+        cards.add(optionsScroll, "2");
+        cards.add(variablePanel(), "3");
         add(cards, BorderLayout.CENTER);
         JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         JButton later = new JButton("Review later");
@@ -105,7 +115,7 @@ public final class RecorderWizard extends JDialog {
             showStep();
         });
         next.addActionListener(e -> {
-            step = step == 0 && !hasFailedCaptures() ? 2 : Math.min(2, step + 1);
+            step = step == 0 && !hasFailedCaptures() ? 2 : Math.min(3, step + 1);
             showStep();
         });
         finish.addActionListener(e -> finish());
@@ -115,7 +125,7 @@ public final class RecorderWizard extends JDialog {
         buttons.add(finish);
         add(buttons, BorderLayout.SOUTH);
         setMinimumSize(new Dimension(780, 520));
-        setSize(980, 620);
+        setSize(980, 720);
         setLocationRelativeTo(owner);
         showStep();
     }
@@ -202,6 +212,9 @@ public final class RecorderWizard extends JDialog {
         processCorrelations.setSelected(org.apache.jmeter.util.JMeterUtils.getPropDefault("proxy.recorder.process_correlations", true));
         panel.add(processCorrelations, "span 2, gaptop 16");
         panel.add(correlationHint, "span 2");
+        panel.add(matchVariables, "span 2, gaptop 16");
+        panel.add(variableHint, "span 2");
+        matchVariables.addActionListener(e -> refreshVariables());
         panel.add(remember, "span 2, gaptop 16");
         delay.addActionListener(e -> updateDelayFields());
         transactions.addActionListener(e -> updateDelayFields());
@@ -223,6 +236,12 @@ public final class RecorderWizard extends JDialog {
             failures.visible = samples.stream().filter(RecordedSampler::failed).toList();
             failures.changed();
         }
+        if (step == 2) {
+            refreshVariables();
+        }
+        if (step == 3 && variableMatches.getRowCount() > 0 && variableMatches.getSelectedRow() < 0) {
+            variableMatches.setRowSelectionInterval(0, 0);
+        }
         layout.show(cards, Integer.toString(step));
         updateButtons();
     }
@@ -234,16 +253,19 @@ public final class RecorderWizard extends JDialog {
 
     private void updateButtons() {
         boolean reviewFailures = hasFailedCaptures();
-        int total = reviewFailures ? 3 : 2;
+        boolean reviewVariables = matchVariables.isSelected() && !variables.visible.isEmpty();
+        int optionsStep = reviewFailures ? 3 : 2;
+        int total = optionsStep + (reviewVariables ? 1 : 0);
         title.setText(switch (step) {
             case 0 -> "1 of " + total + " — Select hosts (" + (samples == null ? 0 : samples.size()) + " captured requests)";
-            case 1 -> "2 of 3 — Review failed captures";
-            default -> total + " of " + total + " — Transactions and think times";
+            case 1 -> "2 of " + total + " — Review failed captures";
+            case 2 -> optionsStep + " of " + total + " — Recording options";
+            default -> total + " of " + total + " — Review user-defined variable matches";
         });
         back.setEnabled(step > 0);
-        next.setVisible(step < 2);
+        next.setVisible(step < 2 || step == 2 && reviewVariables);
         next.setEnabled(true);
-        finish.setVisible(step == 2);
+        finish.setVisible(step == 3 || step == 2 && !reviewVariables);
         long included = samples == null ? 0 : samples.stream().filter(sample ->
                 hosts.selectedHostnames().contains(HarConverter.hostnameOf(sample.entry().getUrl()))
                         && (!sample.failed() || failures.selected.contains(sample))).count();
@@ -298,8 +320,95 @@ public final class RecorderWizard extends JDialog {
             }
         }
         result = new Result(hosts.selectedHostnames(), Set.copyOf(failures.selected), options, grouping,
-                processCorrelations.isEnabled() && processCorrelations.isSelected());
+                processCorrelations.isEnabled() && processCorrelations.isSelected(),
+                matchVariables.isSelected() ? variables.accepted() : List.of());
         dispose();
+    }
+
+    private void refreshVariables() {
+        variables.visible = matchVariables.isSelected()
+                ? recorder.findRecordingVariables(ProxyControl.selectRecording(samples, hosts.selectedHostnames(), failures.selected))
+                : List.of();
+        variables.fireTableDataChanged();
+        variableHint.setText(!matchVariables.isSelected()
+                ? "Recorded values are kept unless you review and accept replacements."
+                : variables.visible.isEmpty() ? "No matching user-defined variable values in the selected requests."
+                : variables.visible.size() + " matching value pairs; review and accept replacements in the next step.");
+        updateButtons();
+    }
+
+    private JPanel variablePanel() {
+        JPanel panel = new JPanel(new BorderLayout(8, 8));
+        panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+        panel.add(new JLabel("<html>Select each search/replace pair you want to apply. All pairs start unchecked.<br>"
+                + "Select a row to inspect every affected field. "
+                + "Longer values are replaced first; overlapping matches may be consumed.</html>"), BorderLayout.NORTH);
+        JTable table = variableMatches;
+        table.setAutoCreateRowSorter(true);
+        table.setRowHeight(Math.max(24, table.getRowHeight()));
+        table.getColumnModel().getColumn(0).setMaxWidth(70);
+        JTextArea details = new JTextArea(10, 60);
+        details.setEditable(false);
+        details.setLineWrap(true);
+        details.setWrapStyleWord(true);
+        details.setText("Select a value pair to review its matches.");
+        table.getSelectionModel().addListSelectionListener(event -> {
+            int row = table.getSelectedRow();
+            if (row < 0) {
+                details.setText("Select a value pair to review its matches.");
+                return;
+            }
+            var candidate = variables.visible.get(table.convertRowIndexToModel(row));
+            StringBuilder text = new StringBuilder();
+            for (var match : candidate.matches()) {
+                text.append(match.request()).append("\n").append(match.field())
+                        .append("\nBefore: ").append(match.before()).append("\nAfter: ").append(match.after()).append("\n\n");
+            }
+            details.setText(text.toString());
+            details.setCaretPosition(0);
+        });
+        var split = new javax.swing.JSplitPane(javax.swing.JSplitPane.VERTICAL_SPLIT,
+                new JScrollPane(table), new JScrollPane(details));
+        split.setResizeWeight(0.45);
+        panel.add(split, BorderLayout.CENTER);
+        return panel;
+    }
+
+    private static final class VariableTable extends AbstractTableModel {
+        private final Set<RecordingVariableReview.Pair> selected = new HashSet<>();
+        private List<RecordingVariableReview.Candidate> visible = List.of();
+        private final String[] columns = {"Accept", "Search value", "Replace with", "Affected fields"};
+
+        List<RecordingVariableReview.Candidate> accepted() {
+            return visible.stream().filter(candidate -> selected.contains(candidate.pair())).toList();
+        }
+
+        @Override public int getRowCount() { return visible.size(); }
+        @Override public int getColumnCount() { return columns.length; }
+        @Override public String getColumnName(int column) { return columns[column]; }
+        @Override public Class<?> getColumnClass(int column) { return column == 0 ? Boolean.class : column == 3 ? Integer.class : String.class; }
+        @Override public boolean isCellEditable(int row, int column) { return column == 0; }
+        @Override public Object getValueAt(int row, int column) {
+            var candidate = visible.get(row);
+            return switch (column) {
+                case 0 -> selected.contains(candidate.pair());
+                case 1 -> candidate.pair().value();
+                case 2 -> candidate.pair().replacement();
+                default -> candidate.matches().size();
+            };
+        }
+        @Override public void setValueAt(Object value, int row, int column) {
+            if (column != 0) {
+                return;
+            }
+            var pair = visible.get(row).pair();
+            if (Boolean.TRUE.equals(value)) {
+                selected.add(pair);
+            } else {
+                selected.remove(pair);
+            }
+            fireTableRowsUpdated(row, row);
+        }
     }
 
     private final class FailureTable extends AbstractTableModel {

@@ -801,6 +801,13 @@ TLS negotiation failures before an HTTP request arrives are shown with the CONNE
 Failed captures are unchecked by default;
 selected failures are included as enabled samplers with their diagnostic comments. HTTP 4xx/5xx responses are included normally.
 Choose <b>Review later</b> to keep the pending recording, then use <b>Review recording...</b> to reopen it before starting another session.
+Recorded values remain literal by default. Enable <b>Match recorded values to user-defined variables</b> in the recording options
+if you want to replace them. When one or more value pairs match the selected requests, the wizard adds a review step.
+Each search value and variable reference has an unchecked acceptance box; select a row to inspect every affected field before and after replacement.
+Only accepted pairs are applied when you add the recording. Short values such as <code>10</code> can match inside larger values,
+so review these pairs carefully. Longer accepted values are replaced first when matches overlap.
+With no matches the review step is skipped. Choosing <b>Review later</b> leaves pending values unchanged.
+Non-GUI recording keeps literal values without variable substitution.
 After adding the recording, the target thread groups expand automatically.
 <b>Process correlation rules</b> is enabled by default when the selected recording has stored requests/responses.
 It scans only newly added HTTP and WebSocket Connect requests using the plan's enabled correlation rules, then opens the existing match review before applying extractors and replacements.
@@ -822,7 +829,12 @@ sub-millisecond start/end precision for grouping. Idle gaps are measured after t
 so a slow overlapping request does not create false think time. The defaults are a new Transaction Controller per group,
 as-recorded think time, and no automatic or followed redirects; redirect requests are recorded individually.
 Transactions follow the names set during recording; elapsed idle time does not start a new transaction.
-Transaction-name edits take effect on Enter or when focus leaves the name field.
+Transaction-name edits take effect immediately in both the recorder panel and the floating recorder window,
+including when recording actions on another device without pressing Enter or moving focus.
+Each request retains the transaction name captured when it started.
+New recorders default to the <b>Path</b> naming scheme unless a different recorder preference was saved.
+This names samplers using only the request path, such as <code>/api/login</code>,
+without the query string, transaction-name prefix, or request counter.
 Sampler names omit query strings by default, without changing the recorded URL or replay parameters.
 Use <code>#{path}#{querystring}</code> (or <code>#{path}#querystring</code>) in the name formatter to include the query;
 the query placeholder includes the leading question mark only when a query is present.
