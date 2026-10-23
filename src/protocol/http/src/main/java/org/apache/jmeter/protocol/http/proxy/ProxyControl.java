@@ -41,6 +41,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.Deque;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -53,6 +54,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.prefs.Preferences;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
@@ -910,11 +912,26 @@ public class ProxyControl extends GenericController implements NonTestElement {
 
     /** Finds variable replacements without modifying pending captures. */
     public List<RecordingVariableReview.Candidate> findRecordingVariables(List<RecordedSampler> samples) {
-        return RecordingVariableReview.find(samples, sample -> {
-            @SuppressWarnings("unchecked")
-            Collection<Arguments> variables = (Collection<Arguments>) findApplicableElements(sample.target, Arguments.class, true);
-            return variables;
-        });
+        return prepareRecordingVariableSearch(samples).get();
+    }
+
+    /**
+     * Resolves the user-defined variables in scope for each capture now, since that reads the
+     * test plan tree and belongs on the EDT. The returned search only reads the captures and the
+     * resolved variables, so it can run in the background.
+     */
+    public Supplier<List<RecordingVariableReview.Candidate>> prepareRecordingVariableSearch(List<RecordedSampler> samples) {
+        Map<JMeterTreeNode, Collection<Arguments>> byTarget = new HashMap<>();
+        Map<RecordedSampler, Collection<Arguments>> scopes = new HashMap<>();
+        for (RecordedSampler sample : samples) {
+            scopes.put(sample, byTarget.computeIfAbsent(sample.target, target -> {
+                @SuppressWarnings("unchecked")
+                Collection<Arguments> variables = (Collection<Arguments>) findApplicableElements(target, Arguments.class, true);
+                return List.copyOf(variables);
+            }));
+        }
+        List<RecordedSampler> selected = List.copyOf(samples);
+        return () -> RecordingVariableReview.find(selected, scopes::get);
     }
 
     public static List<RecordedSampler> selectRecording(List<RecordedSampler> samples, Set<String> hosts,

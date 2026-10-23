@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.jmeter.config.Arguments;
 import org.apache.jmeter.junit.JMeterTestCase;
@@ -73,6 +75,52 @@ class RecordingVariableReviewTest extends JMeterTestCase {
         assertEquals("${limit}", sample.sampler.getNativeHeaderList().get(0).getValue());
         assertEquals("Request 10", sample.sampler.getName());
         assertEquals("capture-10", sample.sampler.getPropertyAsString("BreakTest.recording.exchangeId"));
+    }
+
+    /** Counts copies so tests can tell whether the search skipped the expensive comparison. */
+    public static class CountingSampler extends HTTPSamplerProxy {
+        private static final long serialVersionUID = 1L;
+        static final AtomicInteger CLONES = new AtomicInteger();
+
+        @Override
+        public Object clone() {
+            CLONES.incrementAndGet();
+            return super.clone();
+        }
+    }
+
+    @Test
+    void skipsCopyingRequestsThatCannotContainTheValue() throws Exception {
+        var sampler = new CountingSampler();
+        sampler.setDomain("example.test");
+        sampler.setMethod("POST");
+        sampler.setPath("/items/abc%2b123%2f%3d?limit=100");
+        sampler.addArgument("q", "plain value");
+        var result = new HTTPSampleResult();
+        result.setURL(sampler.getUrl());
+        var sample = new RecordedSampler(sampler, new TestElement[0], null, "", 0, result, false, null);
+
+        CountingSampler.CLONES.set(0);
+        assertTrue(RecordingVariableReview.find(List.of(sample), ignored ->
+                List.of(variables("absent", "zzz", "longer", "value that is longer than any field"))).isEmpty());
+        assertEquals(0, CountingSampler.CLONES.get(), "Values absent from every field must not copy the request");
+
+        // Encoded (with lowercase escapes) and plain occurrences still reach the full comparison.
+        var candidates = RecordingVariableReview.find(List.of(sample), ignored ->
+                List.of(variables("token", "abc+123/=", "limit", "100", "query", "plain value")));
+        assertTrue(CountingSampler.CLONES.get() > 0);
+        assertEquals(List.of("query", "token", "limit"),
+                candidates.stream().map(candidate -> candidate.pair().name()).toList());
+    }
+
+    @Test
+    void mentionsMatchesEveryFormTheReplacerChanges() {
+        assertTrue(RecordingVariableReview.mentions(List.of(Map.of("path", "/a/b%2Fc")), "b/c"));
+        assertTrue(RecordingVariableReview.mentions(List.of(Map.of("path", "/a/b%2fc")), "b/c"));
+        assertTrue(RecordingVariableReview.mentions(List.of(Map.of("body", "q=a+b"), Map.of("x", "y")), "a b"));
+        assertTrue(RecordingVariableReview.mentions(List.of(Map.of("header", "a b")), "a%20b"));
+        assertFalse(RecordingVariableReview.mentions(List.of(Map.of("path", "/a/b/c"), Map.of()), "zzz"));
+        assertFalse(RecordingVariableReview.mentions(List.of(), "b/c"));
     }
 
     @Test

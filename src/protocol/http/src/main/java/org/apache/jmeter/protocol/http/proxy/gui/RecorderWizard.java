@@ -19,6 +19,7 @@ package org.apache.jmeter.protocol.http.proxy.gui;
 
 import java.awt.BorderLayout;
 import java.awt.CardLayout;
+import java.awt.Cursor;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Frame;
@@ -26,6 +27,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Supplier;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -35,12 +38,14 @@ import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.JScrollPane;
 import javax.swing.JSpinner;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingWorker;
 import javax.swing.table.AbstractTableModel;
 
 import org.apache.jmeter.protocol.http.har.HarConverter;
@@ -50,11 +55,15 @@ import org.apache.jmeter.protocol.http.proxy.ProxyControl;
 import org.apache.jmeter.protocol.http.proxy.RecordedSampler;
 import org.apache.jmeter.protocol.http.proxy.RecorderSettings;
 import org.apache.jmeter.protocol.http.proxy.RecordingVariableReview;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import net.miginfocom.swing.MigLayout;
 
 /** Reviews a stopped recording before any samplers are inserted into the plan. */
 public final class RecorderWizard extends JDialog {
+    private static final Logger log = LoggerFactory.getLogger(RecorderWizard.class);
+
     public record Result(Set<String> hosts, Set<RecordedSampler> failed, HarImportOptions options, int grouping, boolean processCorrelations,
             List<RecordingVariableReview.Candidate> variables) { }
 
@@ -84,6 +93,8 @@ public final class RecorderWizard extends JDialog {
     private final JLabel variableHint = new JLabel("Recorded values are kept unless you review and accept replacements.");
     private final VariableTable variables = new VariableTable();
     private final JTable variableMatches = new JTable(variables);
+    private final JProgressBar variableSearchProgress = new JProgressBar();
+    private SwingWorker<List<RecordingVariableReview.Candidate>, Void> variableSearch;
     private int step;
     private Result result;
 
@@ -214,6 +225,9 @@ public final class RecorderWizard extends JDialog {
         panel.add(correlationHint, "span 2");
         panel.add(matchVariables, "span 2, gaptop 16");
         panel.add(variableHint, "span 2");
+        variableSearchProgress.setIndeterminate(true);
+        variableSearchProgress.setVisible(false);
+        panel.add(variableSearchProgress, "span 2, growx");
         matchVariables.addActionListener(e -> refreshVariables());
         panel.add(remember, "span 2, gaptop 16");
         delay.addActionListener(e -> updateDelayFields());
@@ -262,9 +276,11 @@ public final class RecorderWizard extends JDialog {
             case 2 -> optionsStep + " of " + total + " — Recording options";
             default -> total + " of " + total + " — Review user-defined variable matches";
         });
+        // The variable review step and the result depend on the search, so wait for it.
+        boolean searching = variableSearch != null;
         back.setEnabled(step > 0);
         next.setVisible(step < 2 || step == 2 && reviewVariables);
-        next.setEnabled(true);
+        next.setEnabled(step < 2 || !searching);
         finish.setVisible(step == 3 || step == 2 && !reviewVariables);
         long included = samples == null ? 0 : samples.stream().filter(sample ->
                 hosts.selectedHostnames().contains(HarConverter.hostnameOf(sample.entry().getUrl()))
@@ -275,7 +291,7 @@ public final class RecorderWizard extends JDialog {
         processCorrelations.setEnabled(storedResponses);
         correlationHint.setText(storedResponses ? "Review matches after adding these requests; only selected matches are applied."
                 : "Requires stored requests/responses in the selected recording.");
-        finish.setEnabled(true);
+        finish.setEnabled(!searching);
         finish.setText(included == 0 ? "Finish without adding requests" : "Add " + included + " requests to test plan");
     }
 
@@ -326,15 +342,69 @@ public final class RecorderWizard extends JDialog {
     }
 
     private void refreshVariables() {
-        variables.visible = matchVariables.isSelected()
-                ? recorder.findRecordingVariables(ProxyControl.selectRecording(samples, hosts.selectedHostnames(), failures.selected))
-                : List.of();
+        cancelVariableSearch();
+        variables.visible = List.of();
         variables.fireTableDataChanged();
-        variableHint.setText(!matchVariables.isSelected()
-                ? "Recorded values are kept unless you review and accept replacements."
-                : variables.visible.isEmpty() ? "No matching user-defined variable values in the selected requests."
-                : variables.visible.size() + " matching value pairs; review and accept replacements in the next step.");
+        if (!matchVariables.isSelected()) {
+            variableHint.setText("Recorded values are kept unless you review and accept replacements.");
+            updateButtons();
+            return;
+        }
+        List<RecordedSampler> selected = ProxyControl.selectRecording(samples, hosts.selectedHostnames(), failures.selected);
+        // Large recordings can take seconds to compare, so only the plan lookup stays on the EDT.
+        Supplier<List<RecordingVariableReview.Candidate>> search = recorder.prepareRecordingVariableSearch(selected);
+        SwingWorker<List<RecordingVariableReview.Candidate>, Void> worker = new SwingWorker<>() {
+            @Override
+            protected List<RecordingVariableReview.Candidate> doInBackground() {
+                return search.get();
+            }
+
+            @Override
+            protected void done() {
+                if (variableSearch != this) {
+                    return; // Superseded by a newer selection, unchecked, or the wizard closed.
+                }
+                variableSearch = null;
+                showVariableSearch(false);
+                try {
+                    variables.visible = get();
+                    variableHint.setText(variables.visible.isEmpty()
+                            ? "No matching user-defined variable values in the selected requests."
+                            : variables.visible.size() + " matching value pairs; review and accept replacements in the next step.");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                } catch (ExecutionException e) {
+                    log.warn("Unable to search the recording for user-defined variable values", e.getCause());
+                    variableHint.setText("Unable to search for matching values: " + e.getCause().getMessage());
+                }
+                variables.fireTableDataChanged();
+                updateButtons();
+            }
+        };
+        variableSearch = worker;
+        variableHint.setText("Searching " + selected.size() + " requests for user-defined variable values...");
+        showVariableSearch(true);
         updateButtons();
+        worker.execute();
+    }
+
+    private void cancelVariableSearch() {
+        if (variableSearch != null) {
+            variableSearch.cancel(false);
+            variableSearch = null;
+            showVariableSearch(false);
+        }
+    }
+
+    private void showVariableSearch(boolean searching) {
+        variableSearchProgress.setVisible(searching);
+        setCursor(searching ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR) : null);
+    }
+
+    @Override
+    public void dispose() {
+        cancelVariableSearch();
+        super.dispose();
     }
 
     private JPanel variablePanel() {

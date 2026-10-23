@@ -25,15 +25,23 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.awt.Component;
 import java.awt.Container;
+import java.awt.Cursor;
 import java.awt.GraphicsEnvironment;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import javax.swing.JButton;
 import javax.swing.JCheckBox;
 import javax.swing.JPanel;
+import javax.swing.JProgressBar;
 import javax.swing.JTable;
 import javax.swing.SwingUtilities;
+import javax.swing.SwingWorker;
 
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.apache.jmeter.protocol.http.har.RecordingHostsPanel;
@@ -55,6 +63,15 @@ class RecorderWizardTest extends JMeterTestCase {
         return new RecordedSampler(sampler, new TestElement[0], null, "", 4, result, failed, null);
     }
 
+    private static ProxyControl recorderWith(org.apache.jmeter.config.Arguments arguments) {
+        return new ProxyControl() {
+            @Override
+            public Supplier<List<RecordingVariableReview.Candidate>> prepareRecordingVariableSearch(List<RecordedSampler> samples) {
+                return () -> RecordingVariableReview.find(samples, ignored -> List.of(arguments));
+            }
+        };
+    }
+
     @Test
     void variableMatchingIsOptInAndRequiresAcceptanceWithoutChangingPendingSamples() throws Exception {
         assumeFalse(GraphicsEnvironment.isHeadless());
@@ -63,19 +80,18 @@ class RecorderWizardTest extends JMeterTestCase {
         var arguments = new org.apache.jmeter.config.Arguments();
         arguments.addArgument("limit", "10");
         arguments.addArgument("token", "secret");
-        var recorder = new ProxyControl() {
-            @Override public List<RecordingVariableReview.Candidate> findRecordingVariables(List<RecordedSampler> samples) {
-                return RecordingVariableReview.find(samples, ignored -> List.of(arguments));
-            }
-        };
-        SwingUtilities.invokeAndWait(() -> {
-            var wizard = new RecorderWizard(null, recorder, List.of(captured));
-            try {
+        var recorder = recorderWith(arguments);
+        var wizard = onEdt(() -> new RecorderWizard(null, recorder, List.of(captured)));
+        try {
+            onEdt(() -> {
                 field(wizard, "next", JButton.class).doClick();
                 var optIn = field(wizard, "matchVariables", JCheckBox.class);
                 assertFalse(optIn.isSelected());
                 assertTrue(field(wizard, "finish", JButton.class).isVisible());
                 optIn.doClick();
+            });
+            awaitVariableSearch(wizard);
+            onEdt(() -> {
                 assertFalse(field(wizard, "finish", JButton.class).isVisible());
                 field(wizard, "next", JButton.class).doClick();
                 assertTrue(field(wizard, "title", javax.swing.JLabel.class).getText().contains("Review user-defined variable matches"));
@@ -85,7 +101,11 @@ class RecorderWizardTest extends JMeterTestCase {
                 assertEquals(false, table.getValueAt(1, 0));
                 table.setValueAt(true, 0, 0);
                 field(wizard, "back", JButton.class).doClick();
+            });
+            awaitVariableSearch(wizard);
+            onEdt(() -> {
                 field(wizard, "next", JButton.class).doClick();
+                var table = field(wizard, "variables", javax.swing.table.AbstractTableModel.class);
                 assertEquals(true, table.getValueAt(0, 0));
                 field(wizard, "remember", JCheckBox.class).setSelected(false);
                 capturePreview(wizard);
@@ -94,10 +114,10 @@ class RecorderWizardTest extends JMeterTestCase {
                 assertEquals("/10/secret", captured.sampler.getPath());
                 RecordingVariableReview.apply(wizard.getResult().variables());
                 assertEquals("/10/${token}", captured.sampler.getPath());
-            } finally {
-                wizard.dispose();
-            }
-        });
+            });
+        } finally {
+            onEdt(wizard::dispose);
+        }
     }
 
     @Test
@@ -107,17 +127,16 @@ class RecorderWizardTest extends JMeterTestCase {
         captured.sampler.setPath("/10");
         var arguments = new org.apache.jmeter.config.Arguments();
         arguments.addArgument("limit", "10");
-        var recorder = new ProxyControl() {
-            @Override public List<RecordingVariableReview.Candidate> findRecordingVariables(List<RecordedSampler> samples) {
-                return RecordingVariableReview.find(samples, ignored -> List.of(arguments));
-            }
-        };
-        SwingUtilities.invokeAndWait(() -> {
-            for (boolean postpone : List.of(false, true)) {
-                var wizard = new RecorderWizard(null, recorder, List.of(captured));
-                try {
+        var recorder = recorderWith(arguments);
+        for (boolean postpone : List.of(false, true)) {
+            var wizard = onEdt(() -> new RecorderWizard(null, recorder, List.of(captured)));
+            try {
+                onEdt(() -> {
                     field(wizard, "next", JButton.class).doClick();
                     field(wizard, "matchVariables", JCheckBox.class).doClick();
+                });
+                awaitVariableSearch(wizard);
+                onEdt(() -> {
                     field(wizard, "next", JButton.class).doClick();
                     field(wizard, "variables", javax.swing.table.AbstractTableModel.class).setValueAt(true, 0, 0);
                     if (postpone) {
@@ -131,37 +150,151 @@ class RecorderWizardTest extends JMeterTestCase {
                         assertTrue(wizard.getResult().variables().isEmpty());
                     }
                     assertEquals("/10", captured.sampler.getPath());
-                } finally {
-                    wizard.dispose();
-                }
+                });
+            } finally {
+                onEdt(wizard::dispose);
             }
-        });
+        }
     }
 
     @Test
     void skipsVariableReviewWhenNoMatches() throws Exception {
         assumeFalse(GraphicsEnvironment.isHeadless());
         var captured = sample("app.test", false);
-        SwingUtilities.invokeAndWait(() -> {
-            var recorder = new ProxyControl() {
-                @Override public List<RecordingVariableReview.Candidate> findRecordingVariables(List<RecordedSampler> samples) {
-                    return List.of();
-                }
-            };
-            var wizard = new RecorderWizard(null, recorder, List.of(captured));
-            try {
+        var recorder = new ProxyControl() {
+            @Override
+            public Supplier<List<RecordingVariableReview.Candidate>> prepareRecordingVariableSearch(List<RecordedSampler> samples) {
+                return List::of;
+            }
+        };
+        var wizard = onEdt(() -> new RecorderWizard(null, recorder, List.of(captured)));
+        try {
+            onEdt(() -> {
                 field(wizard, "next", JButton.class).doClick();
                 field(wizard, "matchVariables", JCheckBox.class).doClick();
+            });
+            awaitVariableSearch(wizard);
+            onEdt(() -> {
                 assertTrue(field(wizard, "finish", JButton.class).isVisible());
                 assertFalse(field(wizard, "next", JButton.class).isVisible());
                 assertTrue(field(wizard, "variableHint", javax.swing.JLabel.class).getText().startsWith("No matching"));
                 field(wizard, "remember", JCheckBox.class).setSelected(false);
                 field(wizard, "finish", JButton.class).doClick();
                 assertTrue(wizard.getResult().variables().isEmpty());
-            } finally {
-                wizard.dispose();
+            });
+        } finally {
+            onEdt(wizard::dispose);
+        }
+    }
+
+    @Test
+    void variableSearchRunsOffTheEdtWithABusyIndicator() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        var captured = sample("app.test", false);
+        captured.sampler.setPath("/10");
+        var arguments = new org.apache.jmeter.config.Arguments();
+        arguments.addArgument("limit", "10");
+        var release = new CountDownLatch(1);
+        var searchedOnEdt = new AtomicReference<Boolean>();
+        var recorder = new ProxyControl() {
+            @Override
+            public Supplier<List<RecordingVariableReview.Candidate>> prepareRecordingVariableSearch(List<RecordedSampler> samples) {
+                assertTrue(SwingUtilities.isEventDispatchThread(), "Variable scopes are resolved on the EDT");
+                return () -> {
+                    searchedOnEdt.set(SwingUtilities.isEventDispatchThread());
+                    awaitUninterruptibly(release);
+                    return RecordingVariableReview.find(samples, ignored -> List.of(arguments));
+                };
             }
-        });
+        };
+        var wizard = onEdt(() -> new RecorderWizard(null, recorder, List.of(captured)));
+        try {
+            onEdt(() -> {
+                field(wizard, "next", JButton.class).doClick();
+                field(wizard, "matchVariables", JCheckBox.class).doClick();
+                // The EDT is free while the search is blocked; the wizard shows it is busy instead.
+                assertTrue(field(wizard, "variableSearchProgress", JProgressBar.class).isVisible());
+                assertTrue(field(wizard, "variableHint", javax.swing.JLabel.class).getText().startsWith("Searching 1 requests"));
+                assertEquals(Cursor.WAIT_CURSOR, wizard.getCursor().getType());
+                assertFalse(field(wizard, "finish", JButton.class).isEnabled());
+                assertFalse(field(wizard, "next", JButton.class).isVisible() && field(wizard, "next", JButton.class).isEnabled());
+            });
+            release.countDown();
+            awaitVariableSearch(wizard);
+            assertEquals(Boolean.FALSE, searchedOnEdt.get());
+            onEdt(() -> {
+                assertFalse(field(wizard, "variableSearchProgress", JProgressBar.class).isVisible());
+                assertEquals(Cursor.DEFAULT_CURSOR, wizard.getCursor().getType());
+                assertTrue(field(wizard, "variableHint", javax.swing.JLabel.class).getText().startsWith("1 matching value pairs"));
+                assertTrue(field(wizard, "next", JButton.class).isVisible());
+                assertTrue(field(wizard, "next", JButton.class).isEnabled());
+                assertFalse(field(wizard, "finish", JButton.class).isVisible());
+            });
+        } finally {
+            release.countDown();
+            onEdt(wizard::dispose);
+        }
+    }
+
+    @Test
+    void uncheckingOrClosingDuringSearchDiscardsItsResult() throws Exception {
+        assumeFalse(GraphicsEnvironment.isHeadless());
+        var captured = sample("app.test", false);
+        captured.sampler.setPath("/10");
+        var arguments = new org.apache.jmeter.config.Arguments();
+        arguments.addArgument("limit", "10");
+        for (boolean close : List.of(false, true)) {
+            var started = new CountDownLatch(1);
+            var release = new CountDownLatch(1);
+            var finished = new CountDownLatch(1);
+            var recorder = new ProxyControl() {
+                @Override
+                public Supplier<List<RecordingVariableReview.Candidate>> prepareRecordingVariableSearch(List<RecordedSampler> samples) {
+                    return () -> {
+                        try {
+                            started.countDown();
+                            awaitUninterruptibly(release);
+                            return RecordingVariableReview.find(samples, ignored -> List.of(arguments));
+                        } finally {
+                            finished.countDown();
+                        }
+                    };
+                }
+            };
+            var wizard = onEdt(() -> new RecorderWizard(null, recorder, List.of(captured)));
+            try {
+                onEdt(() -> {
+                    field(wizard, "next", JButton.class).doClick();
+                    field(wizard, "matchVariables", JCheckBox.class).doClick();
+                });
+                // Cancel a search that is already running, not one still queued.
+                assertTrue(started.await(10, TimeUnit.SECONDS));
+                onEdt(() -> {
+                    if (close) {
+                        wizard.dispose();
+                    } else {
+                        field(wizard, "matchVariables", JCheckBox.class).doClick();
+                    }
+                    assertNull(field(wizard, "variableSearch", SwingWorker.class));
+                    assertFalse(field(wizard, "variableSearchProgress", JProgressBar.class).isVisible());
+                });
+                release.countDown();
+                assertTrue(finished.await(10, TimeUnit.SECONDS));
+                // Let any late done() callback run before checking that nothing was published.
+                onEdt(() -> { });
+                onEdt(() -> {
+                    assertEquals(0, field(wizard, "variables", javax.swing.table.AbstractTableModel.class).getRowCount());
+                    if (!close) {
+                        assertTrue(field(wizard, "variableHint", javax.swing.JLabel.class).getText().startsWith("Recorded values are kept"));
+                        assertTrue(field(wizard, "finish", JButton.class).isVisible());
+                        assertTrue(field(wizard, "finish", JButton.class).isEnabled());
+                    }
+                });
+            } finally {
+                release.countDown();
+                onEdt(wizard::dispose);
+            }
+        }
     }
 
     @Test
@@ -361,6 +494,57 @@ class RecorderWizardTest extends JMeterTestCase {
                 wizard.dispose();
             }
         });
+    }
+
+    @FunctionalInterface
+    private interface EdtAction {
+        void run() throws Exception;
+    }
+
+    private static void onEdt(EdtAction action) throws Exception {
+        onEdt(() -> {
+            action.run();
+            return null;
+        });
+    }
+
+    private static <T> T onEdt(Callable<T> action) throws Exception {
+        var result = new AtomicReference<T>();
+        var failure = new AtomicReference<Throwable>();
+        SwingUtilities.invokeAndWait(() -> {
+            try {
+                result.set(action.call());
+            } catch (Throwable e) {
+                failure.set(e);
+            }
+        });
+        if (failure.get() instanceof Exception e) {
+            throw e;
+        }
+        if (failure.get() instanceof Error e) {
+            throw e;
+        }
+        return result.get();
+    }
+
+    /** The match search runs in a SwingWorker; wait until the wizard has published its result. */
+    private static void awaitVariableSearch(RecorderWizard wizard) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (onEdt(() -> field(wizard, "variableSearch", SwingWorker.class) != null)) {
+            assertTrue(System.nanoTime() < deadline, "Variable search did not finish");
+            Thread.sleep(10);
+        }
+    }
+
+    private static void awaitUninterruptibly(CountDownLatch latch) {
+        try {
+            if (!latch.await(10, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Test did not release the variable search");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 
     private static void capturePreview(RecorderWizard wizard) {

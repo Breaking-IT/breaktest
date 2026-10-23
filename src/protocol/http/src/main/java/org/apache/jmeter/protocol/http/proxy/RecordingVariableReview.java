@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.function.Function;
 
 import org.apache.jmeter.config.Arguments;
+import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.property.MultiProperty;
 import org.apache.jmeter.testelement.property.PropertyIterator;
@@ -51,17 +52,19 @@ public final class RecordingVariableReview {
             for (Arguments arguments : variablesFor.apply(sample)) {
                 variables.putAll(arguments.getArgumentsAsMap());
             }
+            List<TestElement> originals = elements(sample);
+            List<Map<String, String>> originalFields = originals.stream().map(RecordingVariableReview::fields).toList();
             for (var variable : variables.entrySet()) {
-                if (variable.getKey().isEmpty() || variable.getValue().isEmpty()) {
+                if (variable.getKey().isEmpty() || variable.getValue().isEmpty()
+                        || !mentions(originalFields, variable.getValue())) {
                     continue;
                 }
                 Pair pair = new Pair(variable.getKey(), variable.getValue());
-                List<TestElement> originals = elements(sample);
                 List<TestElement> copies = originals.stream().map(element -> (TestElement) element.clone()).toList();
                 replace(copies, List.of(pair));
                 List<Match> found = new ArrayList<>();
                 for (int i = 0; i < originals.size(); i++) {
-                    Map<String, String> before = fields(originals.get(i));
+                    Map<String, String> before = originalFields.get(i);
                     Map<String, String> after = fields(copies.get(i));
                     for (var field : before.entrySet()) {
                         String updated = after.get(field.getKey());
@@ -115,6 +118,22 @@ public final class RecordingVariableReview {
             RecordedVariableReplacer.replaceValues(elements.get(0), elements.subList(1, elements.size()).toArray(new TestElement[0]),
                     List.of(variables));
         });
+    }
+
+    /**
+     * Cheap filter before cloning: a replacement can only change a field that contains the value
+     * in one of the raw, encoded or decoded forms the replacer matches. False positives are fine.
+     */
+    static boolean mentions(List<Map<String, String>> fields, String value) {
+        for (Map<String, String> element : fields) {
+            for (String text : element.values()) {
+                if (RecordedValueReplacer.matchedLiteral(text, value) != null
+                        || RecordedValueReplacer.matchedDecodedLiteral(text, value) != null) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static Map<String, String> fields(TestElement element) {
