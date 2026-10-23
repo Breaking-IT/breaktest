@@ -689,7 +689,8 @@ public class ProxyControl extends GenericController implements NonTestElement {
                     assertion.setName("Ignore HTTP-" + result.getResponseCode());
                     assertion.setComment("Recorded HTTP-" + result.getResponseCode() + " response, ignoring it");
                     assertion.setTestFieldResponseCode();
-                    assertion.setToSubstringType();
+                    assertion.setToEqualsType();
+                    assertion.addTestString(result.getResponseCode());
                     assertion.setAssumeSuccess(true);
                     childElements = Arrays.copyOf(childElements, childElements.length + 1);
                     childElements[childElements.length - 1] = assertion;

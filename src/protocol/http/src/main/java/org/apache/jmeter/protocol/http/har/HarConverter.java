@@ -1022,7 +1022,8 @@ public final class HarConverter {
         assertion.setName("Ignore HTTP-" + status);
         assertion.setComment("Recorded HTTP-" + status + " response, ignoring it");
         assertion.setTestFieldResponseCode();
-        assertion.setToSubstringType();
+        assertion.setToEqualsType();
+        assertion.addTestString(Integer.toString(status));
         assertion.setAssumeSuccess(true);
         return assertion;
     }
