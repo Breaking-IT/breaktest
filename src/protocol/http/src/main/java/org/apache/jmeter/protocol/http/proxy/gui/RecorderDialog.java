@@ -123,18 +123,12 @@ public class RecorderDialog extends JDialog implements ItemListener, KeyListener
         choice.addElement(JMeterUtils.getResString("sample_name_transaction")); // $NON-NLS-1$
         choice.addElement(JMeterUtils.getResString("sample_name_suffix")); // $NON-NLS-1$
         choice.addElement(JMeterUtils.getResString("sample_name_formatter")); // $NON-NLS-1$
+        choice.addElement(JMeterUtils.getResString("sample_name_path")); // $NON-NLS-1$
         httpSampleNamingMode = new JComboBox<>(choice);
         httpSampleNamingMode.setName(ProxyControlGui.HTTP_SAMPLER_NAMING_MODE);
         httpSampleNamingMode.addItemListener(this);
 
-        prefixHTTPSampleName = new JTextField(20);
-        prefixHTTPSampleName.addActionListener(event -> recorderGui.setPrefixHTTPSampleName(prefixHTTPSampleName.getText()));
-        prefixHTTPSampleName.addFocusListener(new java.awt.event.FocusAdapter() {
-            @Override
-            public void focusLost(java.awt.event.FocusEvent event) {
-                recorderGui.setPrefixHTTPSampleName(prefixHTTPSampleName.getText());
-            }
-        });
+        prefixHTTPSampleName = new RecordingTransactionNameField(20, text -> recorderGui.setPrefixHTTPSampleName(text));
         prefixHTTPSampleName.setName(ProxyControlGui.PREFIX_HTTP_SAMPLER_NAME);
 
         JPanel panel = new JPanel(new MigLayout("fillx, wrap 3"));
