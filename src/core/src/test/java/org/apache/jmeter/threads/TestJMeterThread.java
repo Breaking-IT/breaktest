@@ -45,6 +45,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.jmeter.assertions.Assertion;
@@ -3489,46 +3490,12 @@ class TestJMeterThread {
         }
     }
 
-    @ParameterizedTest
-    @CsvSource({"true", "false"})
-    void parallelStopKeepsTriggeringFailureButOmitsCancelledSibling(boolean postprocessorStop) throws Exception {
-        LoopController loop = createLoopController();
-        ParallelController parallel = new ParallelController();
-        parallel.setMaxParallel(2);
+    @Test
+    void parallelStopNowKeepsTriggeringFailureButOmitsCancelledSibling() throws Exception {
         InterruptibleFailureSampler sibling = new InterruptibleFailureSampler();
-        RecordingSampleListener listener = new RecordingSampleListener("results");
         AtomicReference<JMeterThread> owner = new AtomicReference<>();
-        AbstractSampler trigger = new AbstractSampler() {
-            @Override
-            public SampleResult sample(Entry entry) {
-                try {
-                    assertTrue(sibling.started.await(5, TimeUnit.SECONDS));
-                } catch (InterruptedException e) {
-                    throw new AssertionError(e);
-                }
-                SampleResult result = new SampleResult();
-                result.setSampleLabel("original-failure");
-                result.sampleStart();
-                result.setSuccessful(false);
-                result.sampleEnd();
-                return result;
-            }
-        };
-        trigger.setName("original-failure");
-        HashTree tree = new ListedHashTree();
-        HashTree loopTree = tree.add(loop);
-        HashTree branches = loopTree.add(parallel);
-        branches.add(sibling);
-        HashTree triggerTree = branches.add(trigger);
-        if (postprocessorStop) {
-            triggerTree.add(new StopOwnerPostProcessor(owner));
-        }
-        loopTree.add(listener);
-        ThreadGroup group = new ThreadGroup();
-        group.setName("stop-parallel");
-        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier());
-        user.setThreadGroup(group);
-        user.setOnErrorStopThread(!postprocessorStop);
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        JMeterThread user = parallelStopUser(sibling, sibling.started, new StopOwnerPostProcessor(owner), listener);
         owner.set(user);
         Thread runner = new Thread(user);
         runner.start();
@@ -3544,6 +3511,151 @@ class TestJMeterThread {
             runner.interrupt();
             runner.join(5_000);
         }
+    }
+
+    @Test
+    void parallelGracefulStopLetsInFlightSiblingFinish() throws Exception {
+        CountDownLatch siblingStarted = new CountDownLatch(1);
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        AbstractSampler sibling = new AbstractSampler() {
+            @Override
+            public SampleResult sample(Entry entry) {
+                SampleResult result = new SampleResult();
+                result.setSampleLabel(getName());
+                result.sampleStart();
+                siblingStarted.countDown();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                // Complete only after the triggering failure has stopped the owner gracefully
+                while (owner.get().isRunning() && System.nanoTime() < deadline) {
+                    Thread.onSpinWait();
+                }
+                boolean interrupted = false;
+                try {
+                    // Like an in-flight HTTP call, an interrupt during this window aborts the request
+                    TimeUnit.MILLISECONDS.sleep(200);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+                result.setSuccessful(!interrupted && !owner.get().isRunning());
+                result.sampleEnd();
+                return result;
+            }
+        };
+        sibling.setName("in-flight-sibling");
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        JMeterThread user = parallelStopUser(sibling, siblingStarted, null, listener);
+        user.setOnErrorStopThread(true);
+        owner.set(user);
+        Thread runner = new Thread(user);
+        runner.start();
+        try {
+            runner.join(10_000);
+            assertFalse(runner.isAlive());
+            Map<String, Boolean> outcomes = listener.events().stream()
+                    .collect(Collectors.toMap(event -> event.getResult().getSampleLabel(),
+                            event -> event.getResult().isSuccessful()));
+            assertEquals(Map.of("original-failure", false, "in-flight-sibling", true), outcomes,
+                    "A graceful stop must record the in-flight sibling instead of cancelling it");
+        } finally {
+            user.stop();
+            user.interrupt();
+            runner.interrupt();
+            runner.join(5_000);
+        }
+    }
+
+    @Test
+    void gracefulStopKeepsStoppableSamplerResult() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch stopped = new CountDownLatch(1);
+        class PartialStoppableSampler extends AbstractSampler implements StoppableSampler {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                SampleResult result = new SampleResult();
+                result.setSampleLabel(getName());
+                result.sampleStart();
+                started.countDown();
+                try {
+                    stopped.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                // A stopped subscriber reports what it received, which may be a failed sample
+                result.setSuccessful(false);
+                result.sampleEnd();
+                return result;
+            }
+
+            @Override
+            public void stop() {
+                stopped.countDown();
+            }
+        }
+        PartialStoppableSampler sampler = new PartialStoppableSampler();
+        sampler.setName("stopped-subscriber");
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(createLoopController());
+        loopTree.add(sampler);
+        loopTree.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("graceful-stop");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier());
+        user.setThreadGroup(group);
+        Thread runner = new Thread(user);
+        runner.start();
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            user.stop();
+            runner.join(10_000);
+            assertFalse(runner.isAlive());
+            assertEquals(List.of("stopped-subscriber"), listener.events().stream()
+                    .map(event -> event.getResult().getSampleLabel()).toList(),
+                    "StoppableSampler.stop() is a clean shutdown; its result must be recorded");
+        } finally {
+            user.stop();
+            runner.interrupt();
+            runner.join(5_000);
+        }
+    }
+
+    private static JMeterThread parallelStopUser(Sampler sibling, CountDownLatch siblingStarted,
+            PostProcessor triggerPostProcessor, RecordingSampleListener listener) {
+        ParallelController parallel = new ParallelController();
+        parallel.setMaxParallel(2);
+        AbstractSampler trigger = new AbstractSampler() {
+            @Override
+            public SampleResult sample(Entry entry) {
+                try {
+                    assertTrue(siblingStarted.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                SampleResult result = new SampleResult();
+                result.setSampleLabel("original-failure");
+                result.sampleStart();
+                result.setSuccessful(false);
+                result.sampleEnd();
+                return result;
+            }
+        };
+        trigger.setName("original-failure");
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(createLoopController());
+        HashTree branches = loopTree.add(parallel);
+        branches.add(sibling);
+        HashTree triggerTree = branches.add(trigger);
+        if (triggerPostProcessor != null) {
+            triggerTree.add(triggerPostProcessor);
+        }
+        loopTree.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("stop-parallel");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier());
+        user.setThreadGroup(group);
+        return user;
     }
 
     private static final class StopOwnerPostProcessor extends AbstractTestElement implements PostProcessor {

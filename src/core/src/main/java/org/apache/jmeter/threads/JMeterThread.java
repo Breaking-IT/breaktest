@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
@@ -1221,10 +1222,17 @@ public class JMeterThread implements Runnable, Interruptible {
         }
 
         int maxParallel = Math.min(parallelSampler.getMaxParallel(), branchCount);
-        List<Thread> branchThreads = new ArrayList<>();
+        // Only live branch threads are tracked, so long-running controllers do not retain finished ones
+        Set<Thread> branchThreads = ConcurrentHashMap.newKeySet();
         ThreadFactory branchFactory = createParallelThreadFactory(parallelSampler);
         ExecutorService executor = Executors.newThreadPerTaskExecutor(task -> {
-            Thread thread = branchFactory.newThread(task);
+            Thread thread = branchFactory.newThread(() -> {
+                try {
+                    task.run();
+                } finally {
+                    branchThreads.remove(Thread.currentThread());
+                }
+            });
             branchThreads.add(thread);
             return thread;
         });
@@ -1264,12 +1272,9 @@ public class JMeterThread implements Runnable, Interruptible {
                         }
                     }
                 }
-                if (!running) {
-                    // The completed branch requested a stop. Cancel remaining active calls before
-                    // their interruption results can be counted as additional failures.
-                    break;
-                }
-                if (!isIterationEnding() && !isCurrentForkStopRequested() && !startNextLoop && nextBranch < branchCount) {
+                // A graceful stop lets in-flight branches finish and be recorded; only stop-now
+                // interrupts them, and those cancelled calls are then omitted in doSampling.
+                if (running && !isIterationEnding() && !isCurrentForkStopRequested() && !startNextLoop && nextBranch < branchCount) {
                     completionService.submit(parallelTask(
                             parallelSampler.getParallelBranch(nextBranch++), parentContext, enclosingSourceSampler));
                     activeBranches++;
@@ -1687,10 +1692,11 @@ public class JMeterThread implements Runnable, Interruptible {
             }
             SampleResult result = sampler.sample(null);
             synchronized (activeSampleWorkers) {
-                // Commit completion before postprocessors can stop the test. Only calls still
-                // active when cancellation is requested are omitted from results.
+                // Commit completion before postprocessors can stop the test. Only failures of calls
+                // still active when cancellation is requested are omitted: a call that completed
+                // successfully despite the cancellation race is a real result.
                 activeSampleWorkers.remove(Thread.currentThread());
-                return active.cancelled ? null : result;
+                return active.cancelled && result != null && !result.isSuccessful() ? null : result;
             }
         } finally {
             if (!sampleMonitors.isEmpty()) {
@@ -2033,7 +2039,7 @@ public class JMeterThread implements Runnable, Interruptible {
     private void stopSampler() {
         Sampler sampler = currentSamplerForInterruption;
         if (sampler instanceof StoppableSampler stoppableSampler) {
-            cancelActiveSample(sampler);
+            // StoppableSampler.stop() is a clean shutdown: the sampler's result remains valid
             stoppableSampler.stop();
         }
         stopSamplers(currentSamplersForInterruption, sampler);
@@ -2108,11 +2114,10 @@ public class JMeterThread implements Runnable, Interruptible {
         private static final long serialVersionUID = 1L;
     }
 
-    private void stopSamplers(List<Sampler> samplers, Sampler excludedSampler) {
+    private static void stopSamplers(List<Sampler> samplers, Sampler excludedSampler) {
         synchronized (samplers) {
             for (Sampler currentSampler : samplers) {
                 if (currentSampler != excludedSampler && currentSampler instanceof StoppableSampler stoppableSampler) {
-                    cancelActiveSample(currentSampler);
                     stoppableSampler.stop();
                 }
             }
