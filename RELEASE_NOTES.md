@@ -21,7 +21,8 @@ This release makes BreakTest Community available under Apache-2.0 and improves r
 
 - BreakTest Community now uses Apache License 2.0. Commercial use, modification, redistribution, and hosting are permitted subject to its terms.
 - Earlier Community releases from 2026.07.13 through 2026.10.21 may also be used under Apache-2.0, in addition to the license they shipped with.
-- BreakTest Enterprise remains a separate commercially licensed product. Its proprietary components are not covered by the Community license. BreakTest trademarks remain subject to the notice in NOTICE.
+- BreakTest Enterprise remains a separate commercially licensed product. Its proprietary components are not covered by the Community license. Enterprise licensing requests may be sent to `info@breakingit.nl`.
+- The Apache License does not grant rights to the BreakTest name or logo; see NOTICE.
 
 Sources: [#279](https://github.com/Breaking-IT/breaktest/pull/279).
 
