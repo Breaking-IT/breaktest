@@ -30,6 +30,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -313,6 +314,39 @@ class HTTPHC5H2ThreadLifecycleTest {
         assertEquals(1, classicClient.closeCount.get(), "the classic client should be closed exactly once");
         assertEquals(1, asyncClient.closeCount.get(), "the backing async client should be closed exactly once");
         assertEquals(IOReactorStatus.SHUT_DOWN, asyncClient.getStatus());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void interruptDuringCleanupDoesNotAbortSubsequentClientClose(boolean initiallyInterrupted) throws Exception {
+        Object owner = new Object();
+        cacheKeysToClean.add(owner);
+        CountingClassicClient first = new CountingClassicClient(
+                HttpAsyncClients.classic(new CountingAsyncClient(), Timeout.ofSeconds(1)));
+        first.interruptAfterClose = true;
+        CountingClassicClient second = new CountingClassicClient(
+                HttpAsyncClients.classic(new CountingAsyncClient(), Timeout.ofSeconds(1)));
+        Constructor<?> constructor = httpClientStateClass().getDeclaredConstructors()[0];
+        constructor.setAccessible(true);
+        Map<Object, Object> clients = new LinkedHashMap<>();
+        clients.put(new Object(), constructor.newInstance(first, null));
+        clients.put(new Object(), constructor.newInstance(second, null));
+        clientCache().put(owner, clients);
+        if (initiallyInterrupted) {
+            Thread.currentThread().interrupt();
+        }
+        try {
+            closeCacheEntry(owner);
+            assertTrue(Thread.currentThread().isInterrupted(), "cleanup must preserve newly received interrupts");
+            assertFalse(first.interruptedAtClose);
+            assertFalse(second.interruptedAtClose,
+                    "an interrupt during the first close must not abort the next client's graceful shutdown");
+            assertEquals(1, first.closeCount.get());
+            assertEquals(1, second.closeCount.get());
+            assertFalse(clientCache().containsKey(owner));
+        } finally {
+            Thread.interrupted();
+        }
     }
 
     @ParameterizedTest
@@ -631,6 +665,7 @@ class HTTPHC5H2ThreadLifecycleTest {
     private static final class CountingClassicClient extends CloseableHttpClient {
         private final CloseableHttpClient delegate;
         private boolean interruptedAtClose;
+        private boolean interruptAfterClose;
         private final AtomicInteger closeCount = new AtomicInteger();
 
         private CountingClassicClient(CloseableHttpClient delegate) {
@@ -647,6 +682,9 @@ class HTTPHC5H2ThreadLifecycleTest {
             interruptedAtClose = Thread.currentThread().isInterrupted();
             closeCount.incrementAndGet();
             delegate.close();
+            if (interruptAfterClose) {
+                Thread.currentThread().interrupt();
+            }
         }
 
         @Override

@@ -1768,6 +1768,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         try {
             synchronized (clients) {
                 for (HttpClientState clientState : clients.values()) {
+                    // A close can restore an interrupt received while waiting for its reactor.
+                    // Consume it before the next client, but preserve it for the caller.
+                    interrupted |= Thread.interrupted();
                     // Close the connections first: a graceful client close would wait for the server to
                     // confirm each one, blocking this thread while the I/O thread stays busy. Closing the
                     // client itself immediately instead makes HttpCore log a ClosedSelectorException.
