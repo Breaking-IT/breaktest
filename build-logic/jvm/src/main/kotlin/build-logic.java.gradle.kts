@@ -72,13 +72,13 @@ dependencies {
     findProject(":src:bom")?.let {
         api(platform(it))
     }
-    findProject(":src:bom-testing")?.let{
+    findProject(":src:bom-testing")?.let {
         testImplementation(platform(it))
         plugins.withId("java-test-fixtures") {
             "testFixturesImplementation"(platform(it))
         }
     }
-    findProject(":src:bom-thirdparty")?.let{
+    findProject(":src:bom-thirdparty")?.let {
         api(platform(it))
         annotationProcessor(platform(it))
         compileOnlyApi(platform(it))
@@ -164,7 +164,7 @@ afterEvaluate {
 
 tasks.configureEach<Jar> {
     manifest {
-        attributes["Bundle-License"] = "LicenseRef-BreakTest-Community-1.0, Apache-2.0"
+        attributes["Bundle-License"] = "Apache-2.0"
         attributes["Specification-Title"] = "BreakTest"
         attributes["Specification-Vendor"] = "Breaking IT"
         attributes["Implementation-Vendor"] = "Breaking IT"
