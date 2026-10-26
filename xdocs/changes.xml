@@ -24,6 +24,52 @@
 <body>
 <section name="Release Notes">
 
+<h1>BreakTest 2026.10.26 — Apache-2.0, Recording Review, and Reliable Shutdown</h1>
+<p>This release makes BreakTest Community available under Apache-2.0 and improves recording review, request replay, dynamic workload weights, and test shutdown.</p>
+<ch_section>Apache-2.0 Community License</ch_section>
+<ul>
+<li>BreakTest Community now uses Apache License 2.0. Commercial use, modification, redistribution, and hosting are permitted subject to its terms.</li>
+<li>Earlier Community releases from 2026.07.13 through 2026.10.21 may also be used under Apache-2.0, in addition to the license they shipped with.</li>
+<li>BreakTest Enterprise remains a separate commercially licensed product. Its proprietary components are not covered by the Community license. BreakTest trademarks remain subject to the notice in NOTICE.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/279">#279</a>.</p>
+<ch_section>Review Recorded Variables Before Replacing Values</ch_section>
+<ul>
+<li>Recorded values remain literal until you enable variable matching in the finish wizard and accept individual replacement pairs. Review the affected fields before and after replacement; existing variable references and recording metadata are preserved.</li>
+<li>Matching runs in the background with progress feedback, keeping the wizard responsive while it searches larger recordings.</li>
+<li>Transaction-name edits take effect immediately in both recorder windows, including mobile recording without pressing Enter or moving focus.</li>
+<li>New recorders default to Path naming unless an explicitly saved preference overrides it. The finish wizard provides more room and scrollable options.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/280">#280</a>.</p>
+<ch_section>Replay Requests With BreakTest's HTTP Engines</ch_section>
+<ul>
+<li>View Results Tree replay uses HC5 for HTTP/1.0, HTTP/1.1, and HTTP/2, and the Java HTTP client for HTTP/3. Replay no longer depends on the installed curl's protocol support; Copy cURL remains available.</li>
+<li>Replayed requests appear in the current results view with request, response, and metrics tabs. The original sampler and recorded exchange remain available for navigation and comparison.</li>
+<li>Pretty Print formats the raw request body. Double-clicking a result restores the docked details pane, and replay results are revealed even when filters would hide them.</li>
+<li>Recorded/replayed comparisons normalize equivalent protocol labels and matching status headers while retaining conflicting values.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/274">#274</a>.</p>
+<ch_section>Dynamic Weights and Editor Fixes</ch_section>
+<ul>
+<li>Weighted Switch Controller accepts variable and function expressions. Invalid runtime values count as zero for that iteration and warn once per child per test; later valid values become selectable again. Invalid numeric literals still fail validation.</li>
+<li>Ask AI script updates can be undone reliably.</li>
+<li>HTTP header clipboard import preserves values containing colons.</li>
+<li>Recorded HTTP error assertions ignore only the recorded status, so unrelated errors remain visible.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/275">#275</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/276">#276</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/277">#277</a>, <a href="https://github.com/Breaking-IT/breaktest/pull/278">#278</a>.</p>
+<ch_section>Cleaner and Bounded Test Shutdown</ch_section>
+<ul>
+<li>Cancelled in-flight samples no longer create artificial error spikes in listeners and transaction counters. Completed results, including the request that triggers shutdown, are retained; graceful stop still allows in-flight requests to finish.</li>
+<li>Parallel cancellation waits are bounded by <code>jmeterthread.parallel.shutdown_timeout</code> (default 1000 ms; 0 skips the wait). Lingering workers stop their owning virtual user, cannot emit late results, and defer shared-resource cleanup until they exit.</li>
+<li>HTTP/2 cleanup preserves interrupt state across clients, and HTTP/1.1 route limits are applied before waiting leases proceed.</li>
+</ul>
+<p>Sources: <a href="https://github.com/Breaking-IT/breaktest/pull/281">#281</a>.</p>
+<ch_section>Upgrade Notes</ch_section>
+<p>Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later and remains a beta transport.</p>
+<p>Recorder variable substitution is now opt-in and reviewed rather than automatic. Manual request replay sends real requests and adds results only to the current view, not other listeners or results files. It uses normal sampler response storage, so large retained responses can consume more memory than the previous curl replay limit.</p>
+<p>Java cannot forcibly terminate an uncooperative sampler safely. Resources remain retained until it exits; on the deferred cleanup path, thread-finished callbacks run on a separate daemon thread with the owner context. Plugins relying on the original Java thread's ThreadLocal state must account for this. Cancelled calls skip postprocessors and assertions, and a genuine failure racing cancellation can be omitted.</p>
+<p><a href="https://github.com/Breaking-IT/breaktest/compare/2026.10.21...2026.10.26">Full changelog since 2026.10.21</a></p>
+
 <h1>BreakTest 2026.10.21 — Script Readiness, Archive History, and HTTP Connection Reuse</h1>
 <p>This release adds evidence-based script readiness checks, recoverable saves inside JMX archives, and shared HTTP connection state within each virtual user. It also improves protocol selection, connection timing, and correlation dialogs.</p>
 <ch_section>Check Whether a Script Is Ready to Run</ch_section>
