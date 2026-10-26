@@ -38,6 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -1791,9 +1792,22 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     if (connectionManager != null) {
                         connectionManager.closeConnections(CloseMode.IMMEDIATE);
                     }
+                    // Interrupts may arrive after the initial flag check. HttpCore's close() treats
+                    // an interrupted wait as permission to close a still-running selector. Finish
+                    // the bounded reactor wait first, retrying interruptions without resetting its budget.
+                    if (clientState.asyncClient != null) {
+                        interrupted |= awaitReactorShutdown(clientState.asyncClient);
+                    }
+                    interrupted |= Thread.interrupted();
                     // The classic facade owns and closes its backing async client. Closing both here
                     // invokes CloseableHttpAsyncClient.close() twice with HttpClient 5.6.x.
-                    JOrphanUtils.closeQuietly(clientState.getClient());
+                    if (clientState.asyncClient != null) {
+                        // The graceful wait has already run. Do not start a second five-second
+                        // wait, or let a new interrupt abort shutdown while the reactor is live.
+                        JOrphanUtils.closeQuietly(() -> clientState.getClient().close(CloseMode.IMMEDIATE));
+                    } else {
+                        JOrphanUtils.closeQuietly(clientState.getClient());
+                    }
                 }
             }
         } finally {
@@ -1801,6 +1815,24 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 Thread.currentThread().interrupt();
             }
         }
+    }
+
+    private static boolean awaitReactorShutdown(CloseableHttpAsyncClient client) {
+        client.initiateShutdown();
+        // Match HttpCore's default graceful-close budget. Further cancellation signals must
+        // not restart the timeout or escape into the final client close.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        boolean interrupted = false;
+        long remaining;
+        while ((remaining = deadline - System.nanoTime()) > 0) {
+            try {
+                client.awaitShutdown(TimeValue.ofNanoseconds(remaining));
+                break;
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+        }
+        return interrupted;
     }
 
     @Override

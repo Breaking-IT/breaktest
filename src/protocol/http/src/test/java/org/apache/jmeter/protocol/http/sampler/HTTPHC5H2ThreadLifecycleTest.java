@@ -349,6 +349,40 @@ class HTTPHC5H2ThreadLifecycleTest {
         }
     }
 
+    @Test
+    void interruptsDuringReactorShutdownAreRetriedBeforeClosingTheClient() throws Exception {
+        Object owner = new Object();
+        cacheKeysToClean.add(owner);
+        CountingAsyncClient asyncClient = new CountingAsyncClient();
+        asyncClient.start();
+        asyncClient.shutdownInterrupts = 2;
+        CountingClassicClient classicClient = new CountingClassicClient(
+                HttpAsyncClients.classic(asyncClient, Timeout.ofSeconds(1)));
+        Constructor<?> constructor = httpClientStateClass().getDeclaredConstructors()[0];
+        constructor.setAccessible(true);
+        Object clientState = constructor.newInstance(classicClient, null);
+        Field asyncField = httpClientStateClass().getDeclaredField("asyncClient");
+        asyncField.setAccessible(true);
+        asyncField.set(clientState, asyncClient);
+        Map<Object, Object> clients = new HashMap<>();
+        clients.put(new Object(), clientState);
+        clientCache().put(owner, clients);
+
+        try {
+            closeCacheEntry(owner);
+            assertEquals(3, asyncClient.shutdownWaits,
+                    "interrupts during awaitShutdown must not force the live selector closed");
+            assertFalse(asyncClient.closedBeforeShutdown, "the reactor must stop before closing its client");
+            assertFalse(classicClient.interruptedAtClose);
+            assertTrue(Thread.currentThread().isInterrupted(), "received interrupts must be restored");
+            assertEquals(1, classicClient.closeCount.get());
+            assertEquals(1, asyncClient.closeCount.get());
+            assertFalse(clientCache().containsKey(owner));
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void stoppingActiveRequestsDoesNotLogWarningsOrReactorErrors(boolean parallel) throws Exception {
@@ -689,6 +723,7 @@ class HTTPHC5H2ThreadLifecycleTest {
 
         @Override
         public void close(CloseMode closeMode) {
+            interruptedAtClose = Thread.currentThread().isInterrupted();
             closeCount.incrementAndGet();
             delegate.close(closeMode);
         }
@@ -698,6 +733,9 @@ class HTTPHC5H2ThreadLifecycleTest {
     private static final class CountingAsyncClient extends CloseableHttpAsyncClient {
         private final AtomicInteger closeCount = new AtomicInteger();
         private volatile IOReactorStatus status = IOReactorStatus.INACTIVE;
+        private int shutdownInterrupts;
+        private int shutdownWaits;
+        private boolean closedBeforeShutdown;
 
         @Override
         public void start() {
@@ -710,7 +748,12 @@ class HTTPHC5H2ThreadLifecycleTest {
         }
 
         @Override
-        public void awaitShutdown(TimeValue waitTime) {
+        public void awaitShutdown(TimeValue waitTime) throws InterruptedException {
+            shutdownWaits++;
+            if (shutdownWaits <= shutdownInterrupts) {
+                throw new InterruptedException("stop during reactor shutdown");
+            }
+            status = IOReactorStatus.SHUT_DOWN;
         }
 
         @Override
@@ -733,6 +776,7 @@ class HTTPHC5H2ThreadLifecycleTest {
 
         @Override
         public void close() {
+            closedBeforeShutdown = status != IOReactorStatus.SHUT_DOWN;
             closeCount.incrementAndGet();
             status = IOReactorStatus.SHUT_DOWN;
         }

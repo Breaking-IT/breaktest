@@ -57,7 +57,7 @@ Sources: [#275](https://github.com/Breaking-IT/breaktest/pull/275), [#276](https
 
 - Cancelled in-flight samples no longer create artificial error spikes in listeners and transaction counters. Completed results, including the request that triggers shutdown, are retained; graceful stop still allows in-flight requests to finish.
 - Parallel cancellation waits are bounded by `jmeterthread.parallel.shutdown_timeout` (default 1000 ms; 0 skips the wait). Lingering workers stop their owning virtual user, cannot emit late results, and defer shared-resource cleanup until they exit.
-- HTTP/2 cleanup preserves interrupt state across clients, and HTTP/1.1 route limits are applied before waiting leases proceed.
+- HTTP/2 cleanup preserves interrupt state across clients and retries interrupted reactor shutdown waits within a fixed deadline before closing the client. HTTP/1.1 route limits are applied before waiting leases proceed.
 
 Sources: [#281](https://github.com/Breaking-IT/breaktest/pull/281).
 
