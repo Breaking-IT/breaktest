@@ -733,8 +733,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     return future;
                 }
             }
-            RouteLeaseState routeState = routeStates.computeIfAbsent(route, ignored -> new RouteLeaseState());
-            delegate.setMaxPerRoute(route, routeState.maxConnections(delegate.getDefaultMaxPerRoute()));
+            RouteLeaseState routeState = routeStates.computeIfAbsent(
+                    route, ignored -> new RouteLeaseState(delegate, route));
             logConnectionClosureDebug(
                     "manager lease-start authority={} id={} route={} state={} requestTimeout={} protocol={} thread={}",
                     authority, id, route, state, requestTimeout, routeState.protocol(), Thread.currentThread().getName());
@@ -879,7 +879,6 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             }
             if (routeState != null) {
                 routeState.connectCompleted(connectedEndpoint);
-                delegate.setMaxPerRoute(route, routeState.maxConnections(delegate.getDefaultMaxPerRoute()));
             }
             logConnectionClosureDebug(
                     "manager connect-completed authority={} route={} endpoint={} protocol={} thread={}",
@@ -1319,11 +1318,19 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
     }
 
     private static final class RouteLeaseState {
+        private final PoolingAsyncClientConnectionManager pool;
+        private final HttpRoute route;
         private RouteProtocol protocol = RouteProtocol.UNKNOWN;
         private boolean leaseTurnInProgress;
 
+        private RouteLeaseState(PoolingAsyncClientConnectionManager pool, HttpRoute route) {
+            this.pool = pool;
+            this.route = route;
+        }
+
         synchronized void awaitLeaseTurn(Timeout timeout) throws InterruptedException, TimeoutException {
             if (protocol == RouteProtocol.HTTP_1) {
+                applyMaxPerRoute();
                 return;
             }
             long deadline = 0;
@@ -1349,12 +1356,14 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 }
             }
             leaseTurnInProgress = true;
+            applyMaxPerRoute();
         }
 
         synchronized void leaseCompleted(AsyncConnectionEndpoint endpoint) {
             RouteProtocol endpointProtocol = protocol(endpoint);
             if (endpointProtocol != RouteProtocol.UNKNOWN) {
                 protocol = endpointProtocol;
+                applyMaxPerRoute();
                 releaseLeaseTurn();
             } else if (endpoint.isConnected()) {
                 releaseLeaseTurn();
@@ -1365,12 +1374,16 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             RouteProtocol endpointProtocol = protocol(endpoint);
             if (endpointProtocol != RouteProtocol.UNKNOWN) {
                 protocol = endpointProtocol;
+                applyMaxPerRoute();
             }
             releaseLeaseTurn();
         }
 
-        synchronized int maxConnections(int defaultMaxConnections) {
-            return protocol == RouteProtocol.HTTP_1 ? defaultMaxConnections : 1;
+        // Called with this monitor held, so the pool limit always matches the latest protocol and is
+        // raised before a waiting lease proceeds. The pool does not re-check queued leases when the
+        // limit changes, so a lease queued against a stale limit of 1 would wait for a release.
+        private void applyMaxPerRoute() {
+            pool.setMaxPerRoute(route, protocol == RouteProtocol.HTTP_1 ? pool.getDefaultMaxPerRoute() : 1);
         }
 
         synchronized RouteProtocol protocol() {
