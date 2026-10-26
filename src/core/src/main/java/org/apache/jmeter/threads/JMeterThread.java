@@ -25,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionService;
@@ -224,7 +225,7 @@ public class JMeterThread implements Runnable, Interruptible {
     // Set while an iteration boundary that ends KEEP_RUNNING forks is in progress.
     private volatile boolean endingKeepRunningForks;
     private volatile boolean suppressEndedIterationResults;
-    private final Map<Thread, Sampler> activeSampleWorkers = new ConcurrentHashMap<>();
+    private final Map<Thread, ActiveSample> activeSampleWorkers = new ConcurrentHashMap<>();
     // A worker remains registered until any stop interrupt has been consumed. The monitor is
     // never held while sleeping, so virtual workers do not block their carrier in Object.wait.
     private final IdentityHashMap<Thread, Boolean> activeDelayWorkers = new IdentityHashMap<>();
@@ -303,6 +304,9 @@ public class JMeterThread implements Runnable, Interruptible {
             Collections.synchronizedMap(new IdentityHashMap<>());
 
     private final IdentityHashMap<Object, List<Controller>> parentControllersToRootCache = new IdentityHashMap<>();
+
+    private final Set<ExecutorService> parallelExecutors = ConcurrentHashMap.newKeySet();
+    private volatile boolean parallelShutdownTimedOut;
 
     // Runtime sampler clones (for example parallel ForEach branches) are not traversed as
     // ThreadListeners when the source test tree finishes. Resources created by those clones can
@@ -525,7 +529,13 @@ public class JMeterThread implements Runnable, Interruptible {
                 // Our own cancellation must not prevent waiting for workers before user cleanup.
                 Thread.interrupted();
             }
-            finishForks();
+            if (!parallelShutdownTimedOut) {
+                finishForks();
+            }
+            if (parallelShutdownTimedOut) {
+                stopForksNow();
+            }
+            awaitResourceUsersBeforeCleanup();
             endRunningTransactions(threadContext, null);
             running = false;
             wakeDelayWorkers();
@@ -533,12 +543,12 @@ public class JMeterThread implements Runnable, Interruptible {
             currentSamplersForInterruption.clear();
             interruptLock.lock();  // make sure current interrupt is finished, prevent another starting yet
             try {
-                threadContext.clear();
-                try {
-                    threadFinished(iterationListener);
-                } finally {
-                    runThreadCleanupActions();
+                if (parallelShutdownTimedOut) {
+                    deferThreadCleanup(threadContext);
+                } else {
+                    finishThreadResources(threadContext);
                 }
+                threadFinished(iterationListener);
                 monitor.threadFinished(this); // Tell the monitor we are done
                 JMeterContextService.removeContext(); // Remove the ThreadLocal entry
             } finally {
@@ -1109,11 +1119,11 @@ public class JMeterThread implements Runnable, Interruptible {
             interruptActiveWorker(activeTimerWorkers, entry);
         }
         if (suppressEndedIterationResults) {
-            for (Map.Entry<Thread, Sampler> entry : activeSampleWorkers.entrySet()) {
+            for (Map.Entry<Thread, ActiveSample> entry : activeSampleWorkers.entrySet()) {
                 if (isBackgroundFlowThread(entry.getKey())) {
                     continue;
                 }
-                Sampler sampler = entry.getValue();
+                Sampler sampler = entry.getValue().sampler;
                 try {
                     if (sampler instanceof StoppableSampler stoppable) {
                         stoppable.stop();
@@ -1148,7 +1158,8 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private boolean isCurrentSampleCancelledWithoutResult() {
-        return suppressEndedIterationResults && !isBackgroundFlow(CURRENT_FORK_TASK.get())
+        return parallelShutdownTimedOut
+                || suppressEndedIterationResults && !isBackgroundFlow(CURRENT_FORK_TASK.get())
                 || CURRENT_FORK_TASK.get() instanceof ForkTask task && task.suppressResult;
     }
 
@@ -1168,7 +1179,7 @@ public class JMeterThread implements Runnable, Interruptible {
     private boolean waitForForkTask(Future<?> task) {
         try {
             while (true) {
-                if (isCurrentForkStopRequested()) {
+                if (parallelShutdownTimedOut || isCurrentForkStopRequested()) {
                     return false;
                 }
                 if (scheduler && running && !mainFlowFinished && System.currentTimeMillis() >= endTime) {
@@ -1221,7 +1232,21 @@ public class JMeterThread implements Runnable, Interruptible {
         }
 
         int maxParallel = Math.min(parallelSampler.getMaxParallel(), branchCount);
-        ExecutorService executor = Executors.newThreadPerTaskExecutor(createParallelThreadFactory(parallelSampler));
+        // Only live branch threads are tracked, so long-running controllers do not retain finished ones
+        Set<Thread> branchThreads = ConcurrentHashMap.newKeySet();
+        ThreadFactory branchFactory = createParallelThreadFactory(parallelSampler);
+        ExecutorService executor = Executors.newThreadPerTaskExecutor(task -> {
+            Thread thread = branchFactory.newThread(() -> {
+                try {
+                    task.run();
+                } finally {
+                    branchThreads.remove(Thread.currentThread());
+                }
+            });
+            branchThreads.add(thread);
+            return thread;
+        });
+        parallelExecutors.add(executor);
         CompletionService<SampleResult> completionService = new ExecutorCompletionService<>(executor);
         int nextBranch = 0;
         int activeBranches = 0;
@@ -1258,6 +1283,8 @@ public class JMeterThread implements Runnable, Interruptible {
                         }
                     }
                 }
+                // A graceful stop lets in-flight branches finish and be recorded; only stop-now
+                // interrupts them, and those cancelled calls are then omitted in doSampling.
                 if (running && !isIterationEnding() && !isCurrentForkStopRequested() && !startNextLoop && nextBranch < branchCount) {
                     completionService.submit(parallelTask(
                             parallelSampler.getParallelBranch(nextBranch++), parentContext, enclosingSourceSampler));
@@ -1270,21 +1297,22 @@ public class JMeterThread implements Runnable, Interruptible {
                 stopThread();
             }
         } finally {
-            executor.shutdownNow();
-            if (isForkWorkerThread() || forkIterationEndAction != null) {
-                // Account for submitted branches that have not registered in forkWorkers yet.
-                // The parent task must remain alive until every nested worker has exited.
-                boolean interrupted = Thread.interrupted();
-                while (!executor.isTerminated()) {
-                    try {
-                        executor.awaitTermination(1, TimeUnit.DAYS);
-                    } catch (InterruptedException e) {
-                        interrupted = true;
+            synchronized (activeSampleWorkers) {
+                for (Thread thread : branchThreads) {
+                    ActiveSample active = activeSampleWorkers.get(thread);
+                    if (active != null) {
+                        active.cancelled = true;
                     }
                 }
-                if (interrupted) {
-                    Thread.currentThread().interrupt();
-                }
+                executor.shutdownNow();
+            }
+            // Completion futures are published after branch context teardown. When all have
+            // completed, only executor bookkeeping remains; a zero cancellation deadline must
+            // not turn normal controller completion into a stop.
+            if (activeBranches == 0 || awaitParallelShutdown(executor)) {
+                parallelExecutors.remove(executor);
+            } else {
+                recordParallelShutdownTimeout(branchThreads);
             }
         }
         if (anyResult) {
@@ -1292,6 +1320,117 @@ public class JMeterThread implements Runnable, Interruptible {
             // parent state is derived deterministically from the branch outcomes instead of
             // whichever branch happened to write last.
             setLastSampleOk(parentContext.getVariables(), !anyFailure);
+        }
+    }
+
+    // Package-private so shutdown tests can use a short deadline without changing global properties.
+    long parallelShutdownTimeoutMillis() {
+        return Math.max(0, JMeterUtils.getPropDefault("jmeterthread.parallel.shutdown_timeout", 1000));
+    }
+
+    private boolean awaitParallelShutdown(ExecutorService executor) {
+        return awaitParallelShutdown(executor,
+                System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(parallelShutdownTimeoutMillis()));
+    }
+
+    private boolean awaitParallelShutdown(ExecutorService executor, long deadline) {
+        boolean interrupted = Thread.interrupted();
+        try {
+            while (!executor.isTerminated()) {
+                long remaining = deadline - System.nanoTime();
+                if (parallelShutdownTimedOut || remaining <= 0) {
+                    return false;
+                }
+                try {
+                    executor.awaitTermination(remaining, TimeUnit.NANOSECONDS);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+            return true;
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private void recordParallelShutdownTimeout(Collection<Thread> threads) {
+        synchronized (parallelExecutors) {
+            if (!parallelShutdownTimedOut) {
+                parallelShutdownTimedOut = true;
+                log.warn("Worker shutdown timed out for {}: remaining branches {}. "
+                        + "Resource cleanup will run after they exit.", threadName,
+                        threads.stream().map(Thread::getName).sorted().toList());
+            }
+        }
+        // Never reuse this user's variables or clients in another iteration while a
+        // cancelled branch still owns them, including an iteration-ending fork.
+        running = false;
+        wakeDelayWorkers();
+    }
+
+    private List<ExecutorService> pendingResourceUsers() {
+        List<ExecutorService> pending = new ArrayList<>(parallelExecutors);
+        synchronized (forkExecutors) {
+            pending.addAll(forkExecutors);
+        }
+        return pending;
+    }
+
+    private void awaitResourceUsersBeforeCleanup() {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(parallelShutdownTimeoutMillis());
+        while (!parallelShutdownTimedOut) {
+            List<ExecutorService> pending = pendingResourceUsers();
+            if (pending.isEmpty()) {
+                return;
+            }
+            for (ExecutorService executor : pending) {
+                if (!awaitParallelShutdown(executor, deadline)) {
+                    recordParallelShutdownTimeout(activeSampleWorkers.keySet());
+                    stopForksNow();
+                    return;
+                }
+                parallelExecutors.remove(executor);
+            }
+        }
+    }
+
+    private void deferThreadCleanup(JMeterContext context) {
+        // A virtual (daemon) reaper neither occupies a platform thread while waiting nor keeps
+        // the JVM alive. Retain the owner context and listeners until all resource users exit.
+        Thread.ofVirtual().name(threadName + "-deferred-cleanup").start(() -> {
+            try {
+                while (true) {
+                    List<ExecutorService> pending = pendingResourceUsers();
+                    if (pending.isEmpty()) {
+                        break;
+                    }
+                    for (ExecutorService executor : pending) {
+                        executor.awaitTermination(1, TimeUnit.DAYS);
+                        if (executor.isTerminated()) {
+                            parallelExecutors.remove(executor);
+                        }
+                    }
+                }
+                JMeterContextService.replaceContext(context);
+                finishThreadResources(context);
+            } catch (InterruptedException e) {
+                // This private reaper is never interrupted by test shutdown.
+                Thread.currentThread().interrupt();
+                log.error("Deferred resource cleanup interrupted for {}", threadName, e);
+            } finally {
+                JMeterContextService.removeContext();
+            }
+        });
+    }
+
+    private void finishThreadResources(JMeterContext context) {
+        context.clear();
+        try {
+            testTree.traverse(new ThreadListenerTraverser(false));
+        } finally {
+            runThreadCleanupActions();
         }
     }
 
@@ -1391,7 +1530,9 @@ public class JMeterThread implements Runnable, Interruptible {
             if (VIRTUAL_THREADS_ENABLED) {
                 return Thread.ofVirtual().name(name).unstarted(runnable);
             }
-            return new Thread(runnable, name);
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
         };
     }
 
@@ -1402,7 +1543,9 @@ public class JMeterThread implements Runnable, Interruptible {
             if (VIRTUAL_THREADS_ENABLED) {
                 return Thread.ofVirtual().name(name).unstarted(runnable);
             }
-            return new Thread(runnable, name);
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
         };
     }
 
@@ -1647,7 +1790,8 @@ public class JMeterThread implements Runnable, Interruptible {
         // Perform the actual sample
         currentSamplerForInterruption = sampler;
         currentSamplersForInterruption.add(sampler);
-        activeSampleWorkers.put(Thread.currentThread(), sampler);
+        ActiveSample active = new ActiveSample(sampler);
+        activeSampleWorkers.put(Thread.currentThread(), active);
         ForkWorker forkWorker = forkWorkers.get(Thread.currentThread());
         if (forkWorker != null) {
             forkWorker.sampler = sampler;
@@ -1667,7 +1811,14 @@ public class JMeterThread implements Runnable, Interruptible {
             if (!running || isIterationEnding() || isCurrentForkStopRequested()) {
                 return null;
             }
-            return sampler.sample(null);
+            SampleResult result = sampler.sample(null);
+            synchronized (activeSampleWorkers) {
+                // Commit completion before postprocessors can stop the test. Only failures of calls
+                // still active when cancellation is requested are omitted: a call that completed
+                // successfully despite the cancellation race is a real result.
+                activeSampleWorkers.remove(Thread.currentThread());
+                return active.cancelled && result != null && !result.isSuccessful() ? null : result;
+            }
         } finally {
             if (!sampleMonitors.isEmpty()) {
                 for (SampleMonitor sampleMonitor : sampleMonitors) {
@@ -1745,6 +1896,9 @@ public class JMeterThread implements Runnable, Interruptible {
      * Called by {@link JMeterContext#endTransaction} and {@link JMeterContext#endTransactionsUntil}.
      */
     void notifyTransactionFinished(RunningTransaction transaction, SampleResult result) {
+        if (parallelShutdownTimedOut) {
+            return;
+        }
         if (!transaction.hasStartedSampler()) {
             if (!isIterationRunning()) {
                 return;
@@ -1819,8 +1973,6 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void threadFinished(LoopIterationListener iterationListener) {
-        ThreadListenerTraverser shut = new ThreadListenerTraverser(false);
-        testTree.traverse(shut); // call ThreadListener.threadFinished()
         JMeterContextService.decrNumberOfThreads();
         threadGroup.decrNumberOfThreads();
         updateGuiCounts();
@@ -1980,6 +2132,14 @@ public class JMeterThread implements Runnable, Interruptible {
             requestForkStop(task, false);
         }
         stopForkTimers();
+        synchronized (activeSampleWorkers) {
+            for (Thread worker : currentForkThreadsForInterruption) {
+                ActiveSample active = activeSampleWorkers.get(worker);
+                if (active != null) {
+                    active.cancelled = true;
+                }
+            }
+        }
         stopForkSamplers();
         // Cancellation can synchronously clean up a task that has not started. Iterate snapshots.
         for (Future<?> task : tasks) {
@@ -2001,6 +2161,7 @@ public class JMeterThread implements Runnable, Interruptible {
     private void stopSampler() {
         Sampler sampler = currentSamplerForInterruption;
         if (sampler instanceof StoppableSampler stoppableSampler) {
+            // StoppableSampler.stop() is a clean shutdown: the sampler's result remains valid
             stoppableSampler.stop();
         }
         stopSamplers(currentSamplersForInterruption, sampler);
@@ -2028,7 +2189,13 @@ public class JMeterThread implements Runnable, Interruptible {
     private void interruptForkThreads() {
         synchronized (currentForkThreadsForInterruption) {
             for (Thread thread : currentForkThreadsForInterruption) {
-                thread.interrupt();
+                synchronized (activeSampleWorkers) {
+                    ActiveSample active = activeSampleWorkers.get(thread);
+                    if (active != null) {
+                        active.cancelled = true;
+                    }
+                    thread.interrupt();
+                }
             }
         }
     }
@@ -2129,15 +2296,35 @@ public class JMeterThread implements Runnable, Interruptible {
         return interrupted;
     }
 
+    private static final class ActiveSample {
+        private final Sampler sampler;
+        private boolean cancelled;
+
+        private ActiveSample(Sampler sampler) {
+            this.sampler = sampler;
+        }
+    }
+
+    private void cancelActiveSample(Sampler sampler) {
+        synchronized (activeSampleWorkers) {
+            for (ActiveSample active : activeSampleWorkers.values()) {
+                if (active.sampler == sampler) {
+                    active.cancelled = true;
+                }
+            }
+        }
+    }
+
     private boolean interruptSampler(Sampler sampler) {
         if (sampler instanceof Interruptible interruptible) {
-            if (log.isWarnEnabled()) {
-                log.warn("Interrupting: {} sampler: {}", threadName, sampler.getName());
+            cancelActiveSample(sampler);
+            if (log.isDebugEnabled()) {
+                log.debug("Interrupting: {} sampler: {}", threadName, sampler.getName());
             }
             try {
                 boolean found = interruptible.interrupt();
                 if (!found) {
-                    log.warn("No operation pending");
+                    log.debug("No operation pending");
                 }
                 return found;
             } catch (Exception e) { // NOSONAR

@@ -702,6 +702,20 @@ disable children in the test tree.</p>
   <li>HTTP state handling was tightened to reduce unsafe sharing in concurrent paths.</li>
 </ul>
 
+<p>Graceful shutdown lets in-flight parallel requests finish. Immediate cancellation waits up to
+<code>jmeterthread.parallel.shutdown_timeout</code> milliseconds for all branches of a parallel
+controller together (default <code>1000</code>; <code>0</code> skips the wait). Keep this setting below
+<code>jmeterengine.threadstop.wait</code> so the owner can finish within the engine's stop deadline.</p>
+<p>If a branch ignores interruption beyond this deadline, BreakTest logs a warning naming the
+remaining branches and stops its virtual user. The user cannot start another iteration, and late
+sample results are omitted, even if they report success. Thread-finished callbacks and user resource
+cleanup are deferred until all lingering parallel branches and associated forks exit. Deferred
+callbacks run on a separate daemon thread with the owner's JMeter context; plugins should not rely
+on the original Java thread's thread-local state for this exceptional cleanup path.</p>
+<p>Java cannot safely force an uncooperative sampler to exit. Its resources remain retained until it
+returns; daemon parallel workers and deferred cleanup do not keep the JVM alive. Normal shutdown
+retains synchronous cleanup after workers finish.</p>
+
 <h2>AI-Assisted Scripting</h2>
 <p>
 BreakTest includes local agent and MCP support for AI-assisted script repair.
