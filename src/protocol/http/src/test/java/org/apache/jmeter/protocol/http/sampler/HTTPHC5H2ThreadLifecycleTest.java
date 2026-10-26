@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -76,12 +77,19 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.wiremock.WireMockExtension;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
@@ -272,8 +280,9 @@ class HTTPHC5H2ThreadLifecycleTest {
         });
     }
 
-    @Test
-    void classicFacadeAndBackingAsyncClientAreClosedExactlyOnceAndRemoved() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void classicFacadeAndBackingAsyncClientAreClosedExactlyOnceAndRemoved(boolean interrupted) throws Exception {
         Object owner = new Object();
         cacheKeysToClean.add(owner);
         CountingAsyncClient asyncClient = new CountingAsyncClient();
@@ -287,12 +296,68 @@ class HTTPHC5H2ThreadLifecycleTest {
         clients.put(new Object(), clientState);
         clientCache().put(owner, clients);
 
-        closeCacheEntry(owner);
+        if (interrupted) {
+            Thread.currentThread().interrupt();
+        }
+        try {
+            closeCacheEntry(owner);
+            assertEquals(interrupted, Thread.currentThread().isInterrupted(),
+                    "cleanup must preserve the caller's interrupt status");
+        } finally {
+            Thread.interrupted();
+        }
+        assertFalse(classicClient.interruptedAtClose,
+                "a pending interrupt must not abort graceful reactor shutdown");
 
         assertFalse(clientCache().containsKey(owner), "the owning VU cache entry should be removed");
         assertEquals(1, classicClient.closeCount.get(), "the classic client should be closed exactly once");
         assertEquals(1, asyncClient.closeCount.get(), "the backing async client should be closed exactly once");
         assertEquals(IOReactorStatus.SHUT_DOWN, asyncClient.getStatus());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void stoppingActiveRequestsDoesNotLogWarningsOrReactorErrors(boolean parallel) throws Exception {
+        List<String> problems = new CopyOnWriteArrayList<>();
+        Logger logger = (Logger) LogManager.getRootLogger();
+        AbstractAppender appender = new AbstractAppender("shutdown-problems", null, null, false, null) {
+            @Override
+            public void append(LogEvent event) {
+                if (event.getLevel().isMoreSpecificThan(Level.WARN)
+                        && (event.getLoggerName().startsWith("org.apache.hc.")
+                        || event.getLoggerName().equals(JMeterThread.class.getName()))) {
+                    problems.add(event.getMessage().getFormattedMessage() + " " + event.getThrown());
+                }
+            }
+        };
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            withServer(30_000, server -> {
+                int baseline = httpClientReactorThreadCount();
+                JMeterThread user = createUser(server.port(), 0, ExitMode.NORMAL, parallel, null);
+                cacheKeysToClean.add(user);
+                Thread carrier = new Thread(user, "stopping-http-user");
+                carrier.start();
+                try {
+                    assertEventually(() -> server.getAllServeEvents().size() >= (parallel ? 2 : 1),
+                            10_000, "requests must be active before stopping the user");
+                } finally {
+                    user.stop();
+                    user.interrupt();
+                    carrier.interrupt();
+                    carrier.join(10_000);
+                }
+                assertFalse(carrier.isAlive(), "stopped user must finish promptly");
+                assertFalse(clientCache().containsKey(user), "stopped user must release its clients");
+                assertEventually(() -> httpClientReactorThreadCount() <= baseline, 5_000,
+                        "stopped user's reactors must terminate");
+            });
+            assertTrue(problems.isEmpty(), () -> "unexpected shutdown logs: " + problems);
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
     }
 
     private void runUser(int port, int userNumber, ExitMode exitMode, boolean parallel,
@@ -565,6 +630,7 @@ class HTTPHC5H2ThreadLifecycleTest {
 
     private static final class CountingClassicClient extends CloseableHttpClient {
         private final CloseableHttpClient delegate;
+        private boolean interruptedAtClose;
         private final AtomicInteger closeCount = new AtomicInteger();
 
         private CountingClassicClient(CloseableHttpClient delegate) {
@@ -578,6 +644,7 @@ class HTTPHC5H2ThreadLifecycleTest {
 
         @Override
         public void close() throws IOException {
+            interruptedAtClose = Thread.currentThread().isInterrupted();
             closeCount.incrementAndGet();
             delegate.close();
         }

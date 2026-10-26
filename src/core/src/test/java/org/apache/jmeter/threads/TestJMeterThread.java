@@ -3427,7 +3427,7 @@ class TestJMeterThread {
 
     @ParameterizedTest
     @CsvSource({ "false, false", "true, false", "false, true", "true, true" })
-    void testStopReportsInterruptedTransactionOnce(boolean startNextLoopOnError, boolean nested)
+    void testStopOmitsInterruptedRequestFromTransactions(boolean startNextLoopOnError, boolean nested)
             throws InterruptedException {
         LoopController loop = new LoopController();
         loop.setLoops(2);
@@ -3474,26 +3474,89 @@ class TestJMeterThread {
 
         assertEquals(0, subsequentCalls.get(), "Stop must not start another request");
         List<SampleEvent> events = listener.events();
-        assertEquals(nested
-                ? List.of("interrupted-request", "inner-transaction", "transaction")
-                : List.of("interrupted-request", "transaction"),
+        assertEquals(nested ? List.of("inner-transaction", "transaction") : List.of("transaction"),
                 events.stream().map(event -> event.getResult().getSampleLabel()).toList(),
-                "The request and each transaction must be reported exactly once");
+                "Cancelled requests must not be reported as failures");
         for (SampleEvent event : events) {
-            assertFalse(event.getResult().isSuccessful());
-        }
-        for (SampleEvent event : listener.transactionEvents()) {
-            assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
+            assertTrue(event.getResult().isSuccessful());
+            assertEquals("Number of samples in transaction : 0, number of failing samples : 0",
                     event.getResult().getResponseMessage());
         }
         assertEquals(nested ? 2 : 1, listener.transactionEvents().size());
-        SampleResult request = events.get(0).getResult();
-        SampleResult innermost = events.get(1).getResult();
-        assertEquals(innermost.getTransaction(), request.getParentTransaction(),
-                "The request must point to the innermost transaction");
         if (nested) {
-            assertEquals(events.get(2).getResult().getTransaction(), innermost.getParentTransaction(),
+            assertEquals(events.get(1).getResult().getTransaction(), events.get(0).getResult().getParentTransaction(),
                     "The inner transaction must point to the outer transaction");
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true", "false"})
+    void parallelStopKeepsTriggeringFailureButOmitsCancelledSibling(boolean postprocessorStop) throws Exception {
+        LoopController loop = createLoopController();
+        ParallelController parallel = new ParallelController();
+        parallel.setMaxParallel(2);
+        InterruptibleFailureSampler sibling = new InterruptibleFailureSampler();
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        AbstractSampler trigger = new AbstractSampler() {
+            @Override
+            public SampleResult sample(Entry entry) {
+                try {
+                    assertTrue(sibling.started.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                SampleResult result = new SampleResult();
+                result.setSampleLabel("original-failure");
+                result.sampleStart();
+                result.setSuccessful(false);
+                result.sampleEnd();
+                return result;
+            }
+        };
+        trigger.setName("original-failure");
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(loop);
+        HashTree branches = loopTree.add(parallel);
+        branches.add(sibling);
+        HashTree triggerTree = branches.add(trigger);
+        if (postprocessorStop) {
+            triggerTree.add(new StopOwnerPostProcessor(owner));
+        }
+        loopTree.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("stop-parallel");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier());
+        user.setThreadGroup(group);
+        user.setOnErrorStopThread(!postprocessorStop);
+        owner.set(user);
+        Thread runner = new Thread(user);
+        runner.start();
+        try {
+            runner.join(10_000);
+            assertFalse(runner.isAlive());
+            assertEquals(List.of("original-failure"), listener.events().stream()
+                    .map(event -> event.getResult().getSampleLabel()).toList());
+            assertFalse(listener.events().get(0).getResult().isSuccessful());
+        } finally {
+            user.stop();
+            user.interrupt();
+            runner.interrupt();
+            runner.join(5_000);
+        }
+    }
+
+    private static final class StopOwnerPostProcessor extends AbstractTestElement implements PostProcessor {
+        private final AtomicReference<JMeterThread> owner;
+
+        private StopOwnerPostProcessor(AtomicReference<JMeterThread> owner) {
+            this.owner = owner;
+        }
+
+        @Override
+        public void process() {
+            owner.get().stop();
+            owner.get().interrupt();
         }
     }
 

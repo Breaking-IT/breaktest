@@ -1763,16 +1763,26 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
         synchronized (clients) {
             for (HttpClientState clientState : clients.values()) {
-                // Close the connections first: a graceful client close would wait for the server to
-                // confirm each one, blocking this thread while the I/O thread stays busy. Closing the
-                // client itself immediately instead makes HttpCore log a ClosedSelectorException.
-                H2RouteReuseConnectionManager connectionManager = clientState.getConnectionManager();
-                if (connectionManager != null) {
-                    connectionManager.closeConnections(CloseMode.IMMEDIATE);
+                // A stopped worker can arrive with its interrupt flag set. HttpCore's graceful
+                // close then skips awaiting the reactor and closes its selector underneath it.
+                // Let cleanup finish before restoring the caller's cancellation signal.
+                boolean interrupted = Thread.interrupted();
+                try {
+                    // Close the connections first: a graceful client close would wait for the server to
+                    // confirm each one, blocking this thread while the I/O thread stays busy. Closing the
+                    // client itself immediately instead makes HttpCore log a ClosedSelectorException.
+                    H2RouteReuseConnectionManager connectionManager = clientState.getConnectionManager();
+                    if (connectionManager != null) {
+                        connectionManager.closeConnections(CloseMode.IMMEDIATE);
+                    }
+                    // The classic facade owns and closes its backing async client. Closing both here
+                    // invokes CloseableHttpAsyncClient.close() twice with HttpClient 5.6.x.
+                    JOrphanUtils.closeQuietly(clientState.getClient());
+                } finally {
+                    if (interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
                 }
-                // The classic facade owns and closes its backing async client. Closing both here
-                // invokes CloseableHttpAsyncClient.close() twice with HttpClient 5.6.x.
-                JOrphanUtils.closeQuietly(clientState.getClient());
             }
         }
     }
