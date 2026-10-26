@@ -13,14 +13,63 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
-# Unreleased — Apache-2.0 License
+# BreakTest 2026.10.26 — Apache-2.0, Recording Review, and Reliable Shutdown
 
-## BreakTest Community Is Now Apache-2.0
+This release makes BreakTest Community available under Apache-2.0 and improves recording review, request replay, dynamic workload weights, and test shutdown.
 
-- **BreakTest Community is licensed under the Apache License, Version 2.0.** It replaces the BreakTest Community Source License 1.0. Commercial use, modification, redistribution, and hosting are permitted subject to the license's terms.
-- **Earlier releases are covered too.** Releases 2026.07.13 through 2026.10.21 may also be used under the Apache License, Version 2.0, in addition to the license they shipped with.
-- **Enterprise stays separate.** BreakTest Enterprise remains a separate product under a commercial license; its proprietary components are not covered by the Community license. Enterprise licensing requests may be sent to `info@breakingit.nl`.
-- **Trademarks are not licensed.** The Apache License does not grant rights to the BreakTest name or logo; see NOTICE.
+## Apache-2.0 Community License
+
+- BreakTest Community now uses Apache License 2.0. Commercial use, modification, redistribution, and hosting are permitted subject to its terms.
+- Earlier Community releases from 2026.07.13 through 2026.10.21 may also be used under Apache-2.0, in addition to the license they shipped with.
+- BreakTest Enterprise remains a separate commercially licensed product. Its proprietary components are not covered by the Community license. Enterprise licensing requests may be sent to `info@breakingit.nl`.
+- The Apache License does not grant rights to the BreakTest name or logo; see NOTICE.
+
+Sources: [#279](https://github.com/Breaking-IT/breaktest/pull/279).
+
+## Review Recorded Variables Before Replacing Values
+
+- Recorded values remain literal until you enable variable matching in the finish wizard and accept individual replacement pairs. Review the affected fields before and after replacement; existing variable references and recording metadata are preserved.
+- Matching runs in the background with progress feedback, keeping the wizard responsive while it searches larger recordings.
+- Transaction-name edits take effect immediately in both recorder windows, including mobile recording without pressing Enter or moving focus.
+- New recorders default to Path naming unless an explicitly saved preference overrides it. The finish wizard provides more room and scrollable options.
+
+Sources: [#280](https://github.com/Breaking-IT/breaktest/pull/280).
+
+## Replay Requests With BreakTest's HTTP Engines
+
+- View Results Tree replay uses HC5 for HTTP/1.0, HTTP/1.1, and HTTP/2, and the Java HTTP client for HTTP/3. Replay no longer depends on the installed curl's protocol support; Copy cURL remains available.
+- Replayed requests appear in the current results view with request, response, and metrics tabs. The original sampler and recorded exchange remain available for navigation and comparison.
+- Pretty Print formats the raw request body. Double-clicking a result restores the docked details pane, and replay results are revealed even when filters would hide them.
+- Recorded/replayed comparisons normalize equivalent protocol labels and matching status headers while retaining conflicting values.
+
+Sources: [#274](https://github.com/Breaking-IT/breaktest/pull/274).
+
+## Dynamic Weights and Editor Fixes
+
+- Weighted Switch Controller accepts variable and function expressions. Invalid runtime values count as zero for that iteration and warn once per child per test; later valid values become selectable again. Invalid numeric literals still fail validation.
+- Ask AI script updates can be undone reliably.
+- HTTP header clipboard import preserves values containing colons.
+- Recorded HTTP error assertions ignore only the recorded status, so unrelated errors remain visible.
+
+Sources: [#275](https://github.com/Breaking-IT/breaktest/pull/275), [#276](https://github.com/Breaking-IT/breaktest/pull/276), [#277](https://github.com/Breaking-IT/breaktest/pull/277), [#278](https://github.com/Breaking-IT/breaktest/pull/278).
+
+## Cleaner and Bounded Test Shutdown
+
+- Cancelled in-flight samples no longer create artificial error spikes in listeners and transaction counters. Completed results, including the request that triggers shutdown, are retained; graceful stop still allows in-flight requests to finish.
+- Parallel cancellation waits are bounded by `jmeterthread.parallel.shutdown_timeout` (default 1000 ms; 0 skips the wait). Lingering workers stop their owning virtual user, cannot emit late results, and defer shared-resource cleanup until they exit.
+- HTTP/2 cleanup preserves interrupt state across clients and retries interrupted reactor shutdown waits within a fixed deadline before closing the client. HTTP/1.1 route limits are applied before waiting leases proceed.
+
+Sources: [#281](https://github.com/Breaking-IT/breaktest/pull/281).
+
+## Upgrade Notes
+
+Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later and remains a beta transport.
+
+Recorder variable substitution is now opt-in and reviewed rather than automatic. Manual request replay sends real requests and adds results only to the current view, not other listeners or results files. It uses normal sampler response storage, so large retained responses can consume more memory than the previous curl replay limit.
+
+Java cannot forcibly terminate an uncooperative sampler safely. Resources remain retained until it exits; on the deferred cleanup path, thread-finished callbacks run on a separate daemon thread with the owner context. Plugins relying on the original Java thread's ThreadLocal state must account for this. Cancelled calls skip postprocessors and assertions, and a genuine failure racing cancellation can be omitted.
+
+[Full changelog since 2026.10.21](https://github.com/Breaking-IT/breaktest/compare/2026.10.21...2026.10.26)
 
 # BreakTest 2026.10.21 — Script Readiness, Archive History, and HTTP Connection Reuse
 
