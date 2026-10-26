@@ -3935,6 +3935,137 @@ class TestJMeterThread {
                 "The visualizer must be told when the transaction starts");
     }
 
+    @ParameterizedTest
+    @CsvSource({"parallel, false", "parallel, true", "nested, false", "nested, true", "fork, false", "fork, true"})
+    void parallelShutdownTimeoutDefersCleanupAndDiscardsLateResults(String flow, boolean successful)
+            throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch cleaned = new CountDownLatch(1);
+        AtomicBoolean listenerFinished = new AtomicBoolean();
+        AtomicBoolean cleanupAfterListener = new AtomicBoolean();
+        AtomicInteger userCleanupCalls = new AtomicInteger();
+        AtomicInteger threadCleanupCalls = new AtomicInteger();
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        AtomicReference<Thread> worker = new AtomicReference<>();
+        AbstractSampler stubborn = new AbstractSampler() {
+            @Override
+            public SampleResult sample(Entry entry) {
+                worker.set(Thread.currentThread());
+                started.countDown();
+                boolean waiting = true;
+                while (waiting) {
+                    try {
+                        release.await();
+                        waiting = false;
+                    } catch (InterruptedException ignored) {
+                        // Deliberately model a custom sampler that ignores shutdown interrupts.
+                    }
+                }
+                // Registrations made after the owner has stopped must still be cleaned up.
+                owner.get().registerUserCleanup("late-resource", userCleanupCalls::incrementAndGet);
+                SampleResult result = new SampleResult();
+                result.setSampleLabel("late-result");
+                result.sampleStart();
+                result.setSuccessful(successful);
+                result.sampleEnd();
+                return result;
+            }
+        };
+        stubborn.setName("stubborn");
+        ParallelController parallel = new ParallelController();
+        parallel.setName("outer");
+        parallel.setMaxParallel(1);
+        HashTree tree = new ListedHashTree();
+        LoopController loop = createLoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree loopTree = tree.add(loop);
+        HashTree parent = loopTree;
+        if ("fork".equals(flow)) {
+            ForkController fork = newConfiguredForkController();
+            fork.setIterationEndAction(IterationEndAction.WAIT);
+            parent = parent.add(fork);
+        }
+        HashTree branch = parent.add(parallel);
+        if ("nested".equals(flow)) {
+            ParallelController inner = new ParallelController();
+            inner.setName("inner");
+            inner.setMaxParallel(1);
+            branch = branch.add(inner);
+        }
+        branch.add(stubborn);
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        loopTree.add(listener);
+        loopTree.add(new RecordingThreadListener(listenerFinished));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("timeout-group");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier()) {
+            @Override
+            long parallelShutdownTimeoutMillis() {
+                return 50;
+            }
+        };
+        user.setThreadGroup(group);
+        user.setThreadName("timeout-user");
+        owner.set(user);
+        user.registerThreadCleanup("resource", () -> {
+            cleanupAfterListener.set(listenerFinished.get());
+            threadCleanupCalls.incrementAndGet();
+            cleaned.countDown();
+        });
+        Thread runner = new Thread(user);
+        runner.start();
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            user.stop();
+            runner.interrupt();
+            runner.join(2_000);
+            assertFalse(runner.isAlive(), "an interrupt-ignoring branch must not block user shutdown");
+            assertTrue(worker.get().isAlive(), "the branch must still be using its resources");
+            assertTrue(worker.get().isDaemon(), "detached branches must not keep the JVM alive");
+            assertFalse(listenerFinished.get(), "thread listeners can close resources and must be deferred");
+            assertEquals(0, threadCleanupCalls.get());
+            assertEquals(0, group.getNumberOfThreads());
+            release.countDown();
+            assertTrue(cleaned.await(5, TimeUnit.SECONDS), "cleanup must run when the last branch exits");
+            assertTrue(cleanupAfterListener.get());
+            assertEquals(1, userCleanupCalls.get());
+            assertEquals(1, threadCleanupCalls.get());
+            assertTrue(listener.events().isEmpty(), "even successful late results must be omitted");
+        } finally {
+            release.countDown();
+            runner.interrupt();
+            runner.join(5_000);
+            cleaned.await(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void zeroCancellationDeadlineDoesNotStopNormallyCompletedParallelController() {
+        AtomicInteger calls = new AtomicInteger();
+        LoopController loop = createLoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree children = tree.add(loop);
+        ParallelController parallel = new ParallelController();
+        parallel.setMaxParallel(1);
+        children.add(parallel).add(new ResultStatusSampler("parallel", true, calls));
+        children.add(new ResultStatusSampler("after-parallel", true, calls));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("zero-timeout");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier()) {
+            @Override
+            long parallelShutdownTimeoutMillis() {
+                return 0;
+            }
+        };
+        user.setThreadGroup(group);
+        user.run();
+        assertEquals(4, calls.get(), "normal completion must continue to subsequent samplers and iterations");
+    }
+
     @Test
     void threadCleanupActionsAreDeduplicatedAndRunAfterThreadListeners() {
         HashTree testTree = new ListedHashTree();

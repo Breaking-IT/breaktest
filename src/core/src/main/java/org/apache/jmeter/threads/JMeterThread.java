@@ -305,6 +305,9 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private final IdentityHashMap<Object, List<Controller>> parentControllersToRootCache = new IdentityHashMap<>();
 
+    private final Set<ExecutorService> parallelExecutors = ConcurrentHashMap.newKeySet();
+    private volatile boolean parallelShutdownTimedOut;
+
     // Runtime sampler clones (for example parallel ForEach branches) are not traversed as
     // ThreadListeners when the source test tree finishes. Resources created by those clones can
     // register one cleanup action on the owning virtual user instead.
@@ -526,7 +529,13 @@ public class JMeterThread implements Runnable, Interruptible {
                 // Our own cancellation must not prevent waiting for workers before user cleanup.
                 Thread.interrupted();
             }
-            finishForks();
+            if (!parallelShutdownTimedOut) {
+                finishForks();
+            }
+            if (parallelShutdownTimedOut) {
+                stopForksNow();
+            }
+            awaitResourceUsersBeforeCleanup();
             endRunningTransactions(threadContext, null);
             running = false;
             wakeDelayWorkers();
@@ -534,12 +543,12 @@ public class JMeterThread implements Runnable, Interruptible {
             currentSamplersForInterruption.clear();
             interruptLock.lock();  // make sure current interrupt is finished, prevent another starting yet
             try {
-                threadContext.clear();
-                try {
-                    threadFinished(iterationListener);
-                } finally {
-                    runThreadCleanupActions();
+                if (parallelShutdownTimedOut) {
+                    deferThreadCleanup(threadContext);
+                } else {
+                    finishThreadResources(threadContext);
                 }
+                threadFinished(iterationListener);
                 monitor.threadFinished(this); // Tell the monitor we are done
                 JMeterContextService.removeContext(); // Remove the ThreadLocal entry
             } finally {
@@ -1149,7 +1158,8 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private boolean isCurrentSampleCancelledWithoutResult() {
-        return suppressEndedIterationResults && !isBackgroundFlow(CURRENT_FORK_TASK.get())
+        return parallelShutdownTimedOut
+                || suppressEndedIterationResults && !isBackgroundFlow(CURRENT_FORK_TASK.get())
                 || CURRENT_FORK_TASK.get() instanceof ForkTask task && task.suppressResult;
     }
 
@@ -1169,7 +1179,7 @@ public class JMeterThread implements Runnable, Interruptible {
     private boolean waitForForkTask(Future<?> task) {
         try {
             while (true) {
-                if (isCurrentForkStopRequested()) {
+                if (parallelShutdownTimedOut || isCurrentForkStopRequested()) {
                     return false;
                 }
                 if (scheduler && running && !mainFlowFinished && System.currentTimeMillis() >= endTime) {
@@ -1236,6 +1246,7 @@ public class JMeterThread implements Runnable, Interruptible {
             branchThreads.add(thread);
             return thread;
         });
+        parallelExecutors.add(executor);
         CompletionService<SampleResult> completionService = new ExecutorCompletionService<>(executor);
         int nextBranch = 0;
         int activeBranches = 0;
@@ -1295,18 +1306,13 @@ public class JMeterThread implements Runnable, Interruptible {
                 }
                 executor.shutdownNow();
             }
-            // Every branch must exit before the owner cleans up shared clients and context.
-            // This also accounts for submitted branches not yet registered in forkWorkers.
-            boolean interrupted = Thread.interrupted();
-            while (!executor.isTerminated()) {
-                try {
-                    executor.awaitTermination(1, TimeUnit.DAYS);
-                } catch (InterruptedException e) {
-                    interrupted = true;
-                }
-            }
-            if (interrupted) {
-                Thread.currentThread().interrupt();
+            // Completion futures are published after branch context teardown. When all have
+            // completed, only executor bookkeeping remains; a zero cancellation deadline must
+            // not turn normal controller completion into a stop.
+            if (activeBranches == 0 || awaitParallelShutdown(executor)) {
+                parallelExecutors.remove(executor);
+            } else {
+                recordParallelShutdownTimeout(branchThreads);
             }
         }
         if (anyResult) {
@@ -1314,6 +1320,117 @@ public class JMeterThread implements Runnable, Interruptible {
             // parent state is derived deterministically from the branch outcomes instead of
             // whichever branch happened to write last.
             setLastSampleOk(parentContext.getVariables(), !anyFailure);
+        }
+    }
+
+    // Package-private so shutdown tests can use a short deadline without changing global properties.
+    long parallelShutdownTimeoutMillis() {
+        return Math.max(0, JMeterUtils.getPropDefault("jmeterthread.parallel.shutdown_timeout", 1000));
+    }
+
+    private boolean awaitParallelShutdown(ExecutorService executor) {
+        return awaitParallelShutdown(executor,
+                System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(parallelShutdownTimeoutMillis()));
+    }
+
+    private boolean awaitParallelShutdown(ExecutorService executor, long deadline) {
+        boolean interrupted = Thread.interrupted();
+        try {
+            while (!executor.isTerminated()) {
+                long remaining = deadline - System.nanoTime();
+                if (parallelShutdownTimedOut || remaining <= 0) {
+                    return false;
+                }
+                try {
+                    executor.awaitTermination(remaining, TimeUnit.NANOSECONDS);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+            }
+            return true;
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private void recordParallelShutdownTimeout(Collection<Thread> threads) {
+        synchronized (parallelExecutors) {
+            if (!parallelShutdownTimedOut) {
+                parallelShutdownTimedOut = true;
+                log.warn("Worker shutdown timed out for {}: remaining branches {}. "
+                        + "Resource cleanup will run after they exit.", threadName,
+                        threads.stream().map(Thread::getName).sorted().toList());
+            }
+        }
+        // Never reuse this user's variables or clients in another iteration while a
+        // cancelled branch still owns them, including an iteration-ending fork.
+        running = false;
+        wakeDelayWorkers();
+    }
+
+    private List<ExecutorService> pendingResourceUsers() {
+        List<ExecutorService> pending = new ArrayList<>(parallelExecutors);
+        synchronized (forkExecutors) {
+            pending.addAll(forkExecutors);
+        }
+        return pending;
+    }
+
+    private void awaitResourceUsersBeforeCleanup() {
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(parallelShutdownTimeoutMillis());
+        while (!parallelShutdownTimedOut) {
+            List<ExecutorService> pending = pendingResourceUsers();
+            if (pending.isEmpty()) {
+                return;
+            }
+            for (ExecutorService executor : pending) {
+                if (!awaitParallelShutdown(executor, deadline)) {
+                    recordParallelShutdownTimeout(activeSampleWorkers.keySet());
+                    stopForksNow();
+                    return;
+                }
+                parallelExecutors.remove(executor);
+            }
+        }
+    }
+
+    private void deferThreadCleanup(JMeterContext context) {
+        // A virtual (daemon) reaper neither occupies a platform thread while waiting nor keeps
+        // the JVM alive. Retain the owner context and listeners until all resource users exit.
+        Thread.ofVirtual().name(threadName + "-deferred-cleanup").start(() -> {
+            try {
+                while (true) {
+                    List<ExecutorService> pending = pendingResourceUsers();
+                    if (pending.isEmpty()) {
+                        break;
+                    }
+                    for (ExecutorService executor : pending) {
+                        executor.awaitTermination(1, TimeUnit.DAYS);
+                        if (executor.isTerminated()) {
+                            parallelExecutors.remove(executor);
+                        }
+                    }
+                }
+                JMeterContextService.replaceContext(context);
+                finishThreadResources(context);
+            } catch (InterruptedException e) {
+                // This private reaper is never interrupted by test shutdown.
+                Thread.currentThread().interrupt();
+                log.error("Deferred resource cleanup interrupted for {}", threadName, e);
+            } finally {
+                JMeterContextService.removeContext();
+            }
+        });
+    }
+
+    private void finishThreadResources(JMeterContext context) {
+        context.clear();
+        try {
+            testTree.traverse(new ThreadListenerTraverser(false));
+        } finally {
+            runThreadCleanupActions();
         }
     }
 
@@ -1413,7 +1530,9 @@ public class JMeterThread implements Runnable, Interruptible {
             if (VIRTUAL_THREADS_ENABLED) {
                 return Thread.ofVirtual().name(name).unstarted(runnable);
             }
-            return new Thread(runnable, name);
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
         };
     }
 
@@ -1424,7 +1543,9 @@ public class JMeterThread implements Runnable, Interruptible {
             if (VIRTUAL_THREADS_ENABLED) {
                 return Thread.ofVirtual().name(name).unstarted(runnable);
             }
-            return new Thread(runnable, name);
+            Thread thread = new Thread(runnable, name);
+            thread.setDaemon(true);
+            return thread;
         };
     }
 
@@ -1775,6 +1896,9 @@ public class JMeterThread implements Runnable, Interruptible {
      * Called by {@link JMeterContext#endTransaction} and {@link JMeterContext#endTransactionsUntil}.
      */
     void notifyTransactionFinished(RunningTransaction transaction, SampleResult result) {
+        if (parallelShutdownTimedOut) {
+            return;
+        }
         if (!transaction.hasStartedSampler()) {
             if (!isIterationRunning()) {
                 return;
@@ -1849,8 +1973,6 @@ public class JMeterThread implements Runnable, Interruptible {
     }
 
     private void threadFinished(LoopIterationListener iterationListener) {
-        ThreadListenerTraverser shut = new ThreadListenerTraverser(false);
-        testTree.traverse(shut); // call ThreadListener.threadFinished()
         JMeterContextService.decrNumberOfThreads();
         threadGroup.decrNumberOfThreads();
         updateGuiCounts();
