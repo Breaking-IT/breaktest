@@ -41,6 +41,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.Deque;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -53,6 +54,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.prefs.Preferences;
 import java.util.regex.PatternSyntaxException;
 import java.util.stream.Collectors;
@@ -671,12 +673,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
                 @SuppressWarnings("unchecked") // OK, because find only returns correct element types
                 Collection<ConfigTestElement> defaultConfigurations = (Collection<ConfigTestElement>) findApplicableElements(
                         myTarget, ConfigTestElement.class, false);
-                @SuppressWarnings("unchecked") // OK, because find only returns correct element types
-                Collection<Arguments> userDefinedVariables = (Collection<Arguments>) findApplicableElements(
-                        myTarget, Arguments.class, true);
-
                 removeValuesFromSampler(sampler, defaultConfigurations);
-                replaceValues(sampler, testElements, userDefinedVariables);
                 sampler.setAutoRedirects(settings.autoRedirects());
                 sampler.setFollowRedirects(settings.followRedirects());
                 sampler.setUseKeepAlive(settings.keepAlive());
@@ -749,8 +746,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
      * Recorded browser headers become native sampler headers instead of a child Header Manager
      * element. Also drops the runtime {@code HTTPSampler.header_manager} property that was set
      * on the sampler to execute the live recording sample, so it is not persisted.
-     * Runs after {@link #replaceValues} and {@link #createAuthorization}, so variable
-     * replacement has been applied and the Authorization header has been extracted.
+     * Runs after {@link #createAuthorization}, so the Authorization header has been extracted.
      *
      * @param sampler      the recorded sampler
      * @param testElements elements captured alongside the sampler
@@ -902,6 +898,7 @@ public class ProxyControl extends GenericController implements NonTestElement {
         }
         List<RecordedSampler> included = selectRecording(samples, selection.hosts(), selection.failed());
         Set<JMeterTreeNode> previousRequests = new HashSet<>(FindPredefinedCorrelationsAction.correlationRequests(getJmeterTreeModel()));
+        RecordingVariableReview.apply(selection.variables());
         applyRecording(included, selection.options(), selection.grouping(), true);
         RecordingTreeExpansion.expand(included);
         if (selection.processCorrelations()) {
@@ -911,6 +908,30 @@ public class ProxyControl extends GenericController implements NonTestElement {
         }
         sampleQueue.removeAll(samples);
         diagnostics.reviewed();
+    }
+
+    /** Finds variable replacements without modifying pending captures. */
+    public List<RecordingVariableReview.Candidate> findRecordingVariables(List<RecordedSampler> samples) {
+        return prepareRecordingVariableSearch(samples).get();
+    }
+
+    /**
+     * Resolves the user-defined variables in scope for each capture now, since that reads the
+     * test plan tree and belongs on the EDT. The returned search only reads the captures and the
+     * resolved variables, so it can run in the background.
+     */
+    public Supplier<List<RecordingVariableReview.Candidate>> prepareRecordingVariableSearch(List<RecordedSampler> samples) {
+        Map<JMeterTreeNode, Collection<Arguments>> byTarget = new HashMap<>();
+        Map<RecordedSampler, Collection<Arguments>> scopes = new HashMap<>();
+        for (RecordedSampler sample : samples) {
+            scopes.put(sample, byTarget.computeIfAbsent(sample.target, target -> {
+                @SuppressWarnings("unchecked")
+                Collection<Arguments> variables = (Collection<Arguments>) findApplicableElements(target, Arguments.class, true);
+                return List.copyOf(variables);
+            }));
+        }
+        List<RecordedSampler> selected = List.copyOf(samples);
+        return () -> RecordingVariableReview.find(selected, scopes::get);
     }
 
     public static List<RecordedSampler> selectRecording(List<RecordedSampler> samples, Set<String> hosts,
@@ -1666,19 +1687,6 @@ public class ProxyControl extends GenericController implements NonTestElement {
             }
         }
         return false;
-    }
-
-    /**
-     * Scan all test elements passed in for values matching the value of any of
-     * the variables in any of the variable-holding elements in the collection.
-     *
-     * @param sampler   A TestElement to replace values on
-     * @param configs   More TestElements to replace values on
-     * @param variables Collection of Arguments to use to do the replacement, ordered
-     *                  by ascending priority.
-     */
-    private static void replaceValues(TestElement sampler, TestElement[] configs, Collection<? extends Arguments> variables) {
-        RecordedVariableReplacer.replaceValues(sampler, configs, variables);
     }
 
     /**
