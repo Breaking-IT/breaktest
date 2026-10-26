@@ -13,6 +13,15 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# Unreleased — Apache-2.0 License
+
+## BreakTest Community Is Now Apache-2.0
+
+- **BreakTest Community is licensed under the Apache License, Version 2.0.** It replaces the BreakTest Community Source License 1.0. Commercial use, modification, redistribution, and hosting are permitted subject to the license's terms.
+- **Earlier releases are covered too.** Releases 2026.07.13 through 2026.10.21 may also be used under the Apache License, Version 2.0, in addition to the license they shipped with.
+- **Enterprise stays separate.** BreakTest Enterprise remains a separate product under a commercial license; its proprietary components are not covered by the Community license. Enterprise licensing requests may be sent to `info@breakingit.nl`.
+- **Trademarks are not licensed.** The Apache License does not grant rights to the BreakTest name or logo; see NOTICE.
+
 # BreakTest 2026.10.21 — Script Readiness, Archive History, and HTTP Connection Reuse
 
 This release adds evidence-based script readiness checks, recoverable saves inside JMX archives, and shared HTTP connection state within each virtual user. It also improves protocol selection, connection timing, and correlation dialogs.
@@ -1610,13 +1619,15 @@ project security model and vulnerability reporting process.
 
 ## License And Attribution
 
-BreakTest Community is licensed under the Apache License, Version 2.0.
-Commercial use, modification, redistribution, and hosting are permitted
-subject to the license's terms.
+BreakTest-specific materials are licensed under the BreakTest Community Source
+License 1.0. Community use covers testing systems you operate and systems you
+are authorized to test, including testing performed for clients. Reselling or
+redistributing BreakTest, offering it to third parties as a hosted or managed
+service, reusing it in another product, using it to build a competing product,
+rebranding it, and circumventing Community Limits require prior written
+permission or a commercial license from Breaking IT.
 
-BreakTest Enterprise remains a separate product under a commercial license;
-its proprietary components are not covered by the Community license.
-Enterprise licensing requests may be sent to `info@breakingit.nl`.
+Commercial licensing requests may be sent to `info@breakingit.nl`.
 
 BreakTest is a derivative work of Apache JMeter. Applicable copyright, license,
 and attribution notices for Apache JMeter and other third-party materials are

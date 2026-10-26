@@ -3,7 +3,9 @@ BreakTest
 Copyright 2024-2026 Breaking IT and BreakTest contributors
 
 BreakTest Community is licensed under the Apache License, Version 2.0,
-unless a file or component states otherwise. See LICENSE.
+unless a file or component states otherwise. See LICENSE. Release
+distributions list the licenses of bundled third-party components in
+THIRD-PARTY-LICENSES.
 
 BreakTest Enterprise is a separate product licensed under a commercial
 agreement with Breaking IT. Its proprietary components are not licensed
@@ -26,5 +28,9 @@ logo are trademarks or registered trademarks of The Apache Software
 Foundation. BreakTest is not affiliated with, endorsed by, or sponsored by
 The Apache Software Foundation.
 
-The BreakTest name and logo are marks of Breaking IT. Trademark permissions
-are governed by Section 6 of the Apache License, Version 2.0.
+The BreakTest name and logo are marks of Breaking IT. The Apache License
+does not grant permission to use them, except as required for reasonable
+and customary use in describing the origin of the work and reproducing
+this NOTICE file (Section 6). Modified versions must not be distributed
+or offered under the BreakTest name or logo without permission from
+Breaking IT.
