@@ -27,8 +27,10 @@ import java.awt.datatransfer.UnsupportedFlavorException;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Iterator;
+import java.util.List;
 import java.util.function.Function;
 
 import javax.swing.BorderFactory;
@@ -585,13 +587,8 @@ public class ArgumentsPanel extends AbstractConfigGui implements ActionListener 
             if(clipboardContent == null) {
                 return;
             }
-            String[] clipboardLines = clipboardContent.split(lineDelimiter);
-            for (String clipboardLine : clipboardLines) {
-                String[] clipboardCols = clipboardLine.split(argDelimiter);
-                if (clipboardCols.length > 0) {
-                    Argument argument = createArgumentFromClipboard(clipboardCols);
-                    tableModel.addRow(argument);
-                }
+            for (Argument argument : createArgumentsFromClipboard(clipboardContent, lineDelimiter, argDelimiter)) {
+                tableModel.addRow(argument);
             }
             if (table.getRowCount() > rowCount) {
                 checkButtonsStatus();
@@ -610,6 +607,26 @@ public class ArgumentsPanel extends AbstractConfigGui implements ActionListener 
                     "Could not add retrieve " + DataFlavor.stringFlavor.getHumanPresentableName()
                             + " from clipboard" + ufe.getLocalizedMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    /**
+     * Parse clipboard text into rows, allowing subclasses to distinguish table and plain-text formats.
+     *
+     * @param clipboardContent clipboard text
+     * @param lineDelimiter row separator pattern
+     * @param argDelimiter column separator pattern
+     * @return parsed arguments
+     */
+    protected List<Argument> createArgumentsFromClipboard(String clipboardContent,
+            String lineDelimiter, String argDelimiter) {
+        List<Argument> arguments = new ArrayList<>();
+        for (String clipboardLine : clipboardContent.split(lineDelimiter)) {
+            String[] clipboardCols = clipboardLine.split(argDelimiter);
+            if (clipboardCols.length > 0) {
+                arguments.add(createArgumentFromClipboard(clipboardCols));
+            }
+        }
+        return arguments;
     }
 
     protected void addFromClipboard() {

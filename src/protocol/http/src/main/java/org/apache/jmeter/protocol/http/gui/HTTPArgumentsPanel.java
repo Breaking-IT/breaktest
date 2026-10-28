@@ -20,6 +20,7 @@ package org.apache.jmeter.protocol.http.gui;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.Iterator;
+import java.util.List;
 
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
@@ -192,8 +193,28 @@ public class HTTPArgumentsPanel extends ArgumentsPanel {
     }
 
     @Override
+    protected List<Argument> createArgumentsFromClipboard(String clipboardContent,
+            String lineDelimiter, String argDelimiter) {
+        // A copied table row is tab-separated; '&' and '=' are literal cell contents.
+        if (clipboardContent.contains("\t")) {
+            return super.createArgumentsFromClipboard(clipboardContent, "\r?\n", "\t");
+        }
+        return super.createArgumentsFromClipboard(clipboardContent, lineDelimiter, argDelimiter);
+    }
+
+    @Override
     protected Argument createArgumentFromClipboard(String[] clipboardCols) {
         HTTPArgument argument = makeNewArgument();
+        if (clipboardCols.length == 6
+                && ("true".equalsIgnoreCase(clipboardCols[0]) || "false".equalsIgnoreCase(clipboardCols[0]))) {
+            argument.setEnabled(Boolean.parseBoolean(clipboardCols[0]));
+            argument.setName(clipboardCols[1]);
+            argument.setValue(clipboardCols[2]);
+            argument.setAlwaysEncoded(Boolean.parseBoolean(clipboardCols[3].trim()));
+            argument.setContentType(clipboardCols[4]);
+            argument.setUseEquals(Boolean.parseBoolean(clipboardCols[5].trim()));
+            return argument;
+        }
         argument.setName(clipboardCols[0]);
         if (clipboardCols.length > 1) {
             argument.setValue(clipboardCols[1]);
