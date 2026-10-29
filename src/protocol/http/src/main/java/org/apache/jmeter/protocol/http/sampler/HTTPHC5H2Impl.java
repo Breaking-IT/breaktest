@@ -662,21 +662,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 Object attachment,
                 HttpContext context,
                 FutureCallback<ManagedAsyncClientConnection> callback) {
-            H2RouteReuseConnectionManager manager = connectionManager(context);
-            Object request = new Object();
-            Future<ManagedAsyncClientConnection> connect = super.connect(
-                    manager == null ? connectionInitiator : manager.trackSessions(connectionInitiator),
-                    endpointHost,
-                    unixDomainSocket,
-                    endpointName,
-                    localAddress,
-                    connectTimeout,
-                    attachment,
-                    context,
+            return H2SessionTracker.connect(sessionTracker(context), connectionInitiator,
+                    (initiator, tracked) -> super.connect(initiator, endpointHost, unixDomainSocket,
+                            endpointName, localAddress, connectTimeout, attachment, context, tracked),
                     new FutureCallback<>() {
                         @Override
                         public void completed(ManagedAsyncClientConnection result) {
-                            connectEnded(manager, request);
                             connectEnd(context);
                             rememberNetworkEndpoint(endpointHost, context, result);
                             trackConnection(context, result);
@@ -685,26 +676,14 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
                         @Override
                         public void failed(Exception ex) {
-                            connectEnded(manager, request);
                             callback.failed(ex);
                         }
 
                         @Override
                         public void cancelled() {
-                            connectEnded(manager, request);
                             callback.cancelled();
                         }
                     });
-            if (manager != null) {
-                manager.connectStarted(request, connect);
-            }
-            return connect;
-        }
-
-        private static void connectEnded(H2RouteReuseConnectionManager manager, Object request) {
-            if (manager != null) {
-                manager.connectEnded(request);
-            }
         }
     }
 
@@ -718,11 +697,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         private final ConcurrentMap<String, NetworkEndpoint> networkEndpointsByFirstHop = new ConcurrentHashMap<>();
         // Connections opened through this manager, so that a reset can close idle pooled ones at once
         private final Set<ManagedAsyncClientConnection> connections = ConcurrentHashMap.newKeySet();
-        // Connects in progress and the sessions they opened. HttpCore's graceful reactor shutdown
-        // only reaches established sessions, so shutdown() must close the others itself.
-        private final ConcurrentMap<Object, Future<?>> pendingConnects = new ConcurrentHashMap<>();
-        private final Set<IOSession> sessions = ConcurrentHashMap.newKeySet();
-        private volatile boolean shutDown;
+        private final H2SessionTracker sessionTracker = new H2SessionTracker();
 
         private H2RouteReuseConnectionManager(PoolingAsyncClientConnectionManager delegate, String authority) {
             this.delegate = delegate;
@@ -1003,73 +978,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             networkEndpointsByFirstHop.clear();
         }
 
-        /**
-         * Closes every session of this manager, including ones still being set up, before the
-         * client's reactor shuts down. A leased endpoint that is still connecting has no connection
-         * to discard yet, and HttpCore's graceful shutdown skips sessions that are not established.
-         * Either would keep the reactor alive past the graceful wait.
-         */
+        /** Closes every connection, including ones still being set up, before the reactor shuts down. */
         void shutdown() {
-            shutDown = true;
-            for (Future<?> pending : pendingConnects.values()) {
-                // Cancels the session request too, which closes a channel that is still connecting
-                pending.cancel(true);
-            }
-            pendingConnects.clear();
-            // Closing a session during its TLS handshake does not complete the connect, hence both
-            for (IOSession session : sessions) {
-                session.close(CloseMode.IMMEDIATE);
-            }
-            sessions.clear();
+            sessionTracker.shutdown();
             closeConnections(CloseMode.IMMEDIATE);
-        }
-
-        void connectStarted(Object request, Future<?> connect) {
-            pendingConnects.put(request, connect);
-            if (connect.isDone()) {
-                // The connect ended before it was registered
-                pendingConnects.remove(request);
-            } else if (shutDown) {
-                // Checked after registering, so either this or shutdown() cancels it
-                connect.cancel(true);
-            }
-        }
-
-        void connectEnded(Object request) {
-            pendingConnects.remove(request);
-        }
-
-        ConnectionInitiator trackSessions(ConnectionInitiator initiator) {
-            return (remoteEndpoint, remoteAddress, localAddress, timeout, attachment, callback) ->
-                    initiator.connect(remoteEndpoint, remoteAddress, localAddress, timeout, attachment,
-                            new FutureCallback<>() {
-                                @Override
-                                public void completed(IOSession session) {
-                                    sessions.removeIf(tracked -> !tracked.isOpen());
-                                    sessions.add(session);
-                                    // Checked after adding, so either this or shutdown() closes it
-                                    if (shutDown) {
-                                        session.close(CloseMode.IMMEDIATE);
-                                    }
-                                    if (callback != null) {
-                                        callback.completed(session);
-                                    }
-                                }
-
-                                @Override
-                                public void failed(Exception ex) {
-                                    if (callback != null) {
-                                        callback.failed(ex);
-                                    }
-                                }
-
-                                @Override
-                                public void cancelled() {
-                                    if (callback != null) {
-                                        callback.cancelled();
-                                    }
-                                }
-                            });
         }
 
         private static AsyncConnectionEndpoint unwrap(AsyncConnectionEndpoint endpoint) {
@@ -1161,9 +1073,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
     }
 
-    private static H2RouteReuseConnectionManager connectionManager(HttpContext context) {
+    private static H2SessionTracker sessionTracker(HttpContext context) {
         Object manager = context == null ? null : context.getAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER);
-        return manager instanceof H2RouteReuseConnectionManager connectionManager ? connectionManager : null;
+        return manager instanceof H2RouteReuseConnectionManager connectionManager
+                ? connectionManager.sessionTracker : null;
     }
 
     private static void trackConnection(HttpContext context, ManagedAsyncClientConnection connection) {
