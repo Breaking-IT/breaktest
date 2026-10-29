@@ -662,15 +662,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 Object attachment,
                 HttpContext context,
                 FutureCallback<ManagedAsyncClientConnection> callback) {
-            return super.connect(
-                    connectionInitiator,
-                    endpointHost,
-                    unixDomainSocket,
-                    endpointName,
-                    localAddress,
-                    connectTimeout,
-                    attachment,
-                    context,
+            return H2SessionTracker.connect(sessionTracker(context), connectionInitiator,
+                    (initiator, tracked) -> super.connect(initiator, endpointHost, unixDomainSocket,
+                            endpointName, localAddress, connectTimeout, attachment, context, tracked),
                     new FutureCallback<>() {
                         @Override
                         public void completed(ManagedAsyncClientConnection result) {
@@ -703,6 +697,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         private final ConcurrentMap<String, NetworkEndpoint> networkEndpointsByFirstHop = new ConcurrentHashMap<>();
         // Connections opened through this manager, so that a reset can close idle pooled ones at once
         private final Set<ManagedAsyncClientConnection> connections = ConcurrentHashMap.newKeySet();
+        private final H2SessionTracker sessionTracker = new H2SessionTracker();
 
         private H2RouteReuseConnectionManager(PoolingAsyncClientConnectionManager delegate, String authority) {
             this.delegate = delegate;
@@ -983,6 +978,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             networkEndpointsByFirstHop.clear();
         }
 
+        /** Closes every connection, including ones still being set up, before the reactor shuts down. */
+        void shutdown() {
+            sessionTracker.shutdown();
+            closeConnections(CloseMode.IMMEDIATE);
+        }
+
         private static AsyncConnectionEndpoint unwrap(AsyncConnectionEndpoint endpoint) {
             return endpoint instanceof EndpointLease lease ? lease.root.endpoint : endpoint;
         }
@@ -1070,6 +1071,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             HttpHost firstHop = firstHop(route);
             return firstHop == null ? null : networkEndpointsByFirstHop.get(endpointKey(firstHop));
         }
+    }
+
+    private static H2SessionTracker sessionTracker(HttpContext context) {
+        Object manager = context == null ? null : context.getAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER);
+        return manager instanceof H2RouteReuseConnectionManager connectionManager
+                ? connectionManager.sessionTracker : null;
     }
 
     private static void trackConnection(HttpContext context, ManagedAsyncClientConnection connection) {
@@ -1788,9 +1795,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     // Close the connections first: a graceful client close would wait for the server to
                     // confirm each one, blocking this thread while the I/O thread stays busy. Closing the
                     // client itself immediately instead makes HttpCore log a ClosedSelectorException.
+                    // Sessions still being set up must close too, or the graceful wait below times out.
                     H2RouteReuseConnectionManager connectionManager = clientState.getConnectionManager();
                     if (connectionManager != null) {
-                        connectionManager.closeConnections(CloseMode.IMMEDIATE);
+                        connectionManager.shutdown();
                     }
                     // Interrupts may arrive after the initial flag check. HttpCore's close() treats
                     // an interrupted wait as permission to close a still-running selector. Finish
