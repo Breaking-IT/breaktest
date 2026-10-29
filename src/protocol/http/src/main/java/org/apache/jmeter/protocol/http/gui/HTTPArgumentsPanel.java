@@ -266,12 +266,14 @@ public class HTTPArgumentsPanel extends ArgumentsPanel {
         if (start >= text.length() || text.charAt(start) != '"') {
             return false;
         }
-        for (int i = start + 1; i < text.length(); i++) {
+        int i = start + 1;
+        while (i < text.length()) {
             if (text.charAt(i) != '"') {
+                i++;
                 continue;
             }
             if (i + 1 < text.length() && text.charAt(i + 1) == '"') {
-                i++;
+                i += 2;
                 continue;
             }
             // Only consume quotes when the closing quote ends the cell. Otherwise the
