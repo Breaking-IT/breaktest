@@ -17,6 +17,7 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -26,6 +27,9 @@ import java.lang.management.ManagementFactory;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -388,17 +392,7 @@ class HTTPHC5H2ThreadLifecycleTest {
     void stoppingActiveRequestsDoesNotLogWarningsOrReactorErrors(boolean parallel) throws Exception {
         List<String> problems = new CopyOnWriteArrayList<>();
         Logger logger = (Logger) LogManager.getRootLogger();
-        AbstractAppender appender = new AbstractAppender("shutdown-problems", null, null, false, null) {
-            @Override
-            public void append(LogEvent event) {
-                if (event.getLevel().isMoreSpecificThan(Level.WARN)
-                        && (event.getLoggerName().startsWith("org.apache.hc.")
-                        || event.getLoggerName().equals(JMeterThread.class.getName()))) {
-                    problems.add(event.getMessage().getFormattedMessage() + " " + event.getThrown());
-                }
-            }
-        };
-        appender.start();
+        AbstractAppender appender = shutdownProblemAppender(problems);
         logger.addAppender(appender);
         try {
             withServer(30_000, server -> {
@@ -426,6 +420,85 @@ class HTTPHC5H2ThreadLifecycleTest {
             logger.removeAppender(appender);
             appender.stop();
         }
+    }
+
+    /**
+     * A session that is still being set up when cleanup runs is invisible to HttpCore's graceful
+     * shutdown. If it stays open past the graceful budget, the final close shuts the selector under
+     * the running reactor, which then logs a {@link java.nio.channels.ClosedSelectorException}.
+     */
+    @Test
+    void closingUserWhileConnectionIsInSetupDoesNotWaitForReactorOrLogErrors() throws Exception {
+        List<String> problems = new CopyOnWriteArrayList<>();
+        Logger logger = (Logger) LogManager.getRootLogger();
+        AbstractAppender appender = shutdownProblemAppender(problems);
+        logger.addAppender(appender);
+        List<Socket> accepted = new CopyOnWriteArrayList<>();
+        // Accepts TCP connections but never answers the TLS handshake
+        try (ServerSocket silentTls = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+            Thread acceptor = new Thread(() -> {
+                try {
+                    while (true) {
+                        accepted.add(silentTls.accept());
+                    }
+                } catch (IOException ignored) {
+                    // Server socket closed
+                }
+            }, "silent-tls-acceptor");
+            acceptor.setDaemon(true);
+            acceptor.start();
+
+            HTTPSamplerProxy sampler = httpSampler(silentTls.getLocalPort(), ExitMode.NORMAL);
+            sampler.setProtocol("https");
+            sampler.setConnectTimeout("30000");
+            sampler.setResponseTimeout("30000");
+            Thread user = new Thread(() -> {
+                JMeterContextService.getContext().setVariables(new JMeterVariables());
+                sampler.sample();
+            }, "tls-setup-user");
+            cacheKeysToClean.add(user);
+            int baseline = httpClientReactorThreadCount();
+            user.start();
+            try {
+                assertEventually(() -> !accepted.isEmpty(), 10_000, "connection must reach the server");
+
+                long started = System.nanoTime();
+                closeCacheEntry(user);
+                long elapsedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+
+                user.join(10_000);
+                assertFalse(user.isAlive(), "sample must end once its connection is closed");
+                assertEventually(() -> httpClientReactorThreadCount() <= baseline, 5_000,
+                        "closed user's reactor must terminate");
+                assertAll(
+                        () -> assertTrue(problems.isEmpty(), () -> "unexpected shutdown logs: " + problems),
+                        () -> assertTrue(elapsedMillis < 3_000, () -> "cleanup must not wait out the graceful"
+                                + " reactor budget, took " + elapsedMillis + " ms"));
+            } finally {
+                user.interrupt();
+                for (Socket socket : accepted) {
+                    socket.close();
+                }
+            }
+        } finally {
+            logger.removeAppender(appender);
+            appender.stop();
+        }
+    }
+
+    private static AbstractAppender shutdownProblemAppender(List<String> problems) {
+        AbstractAppender appender = new AbstractAppender("shutdown-problems", null, null, false, null) {
+            @Override
+            public void append(LogEvent event) {
+                if (event.getLevel().isMoreSpecificThan(Level.WARN)
+                        && (event.getLoggerName().startsWith("org.apache.hc.")
+                        || event.getLoggerName().equals(JMeterThread.class.getName()))) {
+                    problems.add(event.getMessage().getFormattedMessage() + " " + event.getThrown());
+                }
+            }
+        };
+        appender.start();
+        return appender;
     }
 
     private void runUser(int port, int userNumber, ExitMode exitMode, boolean parallel,
