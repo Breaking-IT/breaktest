@@ -18,6 +18,8 @@
 package org.apache.jmeter.protocol.http.gui;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
@@ -53,18 +55,35 @@ class HTTPArgumentsPanelClipboardTest {
             original.addArgument(empty);
             source.configure(original);
 
-            List<Argument> pasted = new ClipboardPanel().parse(source.copyRows());
-            assertEquals(3, pasted.size());
-            for (int i = 0; i < pasted.size(); i++) {
-                HTTPArgument expected = (HTTPArgument) original.getArgument(i);
-                HTTPArgument actual = (HTTPArgument) pasted.get(i);
-                assertEquals(expected.getName(), actual.getName());
-                assertEquals(expected.getValue(), actual.getValue());
-                assertEquals(expected.isEnabled(), actual.isEnabled());
-                assertEquals(expected.isAlwaysEncoded(), actual.isAlwaysEncoded());
-                assertEquals(expected.getContentType(), actual.getContentType());
-                assertEquals(expected.isUseEquals(), actual.isUseEquals());
-            }
+            assertRoundTrip(original, new ClipboardPanel().parse(source.copyRows()));
+        });
+    }
+
+    @Test
+    void copiedRowsPreserveMultiLineTabAndQuotedValues() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ClipboardPanel source = new ClipboardPanel();
+            Arguments original = new Arguments();
+            original.addArgument(new HTTPArgument("body", "{\r\n  \"a\": 1,\n  \"b\": \"x\ty\"\n}"));
+            original.addArgument(new HTTPArgument("quoted", "\"leading quote"));
+            original.addArgument(new HTTPArgument("after", "plain"));
+            source.configure(original);
+
+            assertRoundTrip(original, new ClipboardPanel().parse(source.copyRows()));
+        });
+    }
+
+    @Test
+    void copiedRowsIgnoreOnScreenColumnOrder() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ClipboardPanel source = new ClipboardPanel();
+            Arguments original = new Arguments();
+            original.addArgument(new HTTPArgument("Date", "2026-10-27"));
+            source.configure(original);
+            source.moveColumn(2, 0);
+            source.moveColumn(5, 1);
+
+            assertRoundTrip(original, new ClipboardPanel().parse(source.copyRows()));
         });
     }
 
@@ -80,19 +99,57 @@ class HTTPArgumentsPanelClipboardTest {
             HTTPArgument legacy = (HTTPArgument) panel.parse("name\t\ttrue\tfalse").get(0);
             assertEquals("name", legacy.getName());
             assertEquals("", legacy.getValue());
-            assertEquals(true, legacy.isAlwaysEncoded());
-            assertEquals(false, legacy.isUseEquals());
+            assertTrue(legacy.isAlwaysEncoded());
+            assertFalse(legacy.isUseEquals());
             Argument booleanName = panel.parse("true\tDate").get(0);
             assertEquals("true", booleanName.getName());
             assertEquals("Date", booleanName.getValue());
             Argument literal = panel.parse("url\thttps://example.test/?a=b&c=d\r\n").get(0);
             assertEquals("https://example.test/?a=b&c=d", literal.getValue());
+            HTTPArgument notTableRow = (HTTPArgument) panel.parse("true\tq\tv\tx\ttext/plain\tyes").get(0);
+            assertEquals("true", notTableRow.getName());
+            assertEquals("q", notTableRow.getValue());
+            assertTrue(notTableRow.isUseEquals());
         });
+    }
+
+    @Test
+    void parsesFormatPerLine() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            List<Argument> mixed = new ClipboardPanel().parse("a\t1\r\nb=2&c=3\r\nd=4\r\n");
+            assertEquals(4, mixed.size());
+            assertEquals("a", mixed.get(0).getName());
+            assertEquals("1", mixed.get(0).getValue());
+            assertEquals("b", mixed.get(1).getName());
+            assertEquals("2", mixed.get(1).getValue());
+            assertEquals("c", mixed.get(2).getName());
+            assertEquals("3", mixed.get(2).getValue());
+            assertEquals("d", mixed.get(3).getName());
+            assertEquals("4", mixed.get(3).getValue());
+        });
+    }
+
+    private static void assertRoundTrip(Arguments original, List<Argument> pasted) {
+        assertEquals(original.getArgumentCount(), pasted.size());
+        for (int i = 0; i < pasted.size(); i++) {
+            HTTPArgument expected = (HTTPArgument) original.getArgument(i);
+            HTTPArgument actual = (HTTPArgument) pasted.get(i);
+            assertEquals(expected.getName(), actual.getName());
+            assertEquals(expected.getValue(), actual.getValue());
+            assertEquals(expected.isEnabled(), actual.isEnabled());
+            assertEquals(expected.isAlwaysEncoded(), actual.isAlwaysEncoded());
+            assertEquals(expected.getContentType(), actual.getContentType());
+            assertEquals(expected.isUseEquals(), actual.isUseEquals());
+        }
     }
 
     private static class ClipboardPanel extends HTTPArgumentsPanel {
         List<Argument> parse(String text) {
-            return createArgumentsFromClipboard(text, "\n|&", "\t|=");
+            return createArgumentsFromClipboard(text, CLIPBOARD_LINE_DELIMITERS, CLIPBOARD_ARG_DELIMITERS);
+        }
+
+        void moveColumn(int from, int to) {
+            getTable().moveColumn(from, to);
         }
 
         String copyRows() {

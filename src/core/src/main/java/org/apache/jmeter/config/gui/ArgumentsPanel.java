@@ -130,7 +130,7 @@ public class ArgumentsPanel extends AbstractConfigGui implements ActionListener 
     private static final String DOWN = "down"; // $NON-NLS-1$
 
     /** When pasting from the clipboard, split lines on linebreak */
-    private static final String CLIPBOARD_LINE_DELIMITERS = "\n"; //$NON-NLS-1$
+    private static final String CLIPBOARD_LINE_DELIMITERS = "\r?\n"; //$NON-NLS-1$
 
     /** When pasting from the clipboard, split parameters on tab */
     private static final String CLIPBOARD_ARG_DELIMITERS = "\t"; //$NON-NLS-1$
