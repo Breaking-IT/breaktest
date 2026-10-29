@@ -224,14 +224,14 @@ public class HTTPArgumentsPanel extends ArgumentsPanel {
     }
 
     /**
-     * Read one tab-separated row starting at {@code pos}. A cell starting with a quote is
+     * Read one tab-separated row starting at {@code pos}. A cell with a valid closing quote is
      * quoted: it may contain tabs and line breaks, and {@code ""} stands for one quote.
      *
      * @return position after the row's line break
      */
     private static int readTableRow(String text, int pos, List<String> cells) {
         StringBuilder cell = new StringBuilder();
-        boolean quoted = pos < text.length() && text.charAt(pos) == '"';
+        boolean quoted = hasQuotedCell(text, pos);
         int i = quoted ? pos + 1 : pos;
         while (i < text.length()) {
             char c = text.charAt(i);
@@ -247,7 +247,7 @@ public class HTTPArgumentsPanel extends ArgumentsPanel {
             } else if (c == '\t') {
                 cells.add(cell.toString());
                 cell.setLength(0);
-                quoted = i + 1 < text.length() && text.charAt(i + 1) == '"';
+                quoted = hasQuotedCell(text, i + 1);
                 if (quoted) {
                     i++;
                 }
@@ -260,6 +260,27 @@ public class HTTPArgumentsPanel extends ArgumentsPanel {
         }
         cells.add(stripCarriageReturn(cell.toString()));
         return i + 1;
+    }
+
+    private static boolean hasQuotedCell(String text, int start) {
+        if (start >= text.length() || text.charAt(start) != '"') {
+            return false;
+        }
+        for (int i = start + 1; i < text.length(); i++) {
+            if (text.charAt(i) != '"') {
+                continue;
+            }
+            if (i + 1 < text.length() && text.charAt(i + 1) == '"') {
+                i++;
+                continue;
+            }
+            // Only consume quotes when the closing quote ends the cell. Otherwise the
+            // leading quote is literal legacy clipboard data, as is an unmatched quote.
+            int next = i + 1;
+            return next == text.length() || text.charAt(next) == '\t' || text.charAt(next) == '\n'
+                    || (text.charAt(next) == '\r' && next + 1 < text.length() && text.charAt(next + 1) == '\n');
+        }
+        return false;
     }
 
     private static String stripCarriageReturn(String line) {

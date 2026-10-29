@@ -129,6 +129,26 @@ class HTTPArgumentsPanelClipboardTest {
         });
     }
 
+    @Test
+    void literalLeadingQuotesDoNotConsumeFollowingCellsOrRows() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            ClipboardPanel panel = new ClipboardPanel();
+            for (String literal : List.of("\"leading quote", "\"quote\"suffix", "\"escaped \"\"quote")) {
+                List<Argument> values = panel.parse("message\t" + literal + "\nDate\t2026-10-27\n");
+                assertEquals(2, values.size());
+                assertEquals(literal, values.get(0).getValue());
+                assertEquals("Date", values.get(1).getName());
+                assertEquals("2026-10-27", values.get(1).getValue());
+
+                List<Argument> names = panel.parse(literal + "\tvalue\r\nDate\t2026-10-27\r\n");
+                assertEquals(2, names.size());
+                assertEquals(literal, names.get(0).getName());
+                assertEquals("value", names.get(0).getValue());
+                assertEquals("Date", names.get(1).getName());
+            }
+        });
+    }
+
     private static void assertRoundTrip(Arguments original, List<Argument> pasted) {
         assertEquals(original.getArgumentCount(), pasted.size());
         for (int i = 0; i < pasted.size(); i++) {
