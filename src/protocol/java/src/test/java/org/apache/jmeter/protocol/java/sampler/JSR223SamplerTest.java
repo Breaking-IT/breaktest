@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.jmeter.samplers.SampleResult;
@@ -48,7 +49,39 @@ class JSR223SamplerTest {
             worker.join(10000);
             assertFalse(worker.isAlive());
             assertFalse(result.get().isSuccessful());
+            assertEquals("499", result.get().getResponseCode());
             assertFalse(sampler.interrupt());
+        } finally {
+            worker.interrupt();
+            worker.join(10000);
+            System.getProperties().remove(latchKey);
+        }
+    }
+
+    @Test
+    void interruptIgnoredByScriptDoesNotLeak() throws Exception {
+        String latchKey = JSR223SamplerTest.class.getName() + ".ignoredLatch";
+        CountDownLatch started = new CountDownLatch(1);
+        System.getProperties().put(latchKey, started);
+        JSR223Sampler sampler = new JSR223Sampler();
+        sampler.setScriptLanguage("groovy");
+        // Spins until interrupted and leaves the flag set, like a script that restores it.
+        sampler.setScript("System.getProperties().get('" + latchKey + "').countDown();"
+                + " while (!Thread.currentThread().isInterrupted()) { Thread.onSpinWait() }; 'OK'");
+        AtomicReference<SampleResult> result = new AtomicReference<>();
+        AtomicBoolean interruptedAfterSample = new AtomicBoolean(true);
+        Thread worker = new Thread(() -> {
+            result.set(sampler.sample(null));
+            interruptedAfterSample.set(Thread.currentThread().isInterrupted());
+        });
+        try {
+            worker.start();
+            assertTrue(started.await(10, TimeUnit.SECONDS));
+            assertTrue(sampler.interrupt());
+            worker.join(10000);
+            assertFalse(worker.isAlive());
+            assertTrue(result.get().isSuccessful());
+            assertFalse(interruptedAfterSample.get());
         } finally {
             worker.interrupt();
             worker.join(10000);
