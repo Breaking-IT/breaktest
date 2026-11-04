@@ -105,6 +105,8 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
      * Interrupts the thread running the script. Only interrupt-aware calls such as
      * {@link Thread#sleep(long)}, blocking queues and interruptible I/O are cancelled;
      * busy loops and Groovy's {@code sleep(long)} method, which ignores interrupts, run on.
+     * If the script ignores or restores the interrupt, the thread stays interrupted after the
+     * sample; callers that interrupt for their own reasons, such as Sample Timeout, clear it.
      */
     @Override
     public synchronized boolean interrupt() {

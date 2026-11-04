@@ -49,6 +49,13 @@ public class SampleTimeout extends AbstractTestElement implements Serializable, 
 
     private ScheduledFuture<?> future;
 
+    // Guards sampleActive and interruptedSample between the timer thread and the sampling thread.
+    private final transient Object interruptLock = new Object();
+
+    private transient boolean sampleActive;
+
+    private transient boolean interruptedSample;
+
     private final transient ScheduledExecutorService execService;
 
     private static class TPOOLHolder {
@@ -100,6 +107,10 @@ public class SampleTimeout extends AbstractTestElement implements Serializable, 
         if (log.isDebugEnabled()) {
             log.debug(whoAmI("sampleStarting()", this));
         }
+        synchronized (interruptLock) {
+            sampleActive = true;
+            interruptedSample = false;
+        }
         createTask(sampler);
     }
 
@@ -107,6 +118,15 @@ public class SampleTimeout extends AbstractTestElement implements Serializable, 
     public void sampleEnded(final Sampler sampler) {
         if (log.isDebugEnabled()) {
             log.debug(whoAmI("sampleEnded()", this));
+        }
+        synchronized (interruptLock) {
+            sampleActive = false;
+            if (interruptedSample) {
+                interruptedSample = false;
+                // The sampler may have ignored or restored our interrupt. It belongs to the timed-out
+                // sample only, so it must not cut short timers or samplers that run next on this thread.
+                Thread.interrupted();
+            }
         }
         cancelTask();
     }
@@ -122,7 +142,14 @@ public class SampleTimeout extends AbstractTestElement implements Serializable, 
 
         Callable<Object> call = () -> {
             long start = System.nanoTime();
-            boolean interrupted = sampler.interrupt();
+            boolean interrupted;
+            synchronized (interruptLock) {
+                if (!sampleActive) {
+                    return null; // the sample ended before the timeout fired
+                }
+                interrupted = sampler.interrupt();
+                interruptedSample = interrupted;
+            }
             String elapsed = Double.toString((double)(System.nanoTime()-start)/ 1000000000)+" secs";
             if (interrupted) {
                 if (log.isWarnEnabled()) {
