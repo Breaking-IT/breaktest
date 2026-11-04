@@ -44,6 +44,7 @@ class JSR223SamplerTest {
         System.getProperties().put(latchKey, started);
         JSR223Sampler sampler = new JSR223Sampler();
         sampler.setScriptLanguage("groovy");
+        sampler.setCacheKey("false");
         sampler.setScript("System.getProperties().get('" + latchKey + "').countDown(); Thread.sleep(30000)");
         AtomicReference<SampleResult> result = new AtomicReference<>();
         Thread worker = new Thread(() -> result.set(sampler.sample(null)));
@@ -72,6 +73,10 @@ class JSR223SamplerTest {
             assertFalse(sampler.interrupt());
             // Stopping a test interrupts scripts routinely, so it must not be logged as a script error.
             assertEquals(List.of(Level.DEBUG), events.stream().map(LogEvent::getLevel).toList());
+            events.clear();
+            sampler.setScript("throw new InterruptedException('script failure')");
+            assertFalse(sampler.sample(null).isSuccessful());
+            assertEquals(List.of(Level.ERROR), events.stream().map(LogEvent::getLevel).toList());
         } finally {
             logger.removeAppender(appender);
             logger.setLevel(previousLevel);

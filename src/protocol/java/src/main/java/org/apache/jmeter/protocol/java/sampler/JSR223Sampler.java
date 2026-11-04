@@ -51,6 +51,7 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
     private static final Logger log = LoggerFactory.getLogger(JSR223Sampler.class);
 
     private transient Thread samplingThread;
+    private transient volatile boolean interruptRequested;
 
     @Override
     public SampleResult sample(Entry entry) {
@@ -70,6 +71,7 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
         result.sampleStart();
         synchronized (this) {
             samplingThread = Thread.currentThread();
+            interruptRequested = false;
         }
         try {
             ScriptEngine scriptEngine = getScriptEngine();
@@ -80,7 +82,7 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
                 result.setResponseData(ret.toString(), null);
             }
         } catch (IOException | ScriptException e) {
-            if (isInterruption(e)) {
+            if (interruptRequested && isInterruption(e)) {
                 // Expected when the test is stopped or the sample times out; not a script problem.
                 log.debug("JSR223 element named: '{}' was interrupted", getName(), e);
             } else {
@@ -110,6 +112,7 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
         if (samplingThread == null) {
             return false;
         }
+        interruptRequested = true;
         samplingThread.interrupt();
         return true;
     }
