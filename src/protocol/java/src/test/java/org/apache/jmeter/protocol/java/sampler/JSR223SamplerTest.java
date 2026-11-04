@@ -18,11 +18,43 @@
 package org.apache.jmeter.protocol.java.sampler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.jmeter.samplers.SampleResult;
 import org.junit.jupiter.api.Test;
 
 class JSR223SamplerTest {
+
+    @Test
+    void interruptRunningScript() throws Exception {
+        String latchKey = JSR223SamplerTest.class.getName() + ".latch";
+        CountDownLatch started = new CountDownLatch(1);
+        System.getProperties().put(latchKey, started);
+        JSR223Sampler sampler = new JSR223Sampler();
+        sampler.setScriptLanguage("groovy");
+        sampler.setScript("System.getProperties().get('" + latchKey + "').countDown(); Thread.sleep(30000)");
+        AtomicReference<SampleResult> result = new AtomicReference<>();
+        Thread worker = new Thread(() -> result.set(sampler.sample(null)));
+        try {
+            assertFalse(sampler.interrupt());
+            worker.start();
+            assertTrue(started.await(10, TimeUnit.SECONDS));
+            assertTrue(sampler.interrupt());
+            worker.join(10000);
+            assertFalse(worker.isAlive());
+            assertFalse(result.get().isSuccessful());
+            assertFalse(sampler.interrupt());
+        } finally {
+            worker.interrupt();
+            worker.join(10000);
+            System.getProperties().remove(latchKey);
+        }
+    }
 
     @Test
     void sampleWithEndTimeSet() {

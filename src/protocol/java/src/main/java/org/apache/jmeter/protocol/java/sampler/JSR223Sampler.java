@@ -31,6 +31,7 @@ import org.apache.jmeter.engine.util.ConfigMergabilityIndicator;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.samplers.Entry;
+import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testbeans.TestBean;
@@ -41,13 +42,15 @@ import org.slf4j.LoggerFactory;
 
 @GUIMenuSortOrder(4)
 @TestElementMetadata(labelResource = "displayName")
-public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampler, TestBean, ConfigMergabilityIndicator {
+public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampler, TestBean, ConfigMergabilityIndicator, Interruptible {
     private static final Set<String> APPLIABLE_CONFIG_CLASSES = new HashSet<>(
             Collections.singletonList("org.apache.jmeter.config.gui.SimpleConfigGui"));
 
     private static final long serialVersionUID = 235L;
 
     private static final Logger log = LoggerFactory.getLogger(JSR223Sampler.class);
+
+    private transient Thread samplingThread;
 
     @Override
     public SampleResult sample(Entry entry) {
@@ -65,6 +68,9 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
         }
         result.setDataType(SampleResult.TEXT);
         result.sampleStart();
+        synchronized (this) {
+            samplingThread = Thread.currentThread();
+        }
         try {
             ScriptEngine scriptEngine = getScriptEngine();
             Bindings bindings = scriptEngine.createBindings();
@@ -78,11 +84,24 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
             result.setSuccessful(false);
             result.setResponseCode("500"); // $NON-NLS-1$
             result.setResponseMessage(e.toString());
+        } finally {
+            synchronized (this) {
+                samplingThread = null;
+            }
         }
         if (result.getEndTime() == 0) {
             result.sampleEnd();
         }
         return result;
+    }
+
+    @Override
+    public synchronized boolean interrupt() {
+        if (samplingThread == null) {
+            return false;
+        }
+        samplingThread.interrupt();
+        return true;
     }
 
     /**
@@ -97,7 +116,9 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
     @Override
     @SuppressWarnings("RedundantOverride")
     public Object clone() {
-        return super.clone();
+        JSR223Sampler clone = (JSR223Sampler) super.clone();
+        clone.samplingThread = null;
+        return clone;
     }
 
 }
