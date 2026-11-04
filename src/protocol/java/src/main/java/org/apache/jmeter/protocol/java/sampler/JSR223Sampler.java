@@ -80,7 +80,12 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
                 result.setResponseData(ret.toString(), null);
             }
         } catch (IOException | ScriptException e) {
-            log.error("Problem in JSR223 element named: '{}'", getName(), e);
+            if (isInterruption(e)) {
+                // Expected when the test is stopped or the sample times out; not a script problem.
+                log.debug("JSR223 element named: '{}' was interrupted", getName(), e);
+            } else {
+                log.error("Problem in JSR223 element named: '{}'", getName(), e);
+            }
             result.setSuccessful(false);
             result.setResponseCode("500"); // $NON-NLS-1$
             result.setResponseMessage(e.toString());
@@ -107,6 +112,15 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
         }
         samplingThread.interrupt();
         return true;
+    }
+
+    private static boolean isInterruption(Exception e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
