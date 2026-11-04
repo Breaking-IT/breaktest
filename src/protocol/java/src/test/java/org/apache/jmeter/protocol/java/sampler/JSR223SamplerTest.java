@@ -23,7 +23,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.jmeter.samplers.SampleResult;
@@ -49,74 +48,7 @@ class JSR223SamplerTest {
             worker.join(10000);
             assertFalse(worker.isAlive());
             assertFalse(result.get().isSuccessful());
-            assertEquals("499", result.get().getResponseCode());
             assertFalse(sampler.interrupt());
-        } finally {
-            worker.interrupt();
-            worker.join(10000);
-            System.getProperties().remove(latchKey);
-        }
-    }
-
-    @Test
-    void subsequentInterruptIsPreserved() throws Exception {
-        String latchKey = JSR223SamplerTest.class.getName() + ".ignoredLatch";
-        String consumedKey = JSR223SamplerTest.class.getName() + ".consumedLatch";
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch consumed = new CountDownLatch(1);
-        System.getProperties().put(latchKey, started);
-        System.getProperties().put(consumedKey, consumed);
-        JSR223Sampler sampler = new JSR223Sampler();
-        sampler.setScriptLanguage("groovy");
-        sampler.setScript("System.getProperties().get('" + latchKey + "').countDown();"
-                + " while (!Thread.interrupted()) { Thread.onSpinWait() };"
-                + " System.getProperties().get('" + consumedKey + "').countDown();"
-                + " while (!Thread.currentThread().isInterrupted()) { Thread.onSpinWait() }; 'OK'");
-        AtomicReference<SampleResult> result = new AtomicReference<>();
-        AtomicBoolean interruptedAfterSample = new AtomicBoolean(true);
-        Thread worker = new Thread(() -> {
-            result.set(sampler.sample(null));
-            interruptedAfterSample.set(Thread.currentThread().isInterrupted());
-        });
-        worker.setDaemon(true);
-        try {
-            worker.start();
-            assertTrue(started.await(10, TimeUnit.SECONDS));
-            assertTrue(sampler.interrupt());
-            assertTrue(consumed.await(10, TimeUnit.SECONDS));
-            worker.interrupt();
-            worker.join(10000);
-            assertFalse(worker.isAlive());
-            assertTrue(result.get().isSuccessful());
-            assertTrue(interruptedAfterSample.get());
-        } finally {
-            worker.interrupt();
-            worker.join(10000);
-            System.getProperties().remove(latchKey);
-            System.getProperties().remove(consumedKey);
-        }
-    }
-
-    @Test
-    void scriptFailureAfterInterruptIsReported() throws Exception {
-        String latchKey = JSR223SamplerTest.class.getName() + ".failureLatch";
-        CountDownLatch started = new CountDownLatch(1);
-        System.getProperties().put(latchKey, started);
-        JSR223Sampler sampler = new JSR223Sampler();
-        sampler.setScriptLanguage("groovy");
-        sampler.setScript("System.getProperties().get('" + latchKey + "').countDown();"
-                + " try { Thread.sleep(30000) } catch (InterruptedException ignored) {};"
-                + " throw new IllegalStateException('script failed')");
-        AtomicReference<SampleResult> result = new AtomicReference<>();
-        Thread worker = new Thread(() -> result.set(sampler.sample(null)));
-        try {
-            worker.start();
-            assertTrue(started.await(10, TimeUnit.SECONDS));
-            assertTrue(sampler.interrupt());
-            worker.join(10000);
-            assertFalse(worker.isAlive());
-            assertEquals("500", result.get().getResponseCode());
-            assertTrue(result.get().getResponseMessage().contains("script failed"));
         } finally {
             worker.interrupt();
             worker.join(10000);

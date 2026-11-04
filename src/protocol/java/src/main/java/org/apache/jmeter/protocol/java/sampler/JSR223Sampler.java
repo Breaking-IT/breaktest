@@ -80,16 +80,10 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
                 result.setResponseData(ret.toString(), null);
             }
         } catch (IOException | ScriptException e) {
+            log.error("Problem in JSR223 element named: '{}'", getName(), e);
             result.setSuccessful(false);
-            if (isInterruption(e)) {
-                log.debug("JSR223 element named: '{}' was interrupted", getName(), e);
-                result.setResponseCode("499"); // $NON-NLS-1$
-                result.setResponseMessage("Script interrupted");
-            } else {
-                log.error("Problem in JSR223 element named: '{}'", getName(), e);
-                result.setResponseCode("500"); // $NON-NLS-1$
-                result.setResponseMessage(e.toString());
-            }
+            result.setResponseCode("500"); // $NON-NLS-1$
+            result.setResponseMessage(e.toString());
         } finally {
             synchronized (this) {
                 samplingThread = null;
@@ -105,8 +99,6 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
      * Interrupts the thread running the script. Only interrupt-aware calls such as
      * {@link Thread#sleep(long)}, blocking queues and interruptible I/O are cancelled;
      * busy loops and Groovy's {@code sleep(long)} method, which ignores interrupts, run on.
-     * If the script ignores or restores the interrupt, the thread stays interrupted after the
-     * sample; callers that interrupt for their own reasons, such as Sample Timeout, clear it.
      */
     @Override
     public synchronized boolean interrupt() {
@@ -115,15 +107,6 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
         }
         samplingThread.interrupt();
         return true;
-    }
-
-    private static boolean isInterruption(Exception e) {
-        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-            if (cause instanceof InterruptedException) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /**
