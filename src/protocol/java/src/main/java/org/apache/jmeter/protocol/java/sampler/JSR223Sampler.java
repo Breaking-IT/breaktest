@@ -31,6 +31,7 @@ import org.apache.jmeter.engine.util.ConfigMergabilityIndicator;
 import org.apache.jmeter.gui.GUIMenuSortOrder;
 import org.apache.jmeter.gui.TestElementMetadata;
 import org.apache.jmeter.samplers.Entry;
+import org.apache.jmeter.samplers.Interruptible;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.samplers.Sampler;
 import org.apache.jmeter.testbeans.TestBean;
@@ -41,13 +42,16 @@ import org.slf4j.LoggerFactory;
 
 @GUIMenuSortOrder(4)
 @TestElementMetadata(labelResource = "displayName")
-public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampler, TestBean, ConfigMergabilityIndicator {
+public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampler, TestBean, ConfigMergabilityIndicator, Interruptible {
     private static final Set<String> APPLIABLE_CONFIG_CLASSES = new HashSet<>(
             Collections.singletonList("org.apache.jmeter.config.gui.SimpleConfigGui"));
 
     private static final long serialVersionUID = 235L;
 
     private static final Logger log = LoggerFactory.getLogger(JSR223Sampler.class);
+
+    private transient Thread samplingThread;
+    private transient volatile boolean interruptRequested;
 
     @Override
     public SampleResult sample(Entry entry) {
@@ -65,6 +69,10 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
         }
         result.setDataType(SampleResult.TEXT);
         result.sampleStart();
+        synchronized (this) {
+            samplingThread = Thread.currentThread();
+            interruptRequested = false;
+        }
         try {
             ScriptEngine scriptEngine = getScriptEngine();
             Bindings bindings = scriptEngine.createBindings();
@@ -74,15 +82,48 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
                 result.setResponseData(ret.toString(), null);
             }
         } catch (IOException | ScriptException e) {
-            log.error("Problem in JSR223 element named: '{}'", getName(), e);
+            if (interruptRequested && isInterruption(e)) {
+                // Expected when the test is stopped or the sample times out; not a script problem.
+                log.debug("JSR223 element named: '{}' was interrupted", getName(), e);
+            } else {
+                log.error("Problem in JSR223 element named: '{}'", getName(), e);
+            }
             result.setSuccessful(false);
             result.setResponseCode("500"); // $NON-NLS-1$
             result.setResponseMessage(e.toString());
+        } finally {
+            synchronized (this) {
+                samplingThread = null;
+            }
         }
         if (result.getEndTime() == 0) {
             result.sampleEnd();
         }
         return result;
+    }
+
+    /**
+     * Interrupts the thread running the script. Only interrupt-aware calls such as
+     * {@link Thread#sleep(long)}, blocking queues and interruptible I/O are cancelled;
+     * busy loops and Groovy's {@code sleep(long)} method, which ignores interrupts, run on.
+     */
+    @Override
+    public synchronized boolean interrupt() {
+        if (samplingThread == null) {
+            return false;
+        }
+        interruptRequested = true;
+        samplingThread.interrupt();
+        return true;
+    }
+
+    private static boolean isInterruption(Exception e) {
+        for (Throwable cause = e; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
