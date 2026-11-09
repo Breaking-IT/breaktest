@@ -38,6 +38,25 @@ class BreakTestAgentToolCliTest {
     }
 
     @Test
+    fun `core toolset advertises only existing general tools and the rest stays discoverable`() {
+        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+        val all = BreakTestAgentMcpServer.advertisedToolsResult(coreOnly = false).path("tools").map { it.path("name").asText() }
+        val core = BreakTestAgentMcpServer.advertisedToolsResult(coreOnly = true).path("tools").map { it.path("name").asText() }
+        assertEquals(org.apache.jmeter.ai.AgentToolSpecs.coreToolNames, core.toSet(), "every core name must be a real tool")
+        assertEquals(all.size, all.toSet().size, "tool names must be unique")
+        org.junit.jupiter.api.Assertions.assertTrue(core.size < all.size / 2)
+
+        val summaries = mapper.valueToTree<com.fasterxml.jackson.databind.JsonNode>(
+            BreakTestAgentMcpServer.describeTools(mapper.createObjectNode())
+        ).path("tools")
+        assertEquals(all.toSet(), summaries.map { it.path("name").asText() }.toSet())
+        val schema = mapper.valueToTree<com.fasterxml.jackson.databind.JsonNode>(
+            BreakTestAgentMcpServer.describeTools(mapper.readTree("""{"names":["update_regex_extractor_open_plan"]}"""))
+        ).path("tools").single()
+        org.junit.jupiter.api.Assertions.assertTrue(schema.path("inputSchema").path("properties").size() > 0)
+    }
+
+    @Test
     fun `named schemas omit unrelated tools and reject unknown names`() {
         val mapper = com.fasterxml.jackson.databind.ObjectMapper()
         val packet = mapper.readTree(BreakTestAgentMcpServer.toolsListForCli(listOf("validate_open_plan", "apply_repair_actions_open_plan")))

@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import org.apache.jmeter.config.Argument
 import org.apache.jmeter.config.Arguments
 import org.apache.jmeter.testelement.TestElement
+import org.apache.jmeter.testelement.property.CollectionProperty
 
 /** Adapters for native table models. Protocol types are resolved only when installed, avoiding a core dependency. */
 internal object AgentElementTables {
@@ -49,6 +50,28 @@ internal object AgentElementTables {
         )
     }
 
+    /** Current rows of each supported table, reduced to the fields that carry a value. */
+    fun read(element: TestElement): Map<String, List<Map<String, Any?>>> = rowTypes(element).keys.associateWith { rows(element) }
+
+    private fun rows(element: TestElement): List<Map<String, Any?>> {
+        val getter = if (isType(element, WS_CONNECT) || isType(element, HEADER_MANAGER)) "getHeaders" else "getArguments"
+        val container = if (element is Arguments) element else runCatching { element.javaClass.getMethod(getter).invoke(element) }.getOrNull()
+        val items: List<Any?> = when (container) {
+            is Arguments -> container.iterator().asSequence().map { it.objectValue }.toList()
+            is CollectionProperty -> container.iterator().asSequence().map { it.objectValue }.toList()
+            is Iterable<*> -> container.toList()
+            else -> emptyList()
+        }
+        return items.filterNotNull().map { row ->
+            fun call(method: String): Any? = runCatching { row.javaClass.getMethod(method).invoke(row) }.getOrNull()
+            mapOf(
+                "name" to call("getName"), "value" to call("getValue"),
+                "alwaysEncoded" to call("isAlwaysEncoded")?.takeIf { it == true },
+                "useEquals" to call("isUseEquals")?.takeIf { it == false },
+            ).filterValues { it != null }
+        }
+    }
+
     fun configure(element: TestElement, tables: JsonNode) {
         require(tables.isObject) { "tables must be an object" }
         val types = rowTypes(element)
@@ -59,7 +82,7 @@ internal object AgentElementTables {
             when {
                 isType(element, WS_CONNECT) -> element.javaClass.getMethod("setHeaders", List::class.java).invoke(element, rows)
                 isType(element, HEADER_MANAGER) -> {
-                    val headers = element.javaClass.getMethod("getHeaders").invoke(element) as org.apache.jmeter.testelement.property.CollectionProperty
+                    val headers = element.javaClass.getMethod("getHeaders").invoke(element) as CollectionProperty
                     headers.clear()
                     rows.forEach { element.javaClass.getMethod("add", Class.forName(HEADER)).invoke(element, it) }
                 }

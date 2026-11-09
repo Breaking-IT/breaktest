@@ -314,7 +314,9 @@ public object BreakTestAgentGuiService {
         return mapper.writeValueAsString(response)
     }
 
-    private fun handleTool(tool: String, arguments: JsonNode): Any =
+    // Tests reach these by their plain JVM names.
+    @JvmName("handleTool")
+    internal fun handleTool(tool: String, arguments: JsonNode): Any =
         when (tool) {
             "status" -> guiCall {
                 val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
@@ -399,7 +401,8 @@ public object BreakTestAgentGuiService {
             "move_node_open_plan" -> moveNodeOpenPlan(arguments)
             "delete_node_open_plan" -> deleteNodeOpenPlan(arguments)
             "move_think_times_to_transactions_open_plan" -> moveThinkTimesToTransactionsOpenPlan(arguments)
-            else -> throw IllegalArgumentException("Unknown GUI agent tool: $tool")
+            else -> AgentPlanTools.handle(tool, arguments)
+                ?: throw IllegalArgumentException("Unknown GUI agent tool: $tool")
         }
 
     @JvmStatic
@@ -2285,7 +2288,10 @@ public object BreakTestAgentGuiService {
                     return
                 }
                 for (node in tree.list()) {
-                    val nodeName = (node as? JMeterTreeNode)?.testElement?.name ?: node.toString()
+                    // A scoped search walks a converted tree of plain test elements.
+                    val nodeName = (node as? JMeterTreeNode)?.testElement?.name
+                        ?: (node as? TestElement)?.name
+                        ?: node.toString()
                     val element = (node as? JMeterTreeNode)?.testElement ?: node as? TestElement
                     if (element != null) {
                         searchElementValues(
@@ -2304,7 +2310,11 @@ public object BreakTestAgentGuiService {
                     visitNode(tree.getTree(node), path + nodeName)
                 }
             }
-            visitNode(searchScopeTree(gui, scope), emptyList())
+            // Keep scoped match paths rooted at the plan, like unscoped ones.
+            val scopeParentPath = (scope?.parent as? JMeterTreeNode)
+                ?.let { nodePath(it).split(" / ").filter(String::isNotEmpty) }
+                .orEmpty()
+            visitNode(searchScopeTree(gui, scope), scopeParentPath)
             mapOf(
                 "matchCount" to matches.size,
                 "truncated" to (matches.size >= maxMatches),
@@ -2781,6 +2791,7 @@ public object BreakTestAgentGuiService {
             arguments.path("properties").takeIf { !it.isMissingNode } ?: com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(),
             arguments.get("tables"),
         )
+        applyRawProperties(element, arguments)
         arguments.path("name").optionalText()?.let { element.name = it }
         val target = sectionedTarget(gui, parent, element)
         require(org.apache.jmeter.gui.util.MenuFactory.canAddTo(target, element)) { "This element cannot be added under the selected parent" }
@@ -2796,6 +2807,26 @@ public object BreakTestAgentGuiService {
         }
     }
 
+    /**
+     * Escape hatch for settings the typed schema does not expose: writes stored property keys
+     * directly. Only scalar values, so nested element and collection properties stay intact.
+     */
+    private fun applyRawProperties(element: TestElement, arguments: JsonNode) {
+        val raw = arguments.path("rawProperties").takeIfPresent() ?: return
+        require(raw.isObject) { "rawProperties must be an object of property key to scalar value" }
+        for ((key, value) in raw.properties()) {
+            require(value.isValueNode && !value.isNull) { "rawProperties.$key must be text, a number or a boolean" }
+            val existing = element.getProperty(key)
+            require(existing !is MultiProperty && existing !is TestElementProperty && existing !is ObjectProperty) {
+                "rawProperties.$key is a nested property; use properties, tables or a dedicated tool"
+            }
+            when {
+                value.isBoolean -> element.setProperty(key, value.asBoolean())
+                else -> element.setProperty(key, value.asText())
+            }
+        }
+    }
+
     private fun configureElementOpenPlan(arguments: JsonNode): Map<String, Any?> = guiCall {
         val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
         gui.updateCurrentNode()
@@ -2805,6 +2836,7 @@ public object BreakTestAgentGuiService {
             arguments.path("properties").takeIf { !it.isMissingNode } ?: com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(),
             arguments.get("tables"),
         )
+        applyRawProperties(configured, arguments)
         ensureBackupForOpenPlan(gui)
         gui.beginUndoTransaction()
         try {
@@ -3627,9 +3659,12 @@ public object BreakTestAgentGuiService {
         }
         val arguments = mutableListOf<HttpArgument>()
         for (container in containers) {
-            val iterator = container.propertyIterator()
-            while (iterator.hasNext()) {
-                val argument = iterator.next().objectValue ?: continue
+            // Arguments keeps its rows inside one collection property; iterating the
+            // container's own properties only ever yields that collection.
+            val rows = (container as? org.apache.jmeter.config.Arguments)?.iterator()
+                ?: container.propertyIterator()
+            for (row in rows) {
+                val argument = row.objectValue ?: continue
                 val name = callString(argument, "getName")
                 val value = callString(argument, "getValue")
                 if (name != null || value != null) {
@@ -3807,7 +3842,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun markEdited(gui: GuiPackage, changedNode: JMeterTreeNode, selectNode: JMeterTreeNode = changedNode) {
+    internal fun markEdited(gui: GuiPackage, changedNode: JMeterTreeNode, selectNode: JMeterTreeNode = changedNode) {
         gui.setDirty(true)
         gui.treeModel.nodeStructureChanged(changedNode)
         if (gui.mainFrame == null) return
@@ -3847,7 +3882,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun recordChange(type: String, node: JMeterTreeNode, summary: String, details: String? = null) {
+    internal fun recordChange(type: String, node: JMeterTreeNode, summary: String, details: String? = null) {
         AiAutoScriptingLogWindow.recordChange(
             type,
             node.testElement.name.orEmpty(),
@@ -3864,7 +3899,7 @@ public object BreakTestAgentGuiService {
             value
         }
 
-    private fun ensureBackupForOpenPlan(gui: GuiPackage) {
+    internal fun ensureBackupForOpenPlan(gui: GuiPackage) {
         val key = backupKey(gui.testPlanFile)
         if (key in backedUpPlanKeys) {
             return
@@ -3875,7 +3910,7 @@ public object BreakTestAgentGuiService {
     private fun backupFileFor(testPlanFile: String?): File {
         val source = testPlanFile?.takeIf { it.isNotBlank() }?.let { File(it).absoluteFile }
         val directory = source?.parentFile?.takeIf { it.isDirectory }
-            ?: File(JMeterUtils.getJMeterHome()).takeIf { it.isDirectory }
+            ?: JMeterUtils.getJMeterHome()?.let(::File)?.takeIf { it.isDirectory }
             ?: File(System.getProperty("java.io.tmpdir"))
         val baseName = source?.nameWithoutExtension?.takeIf { it.isNotBlank() } ?: "untitled"
         val timestamp = LocalDateTime.now().format(backupTimeFormat)
@@ -3885,7 +3920,7 @@ public object BreakTestAgentGuiService {
     private fun repairCloneFileFor(testPlanFile: String?): File {
         val source = testPlanFile?.takeIf { it.isNotBlank() }?.let { File(it).absoluteFile }
         val directory = source?.parentFile?.takeIf { it.isDirectory }
-            ?: File(JMeterUtils.getJMeterHome()).takeIf { it.isDirectory }
+            ?: JMeterUtils.getJMeterHome()?.let(::File)?.takeIf { it.isDirectory }
             ?: File(System.getProperty("java.io.tmpdir"))
         val baseName = source?.nameWithoutExtension?.takeIf { it.isNotBlank() } ?: "untitled"
         val timestamp = LocalDateTime.now().format(backupTimeFormat)
@@ -4080,7 +4115,7 @@ public object BreakTestAgentGuiService {
         return result
     }
 
-    private fun allTreeNodes(tree: HashTree): List<JMeterTreeNode> {
+    internal fun allTreeNodes(tree: HashTree): List<JMeterTreeNode> {
         val result = mutableListOf<JMeterTreeNode>()
         fun visit(currentTree: HashTree) {
             for (node in currentTree.list()) {
@@ -4113,7 +4148,8 @@ public object BreakTestAgentGuiService {
                 className.contains(".extractor.") ||
                 className.contains(".modifiers.")
             "config" -> className.contains(".config.")
-            else -> className.contains(type, ignoreCase = true)
+            // The simple name, so "scenario" does not match everything in the scenario package.
+            else -> testElement::class.java.simpleName.contains(type, ignoreCase = true)
         }
     }
 
@@ -5022,7 +5058,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun nodeId(node: JMeterTreeNode): String = NodeIds.idFor(node)
+    internal fun nodeId(node: JMeterTreeNode): String = NodeIds.idFor(node)
 
     private fun selectNodeById(gui: GuiPackage, nodeId: String, role: String): JMeterTreeNode {
         val node = NodeIds.nodeFor(nodeId)
@@ -5157,7 +5193,7 @@ public object BreakTestAgentGuiService {
         return selectSamplerReference(gui, arguments, prefix, role)
     }
 
-    private fun selectNodeReference(
+    internal fun selectNodeReference(
         gui: GuiPackage,
         arguments: JsonNode,
         prefix: String,
@@ -5331,11 +5367,14 @@ public object BreakTestAgentGuiService {
         return false
     }
 
-    private fun nodePath(node: JMeterTreeNode): String {
+    @JvmName("nodePath")
+    internal fun nodePath(node: JMeterTreeNode): String {
         val path = node.path.filterIsInstance<JMeterTreeNode>()
         // The hidden GUI root and visible Test Plan wrap the same element.
         // Compare identity so legitimate repeated names and detached trees survive.
-        val visiblePath = if (path.size >= 2 && path[0].testElement === path[1].testElement) {
+        // A plan loaded from a file gives the hidden root its own element, so also match the root node.
+        val hiddenRoot = GuiPackage.getInstance()?.treeModel?.root
+        val visiblePath = if (path.size >= 2 && (path[0] === hiddenRoot || path[0].testElement === path[1].testElement)) {
             path.drop(1)
         } else {
             path
@@ -5387,7 +5426,7 @@ public object BreakTestAgentGuiService {
         )
     }
 
-    private fun postActivity(
+    internal fun postActivity(
         level: String,
         message: String,
         source: String = "BreakTest Agent",
@@ -5553,7 +5592,7 @@ public object BreakTestAgentGuiService {
         return "${base}_$index"
     }
 
-    private fun <T> guiCall(action: () -> T): T {
+    internal fun <T> guiCall(action: () -> T): T {
         if (SwingUtilities.isEventDispatchThread()) {
             return action()
         }
