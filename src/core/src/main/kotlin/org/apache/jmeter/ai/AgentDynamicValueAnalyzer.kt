@@ -249,7 +249,7 @@ public class AgentDynamicValueAnalyzer(
             add(
                 "credential",
                 literal,
-                "Hard-coded credential-like value in request field '$fieldName'; move it to a top-level User Defined Variable and replace every occurrence.",
+                "Hard-coded credential-like value in request field '$fieldName'; move it to a shared User Defined Variable and replace every occurrence.",
             )
         }
         for (match in QUERY_ID_REGEX.findAll(value)) {

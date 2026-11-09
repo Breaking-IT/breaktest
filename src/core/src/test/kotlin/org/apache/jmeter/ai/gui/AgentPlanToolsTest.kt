@@ -296,6 +296,39 @@ class AgentPlanToolsTest : JMeterTestCase() {
     }
 
     @Test
+    fun `agent variables go to a variables element under the shared profile`() {
+        val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
+        (plan.testElement as TestPlan).addParameter("password", "old-on-plan")
+        val profile = add(org.apache.jmeter.scenario.SharedProfile().apply { name = "Shared Profile" }, plan)
+
+        val first = call("set_user_defined_variable_open_plan", """{"name":"password","value":"s3cret"}""")
+        call("set_user_defined_variable_open_plan", """{"name":"username","value":"jo"}""")
+        assertEquals("Plan / Shared Profile / User Defined Variables", first.path("nodePath").asText())
+        assertEquals(1, profile.childCount, "both variables share one element")
+        val stored = (profile.getChildAt(0) as JMeterTreeNode).testElement as Arguments
+        assertEquals(mapOf("password" to "s3cret", "username" to "jo"), stored.argumentsAsMap)
+        assertTrue((plan.testElement as TestPlan).userDefinedVariables.isEmpty(), "the plan-level copy moved along")
+
+        request.testElement.setProperty("endpoint", "/login?p=s3cret")
+        call(
+            "replace_literal_open_plan",
+            """{"literal":"s3cret","replacement":"${'$'}{password}","allowWholePlan":true,"excludeUserDefinedVariables":true}""",
+        )
+        assertEquals("/login?p=\${password}", request.testElement.getPropertyAsString("endpoint"))
+        assertEquals("s3cret", stored.argumentsAsMap["password"], "the variable keeps its original value")
+        val leftovers = call("search_open_plan_values", """{"literal":"s3cret","excludeUserDefinedVariables":true}""")
+        assertEquals(0, leftovers.path("matchCount").asInt())
+    }
+
+    @Test
+    fun `agent variables stay on the test plan when there is no shared profile`() {
+        val result = call("set_user_defined_variable_open_plan", """{"name":"tenant","value":"acme"}""")
+        assertEquals("Plan", result.path("nodePath").asText())
+        val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
+        assertEquals("acme", (plan.testElement as TestPlan).userDefinedVariables["tenant"])
+    }
+
+    @Test
     fun `scoped search reports node names rooted at the plan`() {
         val match = call("search_open_plan_values", """{"query":"/cart/42","scopeNodePath":"Plan / Shoppers"}""")
             .path("matches").single()

@@ -564,7 +564,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "replace_literal_open_plan",
-                    "Replace a literal in one target sampler subtree, under threadGroupName/scopeNodePath, or in the whole running BreakTest GUI plan only when allowWholePlan=true for an explicitly requested global edit. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. Prefer targetNodePath/targetOccurrenceIndex when labels repeat. For credential replacement, set excludeUserDefinedVariables=true so the Test Plan User Defined Variables table keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
+                    "Replace a literal in one target sampler subtree, under threadGroupName/scopeNodePath, or in the whole running BreakTest GUI plan only when allowWholePlan=true for an explicitly requested global edit. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. Prefer targetNodePath/targetOccurrenceIndex when labels repeat. For credential replacement, set excludeUserDefinedVariables=true so the User Defined Variables keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
                     mapOf(
                         "targetNodeId" to "string",
                         "targetSamplerIndex" to "number",
@@ -604,7 +604,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "set_user_defined_variable_open_plan",
-                    "Create or update a top-level Test Plan User Defined Variable in the running BreakTest GUI plan. For credentials, pass the preserved original literal value, not the ${'$'}{variable} reference; self-referential values are rejected.",
+                    "Create or update a User Defined Variable in the running BreakTest GUI plan. It is stored in a User Defined Variables element under the Shared Profile (created on first use), so every Thread Group and scenario sees it; a plan without a Shared Profile keeps it on the Test Plan. For credentials, pass the preserved original literal value, not the ${'$'}{variable} reference; self-referential values are rejected.",
                     mapOf(
                         "name" to "string",
                         "value" to "string",
@@ -663,7 +663,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "search_open_plan_values",
-                    "Search string-valued open-plan properties for a literal or regex. Pass threadGroupName or scopeNodePath when multiple Thread Groups have similar transaction names. By default element names are ignored, so use this to verify old UUIDs, credentials, tokens, and stale IDs are gone from request data after edits. For credential verification, set excludeUserDefinedVariables=true so the original secret stored in the Test Plan variables table is not counted as a stale request value.",
+                    "Search string-valued open-plan properties for a literal or regex. Pass threadGroupName or scopeNodePath when multiple Thread Groups have similar transaction names. By default element names are ignored, so use this to verify old UUIDs, credentials, tokens, and stale IDs are gone from request data after edits. For credential verification, set excludeUserDefinedVariables=true so the original secret stored in the User Defined Variables is not counted as a stale request value.",
                     mapOf(
                         "literal" to "string",
                         "query" to "string",

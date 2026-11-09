@@ -2176,6 +2176,49 @@ public object BreakTestAgentGuiService {
         }
     }
 
+    /**
+     * The User Defined Variables element under the Shared Profile, created on first use. Variables
+     * there reach every Thread Group and scenario and stay visible as their own node, instead of
+     * being tucked into the Test Plan's own table. Null for a plan without a Shared Profile.
+     */
+    private fun sharedVariablesNode(gui: GuiPackage, create: Boolean): JMeterTreeNode? {
+        val profile = allTreeNodes(gui.treeModel.testPlan)
+            .firstOrNull { it.testElement is org.apache.jmeter.scenario.SharedProfile && it.isEnabled }
+            ?: return null
+        (0 until profile.childCount).map { profile.getChildAt(it) as JMeterTreeNode }
+            .firstOrNull { it.isEnabled && TestPlanEditor().isVariablesElement(it.testElement) }
+            ?.let { return it }
+        if (!create) {
+            return null
+        }
+        val variables = org.apache.jmeter.config.Arguments().apply {
+            name = "User Defined Variables"
+            setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.config.gui.ArgumentsPanel")
+            setProperty(TestElement.TEST_CLASS, org.apache.jmeter.config.Arguments::class.java.name)
+        }
+        return insertDetachedNode(gui, profile, variables).also {
+            recordChange("Added element", it, "User Defined Variables under ${profile.testElement.name}")
+        }
+    }
+
+    /** Sets one variable where agent variables belong and returns the node that now holds it. */
+    private fun storeUserDefinedVariable(gui: GuiPackage, name: String, value: String): JMeterTreeNode {
+        val planNode = testPlanNode(gui)
+        val testPlan = planNode.testElement as? TestPlan
+            ?: throw IllegalStateException("Open root node is not a Test Plan")
+        val shared = sharedVariablesNode(gui, create = true)
+        // One definition only: a value left on the Test Plan by an earlier run moves along.
+        testPlan.arguments.removeArgument(name)
+        if (shared == null) {
+            testPlan.addParameter(name, value)
+            return planNode
+        }
+        val variables = shared.testElement as org.apache.jmeter.config.Arguments
+        variables.removeArgument(name)
+        variables.addArgument(name, value)
+        return shared
+    }
+
     private fun setUserDefinedVariableOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val name = arguments.requiredText("name")
@@ -2188,11 +2231,7 @@ public object BreakTestAgentGuiService {
             ensureBackupForOpenPlan(gui)
             gui.beginUndoTransaction()
             try {
-                val node = testPlanNode(gui)
-                val testPlan = node.testElement as? TestPlan
-                    ?: throw IllegalStateException("Open root node is not a Test Plan")
-                testPlan.arguments.removeArgument(name)
-                testPlan.addParameter(name, value)
+                val node = storeUserDefinedVariable(gui, name, value)
                 markEdited(gui, node)
                 postActivity(
                     "info",
@@ -2209,6 +2248,8 @@ public object BreakTestAgentGuiService {
                     "name" to name,
                     "value" to value,
                     "nodeName" to node.testElement.name,
+                    "nodeId" to nodeId(node),
+                    "nodePath" to nodePath(node),
                 )
             } finally {
                 gui.endUndoTransaction()
@@ -2352,7 +2393,7 @@ public object BreakTestAgentGuiService {
                         ?: (node as? TestElement)?.name
                         ?: node.toString()
                     val element = (node as? JMeterTreeNode)?.testElement ?: node as? TestElement
-                    if (element != null) {
+                    if (element != null && !(excludeUserDefinedVariables && TestPlanEditor().isVariablesElement(element))) {
                         searchElementValues(
                             element,
                             path + nodeName,
@@ -5655,16 +5696,13 @@ public object BreakTestAgentGuiService {
         if (variables.isEmpty()) {
             return 0
         }
-        val node = testPlanNode(gui)
-        val activeTestPlan = node.testElement as? TestPlan
-            ?: throw IllegalStateException("Open root node is not a Test Plan")
+        var node = testPlanNode(gui)
         var merged = 0
         for ((name, value) in variables) {
             if (name.isBlank()) {
                 continue
             }
-            activeTestPlan.arguments.removeArgument(name)
-            activeTestPlan.addParameter(name, value)
+            node = storeUserDefinedVariable(gui, name, value)
             merged++
         }
         if (merged > 0) {
