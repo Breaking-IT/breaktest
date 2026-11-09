@@ -31,14 +31,22 @@ plugins {
 
 ide {
     copyright(
-        profileName = "BreakTest-Community-1.0",
+        profileName = "BreakTest-Apache-2.0",
         profileKeyword = "Copyright",
         profileNotice = """
             Copyright 2024-2026 Breaking IT
 
-            Licensed under the BreakTest Community Source License 1.0.
-            You may not use this file except in compliance with that license.
-            See the LICENSE file at the root of this distribution.
+            Licensed under the Apache License, Version 2.0 (the "License");
+            you may not use this file except in compliance with the License.
+            You may obtain a copy of the License at
+
+                https://www.apache.org/licenses/LICENSE-2.0
+
+            Unless required by applicable law or agreed to in writing, software
+            distributed under the License is distributed on an "AS IS" BASIS,
+            WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+            See the License for the specific language governing permissions and
+            limitations under the License.
         """.trimIndent()
     )
     ideaInstructionsUri =
@@ -58,13 +66,7 @@ val gitProps by tasks.registering(FindGitAttributes::class) {
 val rat by tasks.getting(org.nosphere.apache.rat.RatTask::class) {
     gitignore(gitProps)
     verbose.set(true)
-    substringMatcher(
-        "BTCL ",
-        "BreakTest Community Source License 1.0",
-        "Licensed under the BreakTest Community Source License 1.0"
-    )
     approvedLicense("Apache License Version 2.0")
-    approvedLicense("BreakTest Community Source License 1.0")
     // Note: patterns are in non-standard syntax for RAT, so we use exclude(..) instead of excludeFile
     exclude(rootDir.resolve(".ratignore").readLines())
     // Gradle's validation might assume copyLibs and rat operate on the intersecting set of files

@@ -21,73 +21,82 @@ import java.util.Collection;
 import java.util.Map;
 
 import org.apache.jmeter.config.Arguments;
-import org.apache.jmeter.engine.util.ValueReplacer;
-import org.apache.jmeter.functions.InvalidVariableException;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerBase;
 import org.apache.jmeter.protocol.http.util.RecordedValueReplacer;
 import org.apache.jmeter.testelement.TestElement;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.jmeter.testelement.property.MultiProperty;
+import org.apache.jmeter.testelement.property.PropertyIterator;
+import org.apache.jmeter.testelement.property.StringProperty;
 
 /** Applies recorder variables while retaining the encoding of request values. */
 final class RecordedVariableReplacer {
-    private static final Logger log = LoggerFactory.getLogger(RecordedVariableReplacer.class);
-
     private RecordedVariableReplacer() {
     }
 
     static void replaceValues(TestElement sampler, TestElement[] configs, Collection<? extends Arguments> variables) {
         // Build the replacer from all the variables in the collection:
-        ValueReplacer replacer = new ValueReplacer();
         Map<String, String> recordedVariables = new java.util.LinkedHashMap<>();
         for (Arguments variable : variables) {
             final Map<String, String> map = variable.getArgumentsAsMap();
             // Drop any empty values (Bug 45199)
             map.values().removeIf(""::equals);
-            replacer.addVariables(map);
             recordedVariables.putAll(map);
         }
 
-        try {
-            HTTPSamplerBase recorded = sampler instanceof HTTPSamplerBase http
-                    ? (HTTPSamplerBase) http.clone() : null;
-            replacer.reverseReplace(sampler, false);
-            if (recorded != null && sampler instanceof HTTPSamplerBase http) {
-                http.setPath(recorded.getPath());
-                for (int i = 0; i < http.getArguments().getArgumentCount(); i++) {
-                    http.getArguments().getArgument(i).setValue(recorded.getArguments().getArgument(i).getValue());
-                }
-                for (int i = 0; i < http.getNativeHeaderList().size(); i++) {
-                    http.getNativeHeaderList().get(i).setValue(recorded.getNativeHeaderList().get(i).getValue());
-                }
+        HTTPSamplerBase recorded = sampler instanceof HTTPSamplerBase http
+                ? (HTTPSamplerBase) http.clone() : null;
+        replaceProperties(sampler.propertyIterator(), recordedVariables);
+        if (recorded != null && sampler instanceof HTTPSamplerBase http) {
+            http.setPath(recorded.getPath());
+            for (int i = 0; i < http.getArguments().getArgumentCount(); i++) {
+                http.getArguments().getArgument(i).setValue(recorded.getArguments().getArgument(i).getValue());
+            }
+            for (int i = 0; i < http.getNativeHeaderList().size(); i++) {
+                http.getNativeHeaderList().get(i).setValue(recorded.getNativeHeaderList().get(i).getValue());
+            }
+        }
+        for (TestElement config : configs) {
+            if (config != null && !(config instanceof HeaderManager)) {
+                replaceProperties(config.propertyIterator(), recordedVariables);
+            }
+        }
+        // Parsed parameters are already decoded. Raw fields need an encoding function.
+        for (var entry : recordedVariables.entrySet()) {
+            String reference = "${" + entry.getKey() + "}";
+            if (sampler instanceof HTTPSamplerBase httpSampler) {
+                RecordedValueReplacer.replaceSampler(httpSampler, entry.getValue(), reference);
             }
             for (TestElement config : configs) {
-                if (config != null && !(config instanceof HeaderManager)) {
-                    replacer.reverseReplace(config, false);
-                }
-            }
-            // Parsed parameters are already decoded. Raw fields need an encoding function.
-            for (var entry : recordedVariables.entrySet()) {
-                String reference = "${" + entry.getKey() + "}";
-                if (sampler instanceof HTTPSamplerBase httpSampler) {
-                    RecordedValueReplacer.replaceSampler(httpSampler, entry.getValue(), reference);
-                }
-                for (TestElement config : configs) {
-                    if (config instanceof HeaderManager headers) {
-                        for (var property : headers.getHeaders()) {
-                            Header header = (Header) property.getObjectValue();
-                            header.setName(RecordedValueReplacer.replace(
-                                    header.getName(), entry.getValue(), reference, true));
-                            header.setValue(RecordedValueReplacer.replace(
-                                    header.getValue(), entry.getValue(), reference, false));
-                        }
+                if (config instanceof HeaderManager headers) {
+                    for (var property : headers.getHeaders()) {
+                        Header header = (Header) property.getObjectValue();
+                        header.setName(RecordedValueReplacer.replace(
+                                header.getName(), entry.getValue(), reference, true));
+                        header.setValue(RecordedValueReplacer.replace(
+                                header.getValue(), entry.getValue(), reference, false));
                     }
                 }
             }
-        } catch (InvalidVariableException e) {
-            log.warn("Invalid variables included for replacement into recorded sample", e);
+        }
+    }
+
+    private static void replaceProperties(PropertyIterator properties, Map<String, String> variables) {
+        while (properties.hasNext()) {
+            var property = properties.next();
+            if (property instanceof MultiProperty multi) {
+                replaceProperties(multi.iterator(), variables);
+            } else if (property instanceof StringProperty
+                    && !property.getName().startsWith("TestElement.")
+                    && !property.getName().startsWith("BreakTest.recording.")) {
+                String value = property.getStringValue();
+                for (var entry : variables.entrySet()) {
+                    // Preserve existing references, including those inserted by a previously accepted pair.
+                    value = RecordedValueReplacer.replace(value, entry.getValue(), "${" + entry.getKey() + "}", true);
+                }
+                property.setObjectValue(value);
+            }
         }
     }
 }

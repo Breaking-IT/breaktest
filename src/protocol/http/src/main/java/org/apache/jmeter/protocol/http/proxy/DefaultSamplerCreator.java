@@ -75,6 +75,7 @@ public class DefaultSamplerCreator extends AbstractSamplerCreator {
     private static final int SAMPLER_NAME_NAMING_MODE_COMPLETE = 1;  // $NON-NLS-1$
     private static final int SAMPLER_NAME_NAMING_MODE_SUFFIX = 2; // $NON-NLS-1$
     private static final int SAMPLER_NAME_NAMING_MODE_FORMATTER = 3; // $NON_NLS-1$
+    private static final int SAMPLER_NAME_NAMING_MODE_PATH = 4;
 
     private static final ObjectMapper OBJECT_MAPPER = JsonMapper.builder()
             // See https://github.com/FasterXML/jackson-core/issues/991
@@ -376,6 +377,9 @@ public class DefaultSamplerCreator extends AbstractSamplerCreator {
     }
 
     private static String getFormat(int httpSampleNameMode, String format) {
+        if (httpSampleNameMode == SAMPLER_NAME_NAMING_MODE_PATH) {
+            return "{1}";
+        }
         if (httpSampleNameMode == SAMPLER_NAME_NAMING_MODE_FORMATTER) {
             return format.replaceAll("\\{(\\d+(,[^}]*)?)\\}", "'{'$1'}'")
                     .replaceAll("#\\{name([,}])", "{0$1")

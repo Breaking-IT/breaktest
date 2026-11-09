@@ -17,11 +17,8 @@
 
 package org.apache.jmeter.visualizers;
 
-import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -33,11 +30,10 @@ import java.util.regex.Pattern;
 
 import org.apache.jmeter.samplers.SampleResult;
 
-/** A snapshot of the HTTP request, shared by clipboard export and background replay. */
+/** A snapshot of the HTTP request, for clipboard export. */
 final class CurlRequest {
     private static final Pattern CHARSET = Pattern.compile("(?i)charset=\\s*[\"]?([^;\\s\"]+)");
     private static final Pattern TOKEN = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
-    private static final int MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
     private final List<String> arguments;
     private final byte[] body;
     private final String url;
@@ -183,28 +179,4 @@ final class CurlRequest {
         return "'" + value.replace("'", "'\"'\"'") + "'";
     }
 
-    String replay() throws IOException, InterruptedException {
-        // No shell: captured request values are always literal arguments or stdin bytes.
-        Path input = Files.createTempFile("breaktest-replay-", ".body");
-        Process process = null;
-        try {
-            Files.write(input, body);
-            process = new ProcessBuilder(arguments).redirectInput(input.toFile()).redirectErrorStream(true).start();
-            byte[] output = process.getInputStream().readNBytes(MAX_RESPONSE_BYTES + 1);
-            if (output.length > MAX_RESPONSE_BYTES) {
-                throw new IOException("Replay response exceeds the 5 MiB display limit.");
-            }
-            String response = new String(output, StandardCharsets.UTF_8);
-            int exit = process.waitFor();
-            if (exit != 0) {
-                throw new IOException("curl replay failed (exit " + exit + ").\n" + response);
-            }
-            return response;
-        } finally {
-            if (process != null) {
-                process.destroyForcibly();
-            }
-            Files.deleteIfExists(input);
-        }
-    }
 }

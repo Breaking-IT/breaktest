@@ -266,7 +266,7 @@ public class WeightedSwitchControllerGui extends AbstractControllerGui implement
         public void setValueAt(Object value, int row, int column) {
             if (column == 1) {
                 String weight = value.toString().trim();
-                WeightedSwitchController.parseWeight(weight);
+                WeightedSwitchController.validateWeight(weight);
                 pendingWeights.put(children.get(row), weight);
                 fireTableCellUpdated(row, column);
             }
@@ -289,7 +289,7 @@ public class WeightedSwitchControllerGui extends AbstractControllerGui implement
         @Override
         public boolean stopCellEditing() {
             try {
-                WeightedSwitchController.parseWeight(getCellEditorValue().toString());
+                WeightedSwitchController.validateWeight(getCellEditorValue().toString());
                 return super.stopCellEditing();
             } catch (IllegalArgumentException e) {
                 ((JTextField) getComponent()).setBorder(BorderFactory.createLineBorder(Color.RED));

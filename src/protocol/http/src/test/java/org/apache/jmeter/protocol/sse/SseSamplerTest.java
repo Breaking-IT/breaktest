@@ -78,11 +78,16 @@ class SseSamplerTest extends JMeterTestCase {
         AtomicReference<String> accept = new AtomicReference<>();
         AtomicReference<String> cookie = new AtomicReference<>();
         CountDownLatch actionReported = new CountDownLatch(1);
+        CountDownLatch eventReported = new CountDownLatch(1);
         Results results = new Results() {
             @Override public void sampleOccurred(SampleEvent event) {
                 super.sampleOccurred(event);
                 if ("ok".equals(event.getResult().getResponseDataAsString())) {
                     actionReported.countDown();
+                }
+                if ("page/42".equals(event.getResult().getResponseDataAsString())
+                        && event.getResult().getResponseHeaders().contains("evt-1")) {
+                    eventReported.countDown();
                 }
             }
         };
@@ -161,6 +166,11 @@ class SseSamplerTest extends JMeterTestCase {
                 mainContinued.countDown();
                 assertTrue(acted.await(5, TimeUnit.SECONDS));
                 assertTrue(actionReported.await(5, TimeUnit.SECONDS), "Wait for the handler's sample before closing its flow");
+                // Handler results and incoming-event notifications run independently. Closing
+                // the session can discard pending notifications even after the handler finished.
+                if (!"uncounted".equals(protocol)) {
+                    assertTrue(eventReported.await(5, TimeUnit.SECONDS), "Wait for the incoming event sample before closing its flow");
+                }
             }, failure));
             SseCloseSampler close = new SseCloseSampler();
             close.setName("close events");

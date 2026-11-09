@@ -70,6 +70,7 @@ public class SampleResultConverter extends AbstractCollectionConverter {
     private static final String ATT_DATA_ENCODING     = "de"; //$NON-NLS-1$
     private static final String ATT_DATA_TYPE         = "dt"; //$NON-NLS-1$
     private static final String ATT_ERROR_COUNT       = "ec"; //$NON-NLS-1$
+    private static final String ATT_CONNECT_TIME_COUNT = "ctc"; //$NON-NLS-1$
     private static final String ATT_HOSTNAME          = "hn"; //$NON-NLS-1$
     private static final String ATT_LABEL             = "lb"; //$NON-NLS-1$
     private static final String ATT_LATENCY           = "lt"; //$NON-NLS-1$
@@ -292,8 +293,11 @@ public class SampleResultConverter extends AbstractCollectionConverter {
         if (save.saveLatency()) {
             writer.addAttribute(ATT_LATENCY, Long.toString(res.getLatency()));
         }
-        if (save.saveConnectTime()) {
+        if (save.saveConnectTime() && res.getConnectTime() >= 0) {
             writer.addAttribute(ATT_CONNECT_TIME, Long.toString(res.getConnectTime()));
+            if (res instanceof org.apache.jmeter.samplers.StatisticalSampleResult statistical) {
+                writer.addAttribute(ATT_CONNECT_TIME_COUNT, Integer.toString(statistical.getConnectTimeCount()));
+            }
         }
         if (save.saveTimestamp()) {
             writer.addAttribute(ATT_TIME_STAMP, Long.toString(res.getTimeStamp()));
@@ -460,11 +464,16 @@ public class SampleResultConverter extends AbstractCollectionConverter {
                 Converter.getLong(reader.getAttribute(ATT_TIME)));
         res.setIdleTime(Converter.getLong(reader.getAttribute(ATT_IDLETIME)));
         res.setLatency(Converter.getLong(reader.getAttribute(ATT_LATENCY)));
-        res.setConnectTime(Converter.getLong(reader.getAttribute(ATT_CONNECT_TIME)));
+        res.setConnectTime(reader.getAttribute(ATT_CONNECT_TIME) == null
+                ? SampleResult.CONNECT_TIME_UNAVAILABLE : Converter.getLong(reader.getAttribute(ATT_CONNECT_TIME)));
         res.setBytes(Converter.getLong(reader.getAttribute(ATT_BYTES)));
         res.setSentBytes(Converter.getLong(reader.getAttribute(ATT_SENT_BYTES)));
         res.setSampleCount(Converter.getInt(reader.getAttribute(ATT_SAMPLE_COUNT),1)); // default is 1
         res.setErrorCount(Converter.getInt(reader.getAttribute(ATT_ERROR_COUNT),0)); // default is 0
+        if (res instanceof org.apache.jmeter.samplers.StatisticalSampleResult statistical) {
+            statistical.setConnectTimeCount(Converter.getInt(reader.getAttribute(ATT_CONNECT_TIME_COUNT),
+                    res.getConnectTime() < 0 ? 0 : res.getSampleCount()));
+        }
         res.setGroupThreads(Converter.getInt(reader.getAttribute(ATT_GRP_THRDS)));
         res.setAllThreads(Converter.getInt(reader.getAttribute(ATT_ALL_THRDS)));
         CSVSaveService.setTransactionIds(res, reader.getAttribute(ATT_TRANSACTION_ID),

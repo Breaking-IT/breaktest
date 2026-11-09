@@ -65,6 +65,11 @@ public class TreeClonerForValidation extends TreeCloner {
      */
     protected static final int VALIDATION_ITERATIONS = JMeterUtils.getPropDefault("testplan_validation.number_iterations", 1); //$NON-NLS-1$
 
+    static final ValidationSettings DEFAULT_SETTINGS = new ValidationSettings(
+            VALIDATION_NUMBER_OF_THREADS, VALIDATION_IGNORE_TIMERS, VALIDATION_ITERATIONS, VALIDATION_IGNORE_BACKENDS);
+
+    private ValidationSettings settings = DEFAULT_SETTINGS;
+
     static {
         log.info("Running validation with number of threads:{}, ignoreTimers:{}, number of iterations:{}",
                 VALIDATION_NUMBER_OF_THREADS, VALIDATION_IGNORE_TIMERS, VALIDATION_ITERATIONS);
@@ -79,14 +84,30 @@ public class TreeClonerForValidation extends TreeCloner {
     }
 
     /**
+     * Overrides the settings of this run only; the properties keep defining ordinary validation.
+     *
+     * @param settings settings to clone with
+     */
+    public void setSettings(ValidationSettings settings) {
+        this.settings = settings;
+    }
+
+    /**
+     * @return settings this cloner applies
+     */
+    public ValidationSettings getSettings() {
+        return settings;
+    }
+
+    /**
      * @see org.apache.jmeter.engine.TreeCloner#addNodeToTree(java.lang.Object)
      */
     @Override
     protected Object addNodeToTree(Object node) {
         String parent = checkpointParents.isEmpty() ? "" : checkpointParents.get(checkpointParents.size() - 1);
         checkpointParents.add(parent);
-        if((VALIDATION_IGNORE_TIMERS && node instanceof Timer) ||
-                (VALIDATION_IGNORE_BACKENDS && node instanceof Backend)) {
+        if((settings.ignoreTimers() && node instanceof Timer) ||
+                (settings.ignoreBackends() && node instanceof Backend)) {
             return node; // don't add timer or backend
         } else {
             Object nodeToClone = node instanceof OpenModelThreadGroup openModelThreadGroup
@@ -100,7 +121,7 @@ public class TreeClonerForValidation extends TreeCloner {
                 tg.setClosedModelMode(ThreadGroup.CLOSED_MODEL_MODE_STANDARD);
                 tg.setClosedModelSchedule("");
                 tg.setOpenModelSchedule("");
-                tg.setNumThreads(VALIDATION_NUMBER_OF_THREADS);
+                tg.setNumThreads(settings.threadsPerThreadGroup());
                 tg.setScheduler(false);
                 tg.setProperty(ThreadGroup.DELAY, 0);
                 if (!tg.getPropertyAsString(AbstractThreadGroup.VALIDATION_ON_ERROR).isEmpty()) {
@@ -114,7 +135,7 @@ public class TreeClonerForValidation extends TreeCloner {
                     tg.setProperty(AbstractThreadGroup.ON_SAMPLE_ERROR, AbstractThreadGroup.ON_SAMPLE_ERROR_STOPTHREAD);
                 }
                 if(((AbstractThreadGroup)clonedNode).getSamplerController() instanceof LoopController) {
-                    ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(VALIDATION_ITERATIONS);
+                    ((LoopController)((AbstractThreadGroup)clonedNode).getSamplerController()).setLoops(settings.iterations());
                 }
             }
             if (node instanceof TestElement source && clonedNode instanceof TestElement clone) {

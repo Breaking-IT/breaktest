@@ -162,7 +162,7 @@ public final class Jsr223AiHelper {
         AiAutoScriptingLogWindow.append("JSR223 AI Helper: generating script update.");
         AiAutoScriptingLogWindow.append(engine.description());
         Thread worker = new Thread(
-                () -> runAi(engine, target, context),
+                () -> runAi(engine, target, textArea, context),
                 "BreakTest JSR223 AI Helper"
         );
         worker.setDaemon(true);
@@ -196,7 +196,8 @@ public final class Jsr223AiHelper {
         );
     }
 
-    private static void runAi(AiEngineChooser.Engine engine, JMeterTreeNode target, ScriptContext context) {
+    private static void runAi(
+            AiEngineChooser.Engine engine, JMeterTreeNode target, JSyntaxTextArea textArea, ScriptContext context) {
         Path workingDirectory = null;
         try {
             // A private folder holding only the script works the same for every AI CLI: the agent
@@ -225,7 +226,7 @@ public final class Jsr223AiHelper {
                 return;
             }
             SwingUtilities.invokeAndWait(() -> {
-                if (applyScript(target, updatedScript)) {
+                if (applyScript(target, textArea, updatedScript)) {
                     AiAutoScriptingLogWindow.append("JSR223 AI Helper applied the script update to " + target.getName() + ".");
                     AiAutoScriptingLogWindow.finishRun("JSR223 helper finished");
                 } else {
@@ -344,7 +345,7 @@ public final class Jsr223AiHelper {
     }
 
     /** Applies the result on the EDT to the initiating node, never to a reused editor. */
-    static boolean applyScript(JMeterTreeNode target, String updatedScript) {
+    static boolean applyScript(JMeterTreeNode target, JSyntaxTextArea textArea, String updatedScript) {
         GuiPackage gui = GuiPackage.getInstance();
         if (gui == null || target.getRoot() != gui.getTreeModel().getRoot()
                 || !(target.getTestElement() instanceof JSR223TestElement element)) {
@@ -352,13 +353,26 @@ public final class Jsr223AiHelper {
         }
         // Flush any visible edits before changing the model so they cannot overwrite the result.
         gui.updateCurrentNode();
-        element.setProperty("script", updatedScript); // $NON-NLS-1$
-        element.setScript(updatedScript);
-        if (gui.getCurrentNode() == target) {
-            gui.refreshCurrentGui();
+        gui.beginUndoTransaction("Ask AI: Update JSR223 script");
+        try {
+            if (gui.getCurrentNode() == target) {
+                // Keep the editor history, with the complete AI replacement as one edit.
+                textArea.beginAtomicEdit();
+                try {
+                    textArea.replaceRange(updatedScript, 0, textArea.getDocument().getLength());
+                    textArea.setCaretPosition(0);
+                } finally {
+                    textArea.endAtomicEdit();
+                }
+            }
+            element.setProperty("script", updatedScript); // $NON-NLS-1$
+            element.setScript(updatedScript);
+            gui.setDirty(true);
+            target.nameChanged();
+            gui.addUndoHistory("Ask AI: Update JSR223 script");
+        } finally {
+            gui.endUndoTransaction();
         }
-        target.nameChanged();
-        gui.setDirty(true);
         return true;
     }
 

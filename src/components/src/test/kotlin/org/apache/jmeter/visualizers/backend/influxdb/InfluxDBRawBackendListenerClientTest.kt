@@ -43,6 +43,12 @@ class InfluxDBRawBackendListenerClientTest {
     }
 
     @Test
+    fun `Unavailable connect time is omitted from numeric fields`() {
+        val sample = createOkSample().apply { connectTime = SampleResult.CONNECT_TIME_UNAVAILABLE }
+        assertEquals("duration=100,ttfb=42", InfluxDBRawBackendListenerClient.createFields(sample))
+    }
+
+    @Test
     fun `Default parameters contain minimum required options`() {
         val actualKeys = sut.getDefaultParameters()
             .getArgumentsAsMap()

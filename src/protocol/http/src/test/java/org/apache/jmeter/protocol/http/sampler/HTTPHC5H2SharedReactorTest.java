@@ -67,13 +67,13 @@ class HTTPHC5H2SharedReactorTest extends JMeterTestCase {
     @AfterEach
     void restoreProperty() {
         JMeterUtils.getJMeterProperties().remove(HTTPHC5H2Impl.SHARED_REACTOR);
-        JMeterUtils.getJMeterProperties().remove(HTTPHC5H2Impl.SHARED_REACTOR_IDLE_CLOSE_MS);
+        JMeterUtils.getJMeterProperties().remove(SharedAsyncClients.IDLE_CLOSE_MS);
     }
 
     @Test
     void usersShareOneClientButKeepTheirOwnConnections() throws Exception {
         JMeterUtils.setProperty(HTTPHC5H2Impl.SHARED_REACTOR, "true");
-        JMeterUtils.setProperty(HTTPHC5H2Impl.SHARED_REACTOR_IDLE_CLOSE_MS, "0");
+        JMeterUtils.setProperty(SharedAsyncClients.IDLE_CLOSE_MS, "0");
         Peers peers = runTwoUsers(port -> assertEquals(1,
                 HTTPHC5H2Impl.sharedClientCount(port), "users with the same client settings share one client"));
 
@@ -87,7 +87,7 @@ class HTTPHC5H2SharedReactorTest extends JMeterTestCase {
     @Test
     void idleSharedClientOutlivesItsLastUserForTheGracePeriod() throws Exception {
         JMeterUtils.setProperty(HTTPHC5H2Impl.SHARED_REACTOR, "true");
-        JMeterUtils.setProperty(HTTPHC5H2Impl.SHARED_REACTOR_IDLE_CLOSE_MS, "1500");
+        JMeterUtils.setProperty(SharedAsyncClients.IDLE_CLOSE_MS, "1500");
         int port = runTwoUsers(ignored -> { }).port;
 
         assertEquals(1, HTTPHC5H2Impl.sharedClientCount(port),

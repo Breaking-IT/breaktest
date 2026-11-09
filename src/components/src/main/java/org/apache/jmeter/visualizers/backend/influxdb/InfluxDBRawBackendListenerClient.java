@@ -170,7 +170,7 @@ public class InfluxDBRawBackendListenerClient implements BackendListenerClient {
         long connectTime = sampleResult.getConnectTime();
         return "duration=" + duration
                 + ",ttfb=" + latency
-                + ",connectTime=" + connectTime;
+                + (connectTime < 0 ? "" : ",connectTime=" + connectTime);
     }
 
     @Override

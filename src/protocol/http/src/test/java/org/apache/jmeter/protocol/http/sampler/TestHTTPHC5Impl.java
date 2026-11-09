@@ -26,7 +26,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InterruptedIOException;
+import java.net.InetSocketAddress;
 import java.net.NoRouteToHostException;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
@@ -34,12 +36,24 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyStore;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
+
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
 
 import org.apache.hc.client5.http.ConnectTimeoutException;
 import org.apache.hc.client5.http.auth.AuthScope;
@@ -65,18 +79,30 @@ import org.apache.hc.core5.http.protocol.HttpCoreContext;
 import org.apache.hc.core5.http2.HttpVersionPolicy;
 import org.apache.hc.core5.net.NamedEndpoint;
 import org.apache.hc.core5.reactor.IOReactorConfig;
+import org.apache.jmeter.config.ConfigTestElement;
+import org.apache.jmeter.control.LoopController;
+import org.apache.jmeter.control.ParallelController;
 import org.apache.jmeter.engine.util.ValueReplacer;
+import org.apache.jmeter.protocol.http.config.gui.HttpDefaultsGui;
 import org.apache.jmeter.protocol.http.control.AuthManager;
 import org.apache.jmeter.protocol.http.control.AuthManager.Mechanism;
 import org.apache.jmeter.protocol.http.control.Authorization;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.protocol.http.util.HTTPFileArg;
+import org.apache.jmeter.samplers.SampleEvent;
+import org.apache.jmeter.samplers.SampleListener;
 import org.apache.jmeter.samplers.SampleResult;
+import org.apache.jmeter.testelement.AbstractTestElement;
+import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
+import org.apache.jmeter.threads.ListenerNotifier;
+import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.wiremock.WireMockExtension;
+import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -88,6 +114,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
+import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsExchange;
+import com.sun.net.httpserver.HttpsParameters;
+import com.sun.net.httpserver.HttpsServer;
 
 @ExtendWith(WireMockExtension.class)
 public class TestHTTPHC5Impl {
@@ -100,6 +131,403 @@ public class TestHTTPHC5Impl {
             JMeterUtils.loadJMeterProperties(properties.toString());
             Files.deleteIfExists(properties);
         }
+    }
+
+    @Test
+    void sequentialAndParallelRequestsReuseOnlyTheirUsersConnections() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var handlers = Executors.newCachedThreadPool();
+        var users = Executors.newFixedThreadPool(2);
+        Map<String, Set<Integer>> sockets = new ConcurrentHashMap<>();
+        Map<String, CyclicBarrier> barriers = new ConcurrentHashMap<>();
+        CountDownLatch firstFinished = new CountDownLatch(1);
+        server.setExecutor(handlers);
+        server.createContext("/", exchange -> {
+            String[] path = exchange.getRequestURI().getPath().split("/");
+            String key = path[1] + "/" + path[2];
+            sockets.computeIfAbsent(key, ignored -> ConcurrentHashMap.newKeySet())
+                    .add(exchange.getRemoteAddress().getPort());
+            try {
+                if (key.equals("second/0") && !firstFinished.await(20, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("First user did not finish");
+                }
+                int parallelism = Integer.parseInt(path[2]);
+                if (parallelism > 1) {
+                    // Hold every response until the whole group has an active connection.
+                    barriers.computeIfAbsent(key, ignored -> new CyclicBarrier(parallelism))
+                            .await(10, TimeUnit.SECONDS);
+                }
+                exchange.sendResponseHeaders(200, 2);
+                exchange.getResponseBody().write(new byte[] {'o', 'k'});
+            } catch (Exception failure) {
+                throw new IOException(failure);
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        try {
+            var first = users.submit(() -> {
+                try {
+                    runConnectionSequence(server.getAddress().getPort(), "first");
+                } finally {
+                    firstFinished.countDown();
+                }
+            });
+            var second = users.submit(() -> runConnectionSequence(server.getAddress().getPort(), "second"));
+            first.get(30, TimeUnit.SECONDS);
+            second.get(30, TimeUnit.SECONDS);
+            for (String user : List.of("first", "second")) {
+                Set<Integer> initial = sockets.get(user + "/1");
+                Set<Integer> two = sockets.get(user + "/2");
+                Set<Integer> four = sockets.get(user + "/4");
+                assertEquals(1, initial.size());
+                assertEquals(2, two.size());
+                assertEquals(4, four.size());
+                assertTrue(two.containsAll(initial), "First parallel group must reuse the initial connection");
+                assertTrue(four.containsAll(two), "Second parallel group must reuse both existing connections");
+                assertTrue(four.containsAll(sockets.get(user + "/0")), "Sequential tail must reuse the shared pool");
+            }
+            assertTrue(Collections.disjoint(sockets.get("first/4"), sockets.get("second/4")),
+                    "Different virtual users must never share sockets");
+        } finally {
+            users.shutdownNow();
+            server.stop(0);
+            handlers.shutdownNow();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"TLSv1.2", "TLSv1.3"})
+    void parallelConnectionsResumeTlsOnlyWithinTheirUser(String protocol, @TempDir Path directory)
+            throws Exception {
+        Path store = directory.resolve("server.p12");
+        Process keytool = new ProcessBuilder(
+                Path.of(System.getProperty("java.home"), "bin", "keytool").toString(),
+                "-genkeypair", "-alias", "server", "-keyalg", "RSA", "-storetype", "PKCS12",
+                "-keystore", store.toString(), "-storepass", "password", "-keypass", "password",
+                "-dname", "CN=localhost", "-validity", "2")
+                .redirectErrorStream(true).start();
+        String output = new String(keytool.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, keytool.waitFor(), output);
+        KeyStore keys = KeyStore.getInstance("PKCS12");
+        try (var input = Files.newInputStream(store)) {
+            keys.load(input, "password".toCharArray());
+        }
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keys, "password".toCharArray());
+        SSLContext tls = SSLContext.getInstance("TLS");
+        tls.init(kmf.getKeyManagers(), null, null);
+        HttpsServer server = HttpsServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setHttpsConfigurator(new HttpsConfigurator(tls) {
+            @Override
+            public void configure(HttpsParameters parameters) {
+                var ssl = tls.getDefaultSSLParameters();
+                ssl.setProtocols(new String[] {protocol});
+                parameters.setSSLParameters(ssl);
+            }
+        });
+        var handlers = Executors.newCachedThreadPool();
+        Map<String, Long> sessions = new ConcurrentHashMap<>();
+        Map<String, Set<Integer>> sockets = new ConcurrentHashMap<>();
+        CyclicBarrier parallel = new CyclicBarrier(5);
+        server.setExecutor(handlers);
+        server.createContext("/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            String user = path.split("/")[1];
+            // SunJSSE preserves the original session creation time on resumption,
+            // including TLS 1.3 where session IDs themselves change.
+            sessions.put(path, ((HttpsExchange) exchange).getSSLSession().getCreationTime());
+            sockets.computeIfAbsent(user, ignored -> ConcurrentHashMap.newKeySet())
+                    .add(exchange.getRemoteAddress().getPort());
+            try {
+                if (!path.endsWith("/initial")) {
+                    parallel.await(10, TimeUnit.SECONDS);
+                }
+                exchange.getResponseHeaders().set("Connection", "close");
+                exchange.sendResponseHeaders(200, 2);
+                exchange.getResponseBody().write(new byte[] {'o', 'k'});
+            } catch (Exception failure) {
+                throw new IOException(failure);
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        try {
+            for (String user : List.of("first", "second")) {
+                LoopController loop = new LoopController();
+                loop.setLoops(1);
+                loop.setContinueForever(false);
+                ListedHashTree tree = new ListedHashTree();
+                var flow = tree.add(loop);
+                SuccessfulSamples listener = new SuccessfulSamples();
+                flow.add(listener);
+                HTTPSamplerProxy initial = classicSampler(server.getAddress().getPort(), "/" + user + "/initial");
+                initial.setProtocol("https");
+                initial.setMaxConnectionsPerHost("6");
+                flow.add(initial);
+                var branches = flow.add(new ParallelController());
+                for (int i = 0; i < 5; i++) {
+                    HTTPSamplerProxy sampler = classicSampler(server.getAddress().getPort(), "/" + user + "/" + i);
+                    sampler.setProtocol("https");
+                    sampler.setMaxConnectionsPerHost("6");
+                    branches.add(sampler);
+                }
+                ThreadGroup group = new ThreadGroup();
+                group.setNumThreads(1);
+                JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier());
+                thread.setThreadGroup(group);
+                thread.setThreadName(user);
+                thread.run();
+                assertEquals(6, listener.results.size());
+                for (SampleResult result : listener.results) {
+                    assertTrue(result.isSuccessful(), result.getResponseMessage());
+                }
+                assertEquals(6, sockets.get(user).size(), "Every request must establish a new socket");
+                Long firstSession = sessions.get("/" + user + "/initial");
+                assertTrue(java.util.stream.IntStream.range(0, 5)
+                        .anyMatch(i -> firstSession.equals(sessions.get("/" + user + "/" + i))),
+                        "At least one parallel connection must resume the initial TLS session: " + sessions);
+            }
+            Set<Long> firstUser = ConcurrentHashMap.newKeySet();
+            sessions.forEach((path, session) -> {
+                if (path.startsWith("/first/")) {
+                    firstUser.add(session);
+                }
+            });
+            sessions.forEach((path, session) -> {
+                if (path.startsWith("/second/")) {
+                    assertFalse(firstUser.contains(session), "Users must not share TLS sessions");
+                }
+            });
+        } finally {
+            server.stop(0);
+            handlers.shutdownNow();
+        }
+    }
+
+    private static void runConnectionSequence(int port, String user) {
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        ListedHashTree tree = new ListedHashTree();
+        var flow = tree.add(loop);
+        SuccessfulSamples listener = new SuccessfulSamples();
+        flow.add(listener);
+        flow.add(classicSampler(port, "/" + user + "/1/home"));
+        for (int count : List.of(2, 4)) {
+            ParallelController parallel = new ParallelController();
+            parallel.setName("parallel-" + count);
+            var group = flow.add(parallel);
+            for (int i = 0; i < count; i++) {
+                group.add(classicSampler(port, "/" + user + "/" + count + "/" + i));
+            }
+        }
+        flow.add(classicSampler(port, "/" + user + "/0/photo"));
+        ThreadGroup group = new ThreadGroup();
+        group.setNumThreads(1);
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier());
+        thread.setThreadGroup(group);
+        thread.setThreadName(user);
+        thread.run();
+        assertEquals(8, listener.results.size());
+        for (SampleResult result : listener.results) {
+            assertTrue(result.isSuccessful(), result.getSampleLabel() + ": " + result.getResponseMessage());
+        }
+    }
+
+    private static class SuccessfulSamples extends AbstractTestElement implements SampleListener {
+        private final Queue<SampleResult> results = new ConcurrentLinkedQueue<>();
+
+        @Override
+        public void sampleOccurred(SampleEvent event) {
+            results.add(event.getResult());
+        }
+
+        @Override
+        public void sampleStarted(SampleEvent event) {
+        }
+
+        @Override
+        public void sampleStopped(SampleEvent event) {
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 2, 6})
+    void parallelRequestsRespectDefaultsLimitIndependentlyPerUser(int configuredLimit) throws Exception {
+        int limit = configuredLimit > 0 ? configuredLimit : 6;
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var handlers = Executors.newCachedThreadPool();
+        var users = Executors.newFixedThreadPool(2);
+        CountDownLatch firstWave = new CountDownLatch(2 * limit);
+        CountDownLatch excessRequest = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Map<String, Set<Integer>> sockets = new ConcurrentHashMap<>();
+        Map<String, AtomicInteger> arrivals = new ConcurrentHashMap<>();
+        server.setExecutor(handlers);
+        server.createContext("/", exchange -> {
+            String user = exchange.getRequestURI().getPath().split("/")[1];
+            sockets.computeIfAbsent(user, ignored -> ConcurrentHashMap.newKeySet())
+                    .add(exchange.getRemoteAddress().getPort());
+            boolean queued = arrivals.computeIfAbsent(user, ignored -> new AtomicInteger()).incrementAndGet() > limit;
+            if (queued) {
+                excessRequest.countDown();
+            }
+            firstWave.countDown();
+            try {
+                if (!release.await(10, TimeUnit.SECONDS)) {
+                    throw new IOException("Timed out waiting to release connections");
+                }
+                byte[] body = (queued ? "queued" : "initial").getBytes(StandardCharsets.UTF_8);
+                exchange.sendResponseHeaders(200, body.length);
+                exchange.getResponseBody().write(body);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException(e);
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        try {
+            var first = users.submit(() -> runLimitedParallelUser(server.getAddress().getPort(), "first", configuredLimit, 0, limit + 2));
+            var second = users.submit(() -> runLimitedParallelUser(server.getAddress().getPort(), "second", configuredLimit, 0, limit + 2));
+            assertTrue(firstWave.await(5, TimeUnit.SECONDS), "Both users must get their full connection allowance independently");
+            assertFalse(excessRequest.await(200, TimeUnit.MILLISECONDS), "Remaining requests must wait in the pool");
+            assertEquals(limit, arrivals.get("first").get());
+            assertEquals(limit, arrivals.get("second").get());
+            long released = System.currentTimeMillis();
+            release.countDown();
+            for (var result : List.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS))) {
+                assertEquals(limit + 2, result.size());
+                for (SampleResult sample : result) {
+                    assertTrue(sample.isSuccessful(), sample.getResponseCode() + ": " + sample.getResponseMessage());
+                    if (sample.getResponseDataAsString().equals("queued")) {
+                        assertTrue(sample.getStartTime() >= released - 50,
+                                "Queued request start must advance past the 200 ms pool wait");
+                        assertEquals(-1, sample.getConnectTime(), "Queued requests reuse an existing connection");
+                        assertTrue(sample.getTime() < sample.getEndTime() - released + 50,
+                                "Elapsed time must not include the pool wait");
+                    }
+                }
+            }
+            assertEquals(limit, sockets.get("first").size(), "Queued requests must reuse connections");
+            assertEquals(limit, sockets.get("second").size());
+            assertTrue(Collections.disjoint(sockets.get("first"), sockets.get("second")));
+        } finally {
+            release.countDown();
+            users.shutdownNow();
+            server.stop(0);
+            handlers.shutdownNow();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void disabledReuseWinsOverCustomKeepAliveHeader(boolean reuse) throws Exception {
+        HTTPSamplerProxy sampler = classicSampler(80, "/");
+        sampler.setUseKeepAlive(reuse);
+        var headers = new org.apache.jmeter.protocol.http.control.HeaderManager();
+        headers.add(new Header("Connection", "keep-alive"));
+        sampler.setHeaderManager(headers);
+        HttpGet request = new HttpGet("http://localhost/");
+        new HTTPHC5Impl(sampler).setupRequest(request.getUri().toURL(), request, null);
+        BasicHttpResponse response = new BasicHttpResponse(200);
+        response.setVersion(HttpVersion.HTTP_1_1);
+        response.setHeader("Content-Length", "0");
+        response.setHeader("Connection", "keep-alive");
+        assertEquals(reuse, org.apache.hc.client5.http.impl.DefaultClientConnectionReuseStrategy.INSTANCE
+                .keepAlive(request, response, HttpClientContext.create()),
+                "The client must discard the connection when reuse is disabled, even if keep-alive is advertised");
+    }
+
+    @Test
+    void unsetAvailabilityTimeoutKeepsClientDefault() throws Exception {
+        HTTPSamplerProxy sampler = classicSampler(80, "/");
+        assertEquals(0, sampler.getMaxConnectionsPerHost());
+        assertEquals(-1, sampler.getConnectionAvailabilityTimeout());
+        HttpGet request = new HttpGet("http://localhost/");
+        new HTTPHC5Impl(sampler).setupRequest(request.getUri().toURL(), request, null);
+        assertEquals(RequestConfig.DEFAULT.getConnectionRequestTimeout(), request.getConfig().getConnectionRequestTimeout());
+    }
+
+    @Test
+    void connectionAvailabilityTimeoutFailsQueuedRequestWithoutConnecting() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var handlers = Executors.newCachedThreadPool();
+        var users = Executors.newSingleThreadExecutor();
+        CountDownLatch arrived = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger requests = new AtomicInteger();
+        server.setExecutor(handlers);
+        server.createContext("/", exchange -> {
+            requests.incrementAndGet();
+            arrived.countDown();
+            try {
+                release.await(2, TimeUnit.SECONDS);
+                exchange.sendResponseHeaders(200, 2);
+                exchange.getResponseBody().write(new byte[] {'o', 'k'});
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException(e);
+            } finally {
+                exchange.close();
+            }
+        });
+        server.start();
+        try {
+            var future = users.submit(() -> runLimitedParallelUser(server.getAddress().getPort(), "user", 1, 100, 2));
+            assertTrue(arrived.await(5, TimeUnit.SECONDS));
+            var results = future.get(10, TimeUnit.SECONDS);
+            assertEquals(2, results.size());
+            assertEquals(1, requests.get(), "Timed-out request must never reach the server");
+            assertEquals(1, results.stream().filter(SampleResult::isSuccessful).count());
+            SampleResult failure = results.stream().filter(result -> !result.isSuccessful()).findFirst().orElseThrow();
+            assertEquals("Connection availability timeout", failure.getResponseCode());
+            assertEquals(-1, failure.getConnectTime());
+            assertTrue(failure.getTime() >= 90, "Pool wait must be included in elapsed time");
+        } finally {
+            release.countDown();
+            users.shutdownNow();
+            server.stop(0);
+            handlers.shutdownNow();
+        }
+    }
+
+    private static Queue<SampleResult> runLimitedParallelUser(
+            int port, String user, int limit, int timeout, int count) {
+        LoopController loop = new LoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        ListedHashTree tree = new ListedHashTree();
+        var flow = tree.add(loop);
+        var defaults = new ConfigTestElement();
+        defaults.setProperty(TestElement.GUI_CLASS,
+                HttpDefaultsGui.class.getName());
+        defaults.set(HTTPSamplerBaseSchema.INSTANCE.getMaxConnectionsPerHost(), limit);
+        defaults.set(HTTPSamplerBaseSchema.INSTANCE.getConnectionAvailabilityTimeout(), timeout);
+        // Embedded-download concurrency must not raise the configured or default cap.
+        defaults.set(HTTPSamplerBaseSchema.INSTANCE.getConcurrentDownload(), true);
+        defaults.set(HTTPSamplerBaseSchema.INSTANCE.getConcurrentDownloadPoolSize(), "12");
+        flow.add(defaults);
+        SuccessfulSamples listener = new SuccessfulSamples();
+        flow.add(listener);
+        ParallelController parallel = new ParallelController();
+        parallel.setName("parallel");
+        parallel.setMaxParallel(count);
+        var branches = flow.add(parallel);
+        for (int i = 0; i < count; i++) {
+            branches.add(classicSampler(port, "/" + user + "/" + i));
+        }
+        ThreadGroup group = new ThreadGroup();
+        group.setNumThreads(1);
+        JMeterThread thread = new JMeterThread(tree, group, new ListenerNotifier());
+        thread.setThreadGroup(group);
+        thread.setThreadName(user);
+        thread.run();
+        return listener.results;
     }
 
     @Test
@@ -166,6 +594,7 @@ public class TestHTTPHC5Impl {
         sampler.setPath(path);
         sampler.setMethod("GET");
         sampler.setHttpProtocol("HTTP/1.1");
+        sampler.setUseKeepAlive(true);
         sampler.setConnectTimeout("5000");
         sampler.setResponseTimeout("5000");
         return sampler;
@@ -182,7 +611,8 @@ public class TestHTTPHC5Impl {
 
         HTTPSamplerProxy defaultProtocol = new HTTPSamplerProxy();
         assertEquals(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT, defaultProtocol.getHttpProtocol());
-        assertEquals(HTTPHC5H2Impl.class,
+        defaultProtocol.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, true);
+        assertEquals(Http3RuntimeSupport.isHttp3Supported() ? HTTPJavaHttp3Impl.class : HTTPHC5H2Impl.class,
                 HTTPSamplerFactory.getImplementation(defaultProtocol.getImplementation(), defaultProtocol).getClass());
 
         HTTPSamplerProxy http2 = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
@@ -820,7 +1250,7 @@ public class TestHTTPHC5Impl {
         WireMockServer server = new WireMockServer(WireMockExtension.loopbackConfig());
         server.start();
         HTTPSamplerProxy sampler = new HTTPSamplerProxy(HTTPSamplerFactory.IMPL_HTTP_CLIENT5);
-        HTTPJavaHttp3Impl http3 = new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.PREFER_HTTP3);
+        HTTPJavaHttp3Impl http3 = new HTTPJavaHttp3Impl(sampler, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
         JMeterVariables previousVariables = JMeterContextService.getContext().getVariables();
         try {
             // The stub accepts the type 1 message, it does not replay a full NTLM handshake:

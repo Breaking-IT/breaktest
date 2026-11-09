@@ -82,7 +82,7 @@ class HTTPSamplerCleartextRoutingTest {
     }
 
     private static boolean routesToHttp11(HTTPSamplerProxy sampler, URL url) {
-        return HTTPSamplerFactory.usesHttp11ForCleartext(sampler.getImplementation(), sampler, url, true, false);
+        return HTTPSamplerFactory.usesHttp11ForCleartext(sampler.getImplementation(), sampler, url, true);
     }
 
     @Test
@@ -110,17 +110,15 @@ class HTTPSamplerCleartextRoutingTest {
     }
 
     @Test
-    void canBeDisabledAndDefersToHttp3Preference() {
+    void cleartextRoutingCanBeDisabled() {
         HTTPSamplerProxy negotiated = sampler("");
         assertFalse(HTTPSamplerFactory.usesHttp11ForCleartext(
-                negotiated.getImplementation(), negotiated, HTTP_URL, false, false));
-        assertFalse(HTTPSamplerFactory.usesHttp11ForCleartext(
-                negotiated.getImplementation(), negotiated, HTTP_URL, true, true));
+                negotiated.getImplementation(), negotiated, HTTP_URL, false));
     }
 
     @Test
     void unknownImplementationIsLeftToTheFactoryToReject() {
-        assertFalse(HTTPSamplerFactory.usesHttp11ForCleartext("NoSuchClient", sampler(""), HTTP_URL, true, false));
+        assertFalse(HTTPSamplerFactory.usesHttp11ForCleartext("NoSuchClient", sampler(""), HTTP_URL, true));
     }
 
     @Test
@@ -130,7 +128,7 @@ class HTTPSamplerCleartextRoutingTest {
         assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL),
                 "the first TLS request must negotiate");
 
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/1.1");
+        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/1.1", "HTTP/1.1 200 OK\nContent-Type: text/plain\n");
 
         assertTrue(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL));
         assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, url("https://other.example/path")),
@@ -144,10 +142,22 @@ class HTTPSamplerCleartextRoutingTest {
         HTTPSamplerProxy negotiated = sampler("");
         String impl = negotiated.getImplementation();
 
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/2");
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "");
+        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/2", "");
+        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "", null);
 
         assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL));
+    }
+
+    @Test
+    void tlsHostAdvertisingAnAlternativeServiceKeepsNegotiatingImplementation() {
+        HTTPSamplerProxy negotiated = sampler("");
+        String impl = negotiated.getImplementation();
+
+        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/1.1",
+                "HTTP/1.1 200 OK\nAlt-Svc: h3=\":443\"; ma=86400\n");
+
+        assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL),
+                "the HTTP/3 upgrade needs later requests to reach the negotiating client");
     }
 
     @Test
@@ -156,7 +166,7 @@ class HTTPSamplerCleartextRoutingTest {
         HTTPSamplerProxy negotiated = sampler("");
         String impl = negotiated.getImplementation();
 
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/1.1");
+        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/1.1", "HTTP/1.1 200 OK\nContent-Type: text/plain\n");
 
         assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL));
     }

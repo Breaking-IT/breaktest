@@ -72,6 +72,33 @@ jobs:
               -Djmeter.properties.jdk.net.hosts.file="$BREAKTEST_HTTP3_FIXTURE/hosts" \
               -Djmeter.properties.httpsampler.http3.ignore_certificate_errors="$retry"
           done
+      - uses: actions/setup-go@v6
+        if: matrix.java >= 27
+        with:
+          go-version-file: src/protocol/http/src/test/resources/http3/resumption/go.mod
+          cache-dependency-path: src/protocol/http/src/test/resources/http3/resumption/go.sum
+      - name: HTTP/2 and HTTP/3 TLS session resumption and user isolation
+        if: matrix.java >= 27
+        run: |
+          (cd src/protocol/http/src/test/resources/http3/resumption && go build -o "$RUNNER_TEMP/h3-resumption-server" .)
+          BREAKTEST_HTTP3_RESUMPTION_SERVER="$RUNNER_TEMP/h3-resumption-server" \
+            ./gradlew :src:protocol:http:test --tests '*HTTP2SessionResumptionTest' \
+              -PjdkTestVersion=${{ matrix.java }}
+          BREAKTEST_HTTP3_RESUMPTION_SERVER="$RUNNER_TEMP/h3-resumption-server" \
+            ./gradlew :src:protocol:http:test --tests '*HTTP3SessionResumptionTest' \
+              -PjdkTestVersion=${{ matrix.java }}
+      - name: HTTP/2 cross-origin connection coalescing
+        if: matrix.java >= 27
+        run: |
+          BREAKTEST_HTTP3_RESUMPTION_SERVER="$RUNNER_TEMP/h3-resumption-server" \
+            ./gradlew :src:protocol:http:test --tests '*HTTP2CoalescingTest' \
+              -PjdkTestVersion=${{ matrix.java }}
+      - name: Default HTTPS protocol discovery
+        if: matrix.java >= 27
+        run: |
+          BREAKTEST_HTTP3_RESUMPTION_SERVER="$RUNNER_TEMP/h3-resumption-server" \
+            ./gradlew :src:protocol:http:test --tests '*HTTPDefaultProtocolUpgradeTest' \
+              -PjdkTestVersion=${{ matrix.java }}
       - name: Embedded startup configuration regression
         if: matrix.java >= 27
         run: |

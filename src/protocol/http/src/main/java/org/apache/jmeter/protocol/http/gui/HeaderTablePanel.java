@@ -298,7 +298,7 @@ public class HeaderTablePanel extends JPanel implements ActionListener, org.apac
      * Add values from the clipboard.
      * The clipboard is first split into lines, and the lines are then split on ':' or '\t'
      * to produce the header name and value.
-     * Lines without a ':' are tested with '\t' and ignored if not found.
+     * The first ':' or '\t' separates the name from the value; lines without either are ignored.
      */
     protected void addFromClipboard() {
         GuiUtils.stopTableEditing(headerTable);
@@ -310,13 +310,8 @@ public class HeaderTablePanel extends JPanel implements ActionListener, org.apac
             }
             String[] clipboardLines = clipboardContent.split(CLIPBOARD_LINE_DELIMITER); // $NON-NLS-1$
             for (String clipboardLine : clipboardLines) {
-                int index = clipboardLine.indexOf(CLIPBOARD_COLON_DELIMITER); // $NON-NLS-1$
-                if (index < 0) {
-                    // when pasting from another header panel the values are separated with '\t'
-                    index = clipboardLine.indexOf(CLIPBOARD_TAB_DELIMITER);
-                }
-                if (index > 0) {
-                    Header header = new Header(clipboardLine.substring(0, index).trim(), clipboardLine.substring(index + 1).trim());
+                Header header = parseClipboardLine(clipboardLine);
+                if (header != null) {
                     headerManager.add(header);
                 }
             }
@@ -337,6 +332,19 @@ public class HeaderTablePanel extends JPanel implements ActionListener, org.apac
                     "Could not add retrieved " + DataFlavor.stringFlavor.getHumanPresentableName()
                             + " from clipboard" + ufe.getLocalizedMessage(), "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    static Header parseClipboardLine(String line) {
+        int index = line.indexOf(CLIPBOARD_COLON_DELIMITER);
+        int tabIndex = line.indexOf(CLIPBOARD_TAB_DELIMITER);
+        // Table copies use tabs; raw HTTP headers use colons and may contain tabs in the value.
+        if (tabIndex >= 0 && (index < 0 || tabIndex < index)) {
+            index = tabIndex;
+        }
+        if (index <= 0) {
+            return null;
+        }
+        return new Header(line.substring(0, index).trim(), line.substring(index + 1).trim());
     }
 
     private JButton createButton(String resName, char mnemonic, String command, boolean enabled) {

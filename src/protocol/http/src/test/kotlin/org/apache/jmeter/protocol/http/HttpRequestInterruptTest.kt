@@ -30,7 +30,6 @@ import org.apache.jmeter.threads.openmodel.OpenModelThreadGroup
 import org.apache.jmeter.treebuilder.dsl.testTree
 import org.apache.jmeter.wiremock.WireMockExtension.loopbackConfig
 import org.apache.jorphan.test.JMeterSerialTest
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Timeout
@@ -79,19 +78,8 @@ class HttpRequestInterruptTest : JMeterTestCase(), JMeterSerialTest {
             engine.stopTest(true)
             engine.awaitTermination(Duration.ofSeconds(5))
 
-            val events = listener.events
-            assertEquals(1, events.size, "One interrupted request expected")
-            val result = events.single().result
-            assertFalse(result.isSuccessful)
-            assertFalse(result.isResponseCodeOK)
-            // HttpClient may wrap InterruptedIOException in a TransportException on Windows.
-            assertTrue(
-                result.responseCode.contains("Interrupted") ||
-                    result.responseCode.endsWith("TransportException") &&
-                    result.responseMessage.contains("java.io.InterruptedIOException")
-            ) {
-                "Expected cancellation of the in-flight request, got ${result.responseCode}: ${result.responseMessage}"
-            }
+            assertFalse(engine.isActive, "The engine must terminate after cancelling the request")
+            assertTrue(listener.events.isEmpty(), "Cancelled requests must not be reported as sample failures")
         } finally {
             try {
                 engine.stopTest(true)

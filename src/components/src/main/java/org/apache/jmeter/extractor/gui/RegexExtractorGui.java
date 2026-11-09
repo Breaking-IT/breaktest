@@ -32,7 +32,6 @@ import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.List;
-import java.util.StringJoiner;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -676,19 +675,12 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
                     JMeterUtils.getResString("regex_test_replacement")); //$NON-NLS-1$
             return;
         }
-        JPanel targetsPanel = new JPanel();
-        targetsPanel.setLayout(new javax.swing.BoxLayout(targetsPanel, javax.swing.BoxLayout.Y_AXIS));
-        targetsPanel.add(new JLabel(MessageFormat.format(
-                JMeterUtils.getResString("regex_test_replace_confirmation"), //$NON-NLS-1$
-                candidate.variableName(), candidate.value())));
-        targetsPanel.add(Box.createVerticalStrut(8));
-        for (ReplacementTarget target : targets) {
-            targetsPanel.add(new JLabel(MessageFormat.format(
-                    JMeterUtils.getResString("regex_test_replacement_target"), //$NON-NLS-1$
-                    formatNodePath(target.node()), target.occurrences())));
-        }
+        JScrollPane message = ReplacementConfirmation.createMessage(candidate.variableName(), candidate.value(),
+                targets.stream()
+                        .map(target -> ReplacementConfirmation.target(target.node(), target.occurrences()))
+                        .toList());
         int answer = JOptionPane.showConfirmDialog(
-                gui.getMainFrame(), targetsPanel,
+                gui.getMainFrame(), message,
                 JMeterUtils.getResString("regex_test_replacement"), //$NON-NLS-1$
                 JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
         if (answer != JOptionPane.OK_OPTION) {
@@ -734,16 +726,6 @@ public class RegexExtractorGui extends AbstractPostProcessorGui {
             current = current.getParent() instanceof JMeterTreeNode parent ? parent : null;
         }
         return null;
-    }
-
-    private static String formatNodePath(JMeterTreeNode node) {
-        StringJoiner path = new StringJoiner(" > "); //$NON-NLS-1$
-        for (Object element : node.getPath()) {
-            if (element instanceof JMeterTreeNode treeNode) {
-                path.add(treeNode.getName());
-            }
-        }
-        return path.toString();
     }
 
     private static int countOccurrences(TestElement element, String literal) {

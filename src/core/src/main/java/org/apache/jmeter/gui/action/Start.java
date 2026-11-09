@@ -39,10 +39,18 @@ import org.apache.jmeter.engine.StandardJMeterEngine;
 import org.apache.jmeter.engine.TreeCloner;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.action.validation.TreeClonerForValidation;
+import org.apache.jmeter.gui.action.validation.ValidationSettings;
 import org.apache.jmeter.gui.tree.JMeterTreeListener;
 import org.apache.jmeter.gui.tree.JMeterTreeModel;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.gui.util.JMeterToolBar;
+import org.apache.jmeter.readiness.PlanFingerprint;
+import org.apache.jmeter.readiness.evidence.ReadinessEvidenceStore;
+import org.apache.jmeter.readiness.evidence.ReadinessRecorder;
+import org.apache.jmeter.readiness.evidence.ReadinessRunListener;
+import org.apache.jmeter.readiness.evidence.RunKind;
+import org.apache.jmeter.readiness.evidence.RunSegment;
+import org.apache.jmeter.readiness.evidence.RunStatus;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.scenario.Scenario;
 import org.apache.jmeter.scenario.ScenarioException;
@@ -51,6 +59,8 @@ import org.apache.jmeter.scenario.TestFragmentsSection;
 import org.apache.jmeter.scenario.ThreadGroupsSection;
 import org.apache.jmeter.testelement.TestElement;
 import org.apache.jmeter.testelement.TestPlan;
+import org.apache.jmeter.testelement.TestStateListener;
+import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.AbstractThreadGroup;
 import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.threads.ValidationCheckpoints;
@@ -103,6 +113,22 @@ public class Start extends AbstractAction {
         commands.add(ActionNames.VALIDATE_ALL_SEQUENTIALLY);
         commands.add(ActionNames.RESUME_VALIDATION);
         commands.add(ActionNames.RUN_SCENARIO);
+        commands.add(ActionNames.VALIDATE_READINESS);
+    }
+
+    /** Commands that start a run, refused while a readiness validation collects evidence */
+    private static final Set<String> STARTING_COMMANDS = Set.of(ActionNames.ACTION_START, ActionNames.VALIDATE_TG,
+            ActionNames.VALIDATE_ALL, ActionNames.RESUME_ALL_FAILED, ActionNames.VALIDATE_ALL_SEQUENTIALLY,
+            ActionNames.RESUME_VALIDATION, ActionNames.RUN_SCENARIO, ActionNames.VALIDATE_READINESS);
+
+    /**
+     * A validation run that collects readiness evidence.
+     *
+     * @param kind purpose of the run
+     * @param settings validation settings of the run
+     * @param listener notified when the run starts and ends, may be {@code null}
+     */
+    private record ReadinessRun(RunKind kind, ValidationSettings settings, ReadinessRunListener listener) {
     }
 
     private StandardJMeterEngine engine;
@@ -131,6 +157,52 @@ public class Start extends AbstractAction {
     }
 
     /**
+     * Create an event that validates thread groups while collecting script readiness evidence.
+     *
+     * @param source action source
+     * @param threadGroupsToRun thread groups in scope
+     * @param settings validation settings for this run only
+     * @param kind {@link RunKind#MAIN} for a fresh readiness validation, {@link RunKind#REPEATABILITY} for the
+     *     repeatability run that follows it
+     * @param listener notified when the run starts and ends
+     * @return the event
+     */
+    public static ActionEvent readinessValidationEvent(Object source, AbstractThreadGroup[] threadGroupsToRun,
+            ValidationSettings settings, RunKind kind, ReadinessRunListener listener) {
+        return new ReadinessActionEvent(source, threadGroupsToRun, new ReadinessRun(kind, settings, listener));
+    }
+
+    /**
+     * Builds the tree a validation of the given thread groups runs, before it is cloned: enabled elements only,
+     * replaceable controllers resolved, sections flattened and other thread groups removed. Script readiness
+     * analyses and fingerprints this same tree.
+     *
+     * @param testPlan the GUI test plan, as {@link JMeterTreeModel#getTestPlan()} returns it
+     * @param threadGroups thread groups in scope
+     * @return the tree
+     */
+    public static HashTree validationTree(HashTree testPlan, AbstractThreadGroup[] threadGroups) {
+        HashTree treeToUse = JMeter.convertSubTree(testPlan, false);
+        if (threadGroups != null && threadGroups.length > 0) {
+            treeToUse = ScenarioResolver.flattenIgnoringScenarios(treeToUse);
+            keepOnlySelectedThreadGroupsInHashTree(treeToUse, threadGroups);
+        }
+        return treeToUse;
+    }
+
+    /**
+     * @param threadGroups thread groups in scope
+     * @return the scope identifiers the readiness fingerprint includes
+     */
+    public static List<String> readinessScope(AbstractThreadGroup[] threadGroups) {
+        List<String> scope = new ArrayList<>();
+        for (AbstractThreadGroup group : threadGroups) {
+            scope.add(group.getThreadGroupId());
+        }
+        return scope;
+    }
+
+    /**
      * @return original thread groups targeted by the latest validation run
      */
     public static AbstractThreadGroup[] getActiveValidationThreadGroups() {
@@ -142,6 +214,7 @@ public class Start extends AbstractAction {
      */
     public static void clearValidationThreadGroups() {
         ValidationCheckpoints.clear();
+        ReadinessEvidenceStore.clear();
         lastValidationThreadGroups = new AbstractThreadGroup[0];
         activeValidationThreadGroups = null;
     }
@@ -158,6 +231,18 @@ public class Start extends AbstractAction {
 
     @Override
     public void doAction(ActionEvent e) {
+        if (ReadinessRecorder.isActive() && STARTING_COMMANDS.contains(e.getActionCommand())) {
+            if (e instanceof ReadinessActionEvent readinessEvent && readinessEvent.run.listener() != null) {
+                readinessEvent.run.listener().runNotStarted("A script readiness run is already in progress.");
+            } else {
+                JMeterUtils.reportErrorToUser("Wait for the script readiness run to finish, or cancel it first.");
+            }
+            return;
+        }
+        if (e instanceof ReadinessActionEvent readinessEvent) {
+            startReadinessValidation(readinessEvent);
+            return;
+        }
         if (e.getActionCommand().equals(ActionNames.ACTION_START)) {
             popupShouldSave(e);
             startEngine(null, RunMode.AS_IS);
@@ -203,7 +288,7 @@ public class Start extends AbstractAction {
             try {
                 List<ValidationCheckpoints.Checkpoint> checkpoints = Arrays.stream(groups)
                         .map(ValidationCheckpoints::get).toList();
-                startEngine(groups, RunMode.VALIDATION, null, checkpoints, true);
+                startEngine(groups, RunMode.VALIDATION, null, checkpoints, true, readinessContinuation());
             } catch (IllegalStateException ex) {
                 JMeterUtils.reportErrorToUser(ex.getMessage());
             }
@@ -217,6 +302,8 @@ public class Start extends AbstractAction {
             try {
                 ValidationCheckpoints.Checkpoint checkpoint;
                 AbstractThreadGroup[] groups;
+                // Replays from the results tree are never readiness evidence
+                ReadinessRun readiness = e.getSource() instanceof SampleResult ? null : readinessContinuation();
                 if (e.getSource() instanceof SampleResult result) {
                     var target = ValidationCheckpoints.getReplayTarget(result);
                     checkpoint = target.checkpoint();
@@ -229,7 +316,7 @@ public class Start extends AbstractAction {
                         groups = new AbstractThreadGroup[]{ValidationCheckpoints.groupOf(checkpoint)};
                     }
                 }
-                startEngine(groups, RunMode.VALIDATION, null, checkpoint);
+                startEngine(groups, RunMode.VALIDATION, null, List.of(checkpoint), null, readiness);
             } catch (IllegalStateException ex) {
                 JMeterUtils.reportErrorToUser(ex.getMessage());
             }
@@ -365,6 +452,52 @@ public class Start extends AbstractAction {
 
     private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode, Scenario scenario,
             List<ValidationCheckpoints.Checkpoint> checkpoints, Boolean sequential) {
+        startEngine(threadGroupsToRun, runMode, scenario, checkpoints, sequential, null);
+    }
+
+    /**
+     * @return the readiness run a Resume validation continues, or {@code null} when it does not continue one
+     */
+    private static ReadinessRun readinessContinuation() {
+        if (!ReadinessEvidenceStore.canContinueWithResume()) {
+            return null;
+        }
+        // Resume with the settings the readiness validation ran with, so the resumed run matches it
+        return new ReadinessRun(RunKind.RESUME, ReadinessEvidenceStore.latest().main().settings(), null);
+    }
+
+    private void startReadinessValidation(ReadinessActionEvent event) {
+        ReadinessRun readiness = event.run;
+        GuiPackage gui = GuiPackage.getInstance();
+        if (JMeterUtils.isTestRunning() || (engine != null && engine.isActive())) {
+            readiness.listener().runNotStarted("Stop the running test or validation before checking readiness.");
+            return;
+        }
+        gui.updateCurrentNode();
+        AbstractThreadGroup[] tg = resolveValidationThreadGroups(event.threadGroupsToRun, new AbstractThreadGroup[0],
+                gui.getTreeModel());
+        if (tg.length == 0) {
+            readiness.listener().runNotStarted("There are no enabled thread groups in scope.");
+            return;
+        }
+        startEngine(tg, RunMode.VALIDATION, null, null, null, readiness);
+    }
+
+    private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode, Scenario scenario,
+            List<ValidationCheckpoints.Checkpoint> checkpoints, Boolean sequential, ReadinessRun readiness) {
+        boolean[] readinessStarted = {false};
+        try {
+            startEngine(threadGroupsToRun, runMode, scenario, checkpoints, sequential, readiness, readinessStarted);
+        } finally {
+            if (readiness != null && !readinessStarted[0] && readiness.listener() != null) {
+                readiness.listener().runNotStarted("The validation run did not start.");
+            }
+        }
+    }
+
+    private void startEngine(AbstractThreadGroup[] threadGroupsToRun, RunMode runMode, Scenario scenario,
+            List<ValidationCheckpoints.Checkpoint> checkpoints, Boolean sequential, ReadinessRun readiness,
+            boolean[] readinessStarted) {
         // Let samplers know this is a validation run so they keep response bodies they would
         // otherwise discard (set for every run, so a later normal run resets it).
         JMeterContextService.setValidationRun(runMode == RunMode.VALIDATION);
@@ -377,7 +510,9 @@ public class Start extends AbstractAction {
                 && JMeterUtils.getPropDefault("testplan_validation.jump_to_visual_tree", true)) {
             resultsTree = findValidationResultsTree(gui.getTreeModel(), threadGroupsToRun);
         }
-        if (runMode == RunMode.VALIDATION && checkpoints == null) {
+        // A repeatability run keeps the source ids of the readiness validation it repeats
+        if (runMode == RunMode.VALIDATION && checkpoints == null
+                && (readiness == null || readiness.kind() != RunKind.REPEATABILITY)) {
             ValidationCheckpoints.clear();
         }
         HashTree testTree = gui.getTreeModel().getTestPlan();
@@ -385,36 +520,52 @@ public class Start extends AbstractAction {
         // We need to make this conversion before removing any Thread Group as 1 thread Group running may
         // reference another one (not running) using ModuleController
         // We don't clone as we'll be doing it later AND we cannot clone before we have removed the unselected ThreadGroups
-        HashTree treeToUse = JMeter.convertSubTree(testTree, false);
-        if (scenario != null) {
+        HashTree treeToUse;
+        if (runMode == RunMode.VALIDATION && scenario == null) {
             try {
-                treeToUse = ScenarioResolver.resolve(treeToUse, scenario);
+                // Validation replaces the workload anyway, so scenarios are ignored
+                treeToUse = validationTree(testTree, threadGroupsToRun);
             } catch (ScenarioException e) {
                 JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
                         JMeterUtils.getResString("error_occurred"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
                 return;
             }
-        }
-        if(threadGroupsToRun != null && threadGroupsToRun.length>0) {
-            try {
-                // Validation replaces the workload anyway; other runs use the workloads of the enabled scenario
-                treeToUse = runMode == RunMode.VALIDATION
-                        ? ScenarioResolver.flattenIgnoringScenarios(treeToUse)
-                        : ScenarioResolver.resolve(treeToUse);
-            } catch (ScenarioException e) {
-                JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
-                        JMeterUtils.getResString("error_occurred"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
-                return;
+        } else {
+            treeToUse = JMeter.convertSubTree(testTree, false);
+            if (scenario != null) {
+                try {
+                    treeToUse = ScenarioResolver.resolve(treeToUse, scenario);
+                } catch (ScenarioException e) {
+                    JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
+                            JMeterUtils.getResString("error_occurred"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
+                    return;
+                }
             }
-            keepOnlySelectedThreadGroupsInHashTree(treeToUse, threadGroupsToRun);
+            if(threadGroupsToRun != null && threadGroupsToRun.length>0) {
+                try {
+                    // Validation replaces the workload anyway; other runs use the workloads of the enabled scenario
+                    treeToUse = runMode == RunMode.VALIDATION
+                            ? ScenarioResolver.flattenIgnoringScenarios(treeToUse)
+                            : ScenarioResolver.resolve(treeToUse);
+                } catch (ScenarioException e) {
+                    JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
+                            JMeterUtils.getResString("error_occurred"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
+                    return;
+                }
+                keepOnlySelectedThreadGroupsInHashTree(treeToUse, threadGroupsToRun);
+            }
         }
+        ValidationSettings settings = readiness != null ? readiness.settings() : ValidationSettings.defaults();
+        String fingerprint = readiness == null ? null
+                : readiness.kind() == RunKind.RESUME ? resumeReadinessFingerprint(gui.getTreeModel(), settings)
+                : PlanFingerprint.compute(treeToUse, settings, readinessScope(threadGroupsToRun));
         treeToUse.add(treeToUse.getArray()[0], gui.getMainFrame());
         if (log.isDebugEnabled()) {
             log.debug("test plan before cloning is running version: {}",
                     ((TestPlan) treeToUse.getArray()[0]).isRunningVersion());
         }
 
-        ListedHashTree clonedTree = cloneTree(treeToUse, runMode);
+        ListedHashTree clonedTree = cloneTree(treeToUse, runMode, settings);
         if (sequential != null) {
             ((TestPlan) clonedTree.getArray()[0]).setSerialized(sequential);
         }
@@ -428,11 +579,14 @@ public class Start extends AbstractAction {
             engine.configure(clonedTree);
             StandardJMeterEngine startedEngine = engine;
             startedEngine.addAlwaysEndListener(gui.getMainFrame());
+            RunSegment segment = readiness == null ? null
+                    : beginReadinessSegment(startedEngine, readiness, threadGroupsToRun, checkpoints, fingerprint);
             startedEngine.addStoppingListener(immediately -> SwingUtilities.invokeLater(() -> {
                 if (startedEngine.isActive()) {
                     gui.getMainFrame().showLocalTestStopping(immediately);
                 }
             }));
+            readinessStarted[0] = true;
             try {
                 engine.runTest();
                 if (runMode == RunMode.VALIDATION) {
@@ -445,6 +599,13 @@ public class Start extends AbstractAction {
                     }
                 }
             } catch (JMeterEngineException e) {
+                if (segment != null) {
+                    segment.markStatus(RunStatus.FAILED_TO_START, e.getMessage());
+                    ReadinessEvidenceStore.end(segment);
+                    if (readiness.listener() != null) {
+                        readiness.listener().runFinished(segment);
+                    }
+                }
                 JOptionPane.showMessageDialog(gui.getMainFrame(), e.getMessage(),
                         JMeterUtils.getResString("error_occurred"), JOptionPane.ERROR_MESSAGE); //$NON-NLS-1$
             }
@@ -453,6 +614,62 @@ public class Start extends AbstractAction {
                         ((TestPlan) treeToUse.getArray()[0]).isRunningVersion());
             }
         }
+    }
+
+    /** Fingerprint the original readiness scope, even when only a subset is being resumed. */
+    static String resumeReadinessFingerprint(JMeterTreeModel model, ValidationSettings settings) {
+        List<String> originalScope = ReadinessEvidenceStore.latest().main().scope();
+        AbstractThreadGroup[] groups = Arrays.stream(findAllValidationThreadGroups(model))
+                .filter(group -> originalScope.contains(ValidationCheckpoints.sourceIdOfSource(group)))
+                .toArray(AbstractThreadGroup[]::new);
+        HashTree tree = validationTree(model.getTestPlan(), groups);
+        return PlanFingerprint.compute(tree, settings, readinessScope(groups));
+    }
+
+    private static RunSegment beginReadinessSegment(StandardJMeterEngine startedEngine, ReadinessRun readiness,
+            AbstractThreadGroup[] threadGroups, List<ValidationCheckpoints.Checkpoint> checkpoints,
+            String fingerprint) {
+        List<String> scope = new ArrayList<>();
+        for (AbstractThreadGroup group : threadGroups) {
+            scope.add(ValidationCheckpoints.sourceIdOfSource(group));
+        }
+        Set<String> resumedFrom = new HashSet<>();
+        if (checkpoints != null) {
+            checkpoints.forEach(checkpoint -> resumedFrom.add(checkpoint.samplerId()));
+        }
+        RunSegment segment = new RunSegment(readiness.kind(), fingerprint, readiness.settings(), scope,
+                ValidationCheckpoints.generation(), resumedFrom);
+        ReadinessEvidenceStore.begin(segment);
+        startedEngine.addStoppingListener(immediately -> segment.markStatus(RunStatus.CANCELLED,
+                "The run was stopped before it completed"));
+        startedEngine.addAlwaysEndListener(new TestStateListener() {
+            @Override
+            public void testStarted() {
+                // Evidence collection started with the segment
+            }
+
+            @Override
+            public void testStarted(String host) {
+                testStarted();
+            }
+
+            @Override
+            public void testEnded() {
+                ReadinessEvidenceStore.end(segment);
+                if (readiness.listener() != null) {
+                    readiness.listener().runFinished(segment);
+                }
+            }
+
+            @Override
+            public void testEnded(String host) {
+                testEnded();
+            }
+        });
+        if (readiness.listener() != null) {
+            readiness.listener().runStarted(segment);
+        }
+        return segment;
     }
 
     static JMeterTreeNode findValidationResultsTree(JMeterTreeModel model,
@@ -520,11 +737,18 @@ public class Start extends AbstractAction {
                     // hack hack hack
                     // due to the bug of equals / hashcode on AbstractTestElement
                     // where 2 AbstractTestElement can be equals but have different hashcode
+                    JMeterProperty enabled = item.getPropertyOrNull(TestElement.ENABLED);
+                    enabled = enabled == null ? null : enabled.clone();
                     try {
                         item.setEnabled(false);
                         testTree.remove(item);
                     } finally {
-                        item.setEnabled(true);
+                        // Preserve absent defaults too: preparing a subset must not change the plan fingerprint.
+                        if (enabled == null) {
+                            item.removeProperty(TestElement.ENABLED);
+                        } else {
+                            item.setProperty(enabled);
+                        }
                     }
                 }
                 else {
@@ -558,15 +782,32 @@ public class Start extends AbstractAction {
      * Clone the test tree, ignoring {@link Timer}s when validating if the jmeter properties say so
      * @param testTree {@link HashTree}
      * @param runMode {@link RunMode} how plan will be run
+     * @param settings validation settings, used when validating
      * @return {@link TreeCloner}
      */
-    private static ListedHashTree cloneTree(HashTree testTree, RunMode runMode) {
+    private static ListedHashTree cloneTree(HashTree testTree, RunMode runMode, ValidationSettings settings) {
         TreeCloner cloner = switch (runMode) {
             case VALIDATION -> createTreeClonerForValidation(false);
             case AS_IS -> new TreeCloner(false);
         };
+        if (cloner instanceof TreeClonerForValidation validationCloner) {
+            validationCloner.setSettings(settings);
+        }
         testTree.traverse(cloner);
         return cloner.getClonedTree();
+    }
+
+    private static final class ReadinessActionEvent extends ActionEvent {
+        private static final long serialVersionUID = 1L;
+
+        private final transient AbstractThreadGroup[] threadGroupsToRun;
+        private final transient ReadinessRun run;
+
+        private ReadinessActionEvent(Object source, AbstractThreadGroup[] threadGroupsToRun, ReadinessRun run) {
+            super(source, ActionEvent.ACTION_PERFORMED, ActionNames.VALIDATE_READINESS);
+            this.threadGroupsToRun = threadGroupsToRun.clone();
+            this.run = run;
+        }
     }
 
     private static final class ThreadGroupsActionEvent extends ActionEvent {

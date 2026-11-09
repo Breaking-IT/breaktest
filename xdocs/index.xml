@@ -23,7 +23,7 @@
   <body>
     <section name="BreakTest Documentation">
       <p>
-        BreakTest is an independent, source-available, JMeter-compatible
+        BreakTest is an independent, open-source, JMeter-compatible
         performance testing tool. These docs intentionally focus on what is
         different in BreakTest, not on maintaining a second copy of the Apache
         JMeter manual.
@@ -52,7 +52,7 @@
 
       <h2>Project Status</h2>
       <ul>
-        <li>License: <a href="https://github.com/Breaking-IT/breaktest/blob/main/LICENSE">BreakTest Community Source License 1.0</a>, with Apache-2.0 and other licenses retained for third-party materials.</li>
+        <li>License: <a href="https://github.com/Breaking-IT/breaktest/blob/main/LICENSE">Apache License, Version 2.0</a> for Community. Third-party materials retain their applicable licenses. BreakTest Enterprise is separately commercially licensed.</li>
         <li>Runtime: Java 21 or later.</li>
         <li>Source: <a href="https://github.com/Breaking-IT/breaktest">github.com/Breaking-IT/breaktest</a>.</li>
         <li>Downloads: <a href="download_breaktest.html">BreakTest releases</a>.</li>

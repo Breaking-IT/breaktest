@@ -39,12 +39,19 @@ final class RouteLeaseState {
         HTTP_2
     }
 
+    private final PoolingAsyncClientConnectionManager pool;
+    private final HttpRoute route;
     private RouteProtocol protocol = RouteProtocol.UNKNOWN;
     private boolean leaseTurnInProgress;
-    private int appliedMaxConnections = -1;
+
+    RouteLeaseState(PoolingAsyncClientConnectionManager pool, HttpRoute route) {
+        this.pool = pool;
+        this.route = route;
+    }
 
     synchronized void awaitLeaseTurn(Timeout timeout) throws InterruptedException, TimeoutException {
         if (protocol == RouteProtocol.HTTP_1) {
+            applyMaxPerRoute();
             return;
         }
         long deadline = 0;
@@ -70,12 +77,14 @@ final class RouteLeaseState {
             }
         }
         leaseTurnInProgress = true;
+        applyMaxPerRoute();
     }
 
     synchronized void leaseCompleted(AsyncConnectionEndpoint endpoint) {
         RouteProtocol endpointProtocol = protocol(endpoint);
         if (endpointProtocol != RouteProtocol.UNKNOWN) {
             protocol = endpointProtocol;
+            applyMaxPerRoute();
             releaseLeaseTurn();
         } else if (endpoint.isConnected()) {
             releaseLeaseTurn();
@@ -86,28 +95,16 @@ final class RouteLeaseState {
         RouteProtocol endpointProtocol = protocol(endpoint);
         if (endpointProtocol != RouteProtocol.UNKNOWN) {
             protocol = endpointProtocol;
+            applyMaxPerRoute();
         }
         releaseLeaseTurn();
     }
 
-    synchronized int maxConnections(int defaultMaxConnections) {
-        return protocol == RouteProtocol.HTTP_1 ? defaultMaxConnections : 1;
-    }
-
-    /**
-     * Applies this route's connection limit to the pool when it changed. Setting it takes the
-     * pool's lock, so doing that on every lease is measurable at thousands of requests/s.
-     */
-    void applyMaxConnections(PoolingAsyncClientConnectionManager pool, HttpRoute route) {
-        int max;
-        synchronized (this) {
-            max = maxConnections(pool.getDefaultMaxPerRoute());
-            if (max == appliedMaxConnections) {
-                return;
-            }
-            appliedMaxConnections = max;
-        }
-        pool.setMaxPerRoute(route, max);
+    // Called with this monitor held, so the pool limit always matches the latest protocol and is
+    // raised before a waiting lease proceeds. The pool does not re-check queued leases when the
+    // limit changes, so a lease queued against a stale limit of 1 would wait for a release.
+    private void applyMaxPerRoute() {
+        pool.setMaxPerRoute(route, protocol == RouteProtocol.HTTP_1 ? pool.getDefaultMaxPerRoute() : 1);
     }
 
     synchronized RouteProtocol protocol() {

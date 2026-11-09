@@ -81,6 +81,7 @@ public abstract class AbstractThreadGroupGui extends AbstractJMeterGuiComponent 
             JMenuItem validate = createMenuItem("validate_threadgroup", ActionNames.VALIDATE_TG);
             validate.setAccelerator(KeyStrokes.VALIDATE);
             pop.add(validate);
+            pop.add(createMenuItem("check_readiness_threadgroup", ActionNames.CHECK_READINESS_TG));
             GuiPackage gui = GuiPackage.getInstance();
             if (gui != null && ValidationCheckpoints.canResumeFailedSampler(gui.getCurrentElement())) {
                 JMenuItem resume = createMenuItem("resume_validation", ActionNames.RESUME_VALIDATION);

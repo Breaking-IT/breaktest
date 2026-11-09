@@ -37,6 +37,9 @@ public class ConnectTimeValueSelector extends AbstractGraphValueSelector {
 
     @Override
     public Double select(String series, Sample sample) {
+        if (sample.getConnectTime() < 0) {
+            return null;
+        }
         if(isIgnoreTransactionController()) {
             if(!sample.isController()) {
                 return (double) sample.getConnectTime();

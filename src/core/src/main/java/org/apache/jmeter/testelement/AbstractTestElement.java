@@ -1506,6 +1506,12 @@ public abstract class AbstractTestElement implements TestElement, Serializable, 
         return fresh;
     }
 
+    /** Clears the cached context when its owning thread context is replaced or removed. */
+    @org.apiguardian.api.API(status = org.apiguardian.api.API.Status.INTERNAL)
+    public static void clearThreadContext() {
+        THREAD_CONTEXT.remove();
+    }
+
     /**
      * @return Returns the threadContext.
      */

@@ -17,10 +17,14 @@
 
 package org.apache.jmeter.threads;
 
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.jmeter.assertions.Assertion;
 import org.apache.jmeter.assertions.AssertionResult;
+import org.apache.jmeter.readiness.evidence.ReadinessRecorder;
 import org.apache.jmeter.samplers.SampleResult;
 import org.apache.jmeter.testbeans.TestBeanHelper;
 import org.apache.jmeter.testelement.AbstractScopedAssertion;
@@ -36,7 +40,9 @@ final class JMeterThreadAssertions {
     private JMeterThreadAssertions() {
     }
 
-    static void check(List<? extends Assertion> assertions, SampleResult parent, JMeterContext threadContext) {
+    static Set<Assertion> check(List<? extends Assertion> assertions, SampleResult parent, JMeterContext threadContext) {
+        Set<Assertion> evaluated = ReadinessRecorder.isActive()
+                ? Collections.newSetFromMap(new IdentityHashMap<>()) : null;
         for (Assertion assertion : assertions) {
             TestBeanHelper.prepare((TestElement) assertion);
             if (assertion instanceof AbstractScopedAssertion scopedAssertion) {
@@ -44,30 +50,31 @@ final class JMeterThreadAssertions {
                 if (scopedAssertion.isScopeParent(scope)
                         || scopedAssertion.isScopeAll(scope)
                         || scopedAssertion.isScopeVariable(scope)) {
-                    process(parent, assertion);
+                    process(parent, assertion, evaluated);
                 }
                 if (scopedAssertion.isScopeChildren(scope)
                         || scopedAssertion.isScopeAll(scope)) {
-                    recurse(parent, assertion, 3);
+                    recurse(parent, assertion, 3, evaluated);
                 }
             } else {
-                process(parent, assertion);
+                process(parent, assertion, evaluated);
             }
         }
         JMeterVariables variables = threadContext.getVariables();
         variables.putObject(JMeterThread.LAST_SAMPLE_OK, parent.isSuccessful());
         variables.put(JMeterThread.LAST_SAMPLE_OK, Boolean.toString(parent.isSuccessful()));
+        return evaluated == null ? Set.of() : evaluated;
     }
 
-    private static void recurse(SampleResult parent, Assertion assertion, int level) {
+    private static void recurse(SampleResult parent, Assertion assertion, int level, Set<Assertion> evaluated) {
         if (level < 0) {
             return;
         }
         SampleResult[] children = parent.getSubResults();
         boolean childError = false;
         for (SampleResult childSampleResult : children) {
-            process(childSampleResult, assertion);
-            recurse(childSampleResult, assertion, level - 1);
+            process(childSampleResult, assertion, evaluated);
+            recurse(childSampleResult, assertion, level - 1, evaluated);
             if (!childSampleResult.isSuccessful()) {
                 childError = true;
             }
@@ -81,7 +88,10 @@ final class JMeterThreadAssertions {
         }
     }
 
-    private static void process(SampleResult result, Assertion assertion) {
+    private static void process(SampleResult result, Assertion assertion, Set<Assertion> evaluated) {
+        if (evaluated != null) {
+            evaluated.add(assertion);
+        }
         AssertionResult assertionResult;
         try {
             assertionResult = assertion.getResult(result);

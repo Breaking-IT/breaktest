@@ -77,6 +77,56 @@ class RecorderWorkflowTest extends JMeterTestCase {
     }
 
     @Test
+    void newRecordersDefaultToPathWhileSavedNamingChoicesAreRetained() {
+        String key = "proxy.recorder.proxy_http_sampler_naming_mode";
+        var properties = JMeterUtils.getJMeterProperties();
+        Object previous = properties.remove(key);
+        try {
+            var recorder = new ProxyControl();
+            RecorderSettings.applyDefaults(recorder);
+            assertEquals(4, recorder.getHTTPSampleNamingMode());
+            for (int mode = 0; mode <= 4; mode++) {
+                properties.setProperty(key, Integer.toString(mode));
+                var preferred = new ProxyControl();
+                RecorderSettings.applyDefaults(preferred);
+                assertEquals(mode, preferred.getHTTPSampleNamingMode());
+            }
+            var existing = new ProxyControl();
+            existing.setHTTPSampleNamingMode(1);
+            assertEquals(1, existing.getHTTPSampleNamingMode());
+        } finally {
+            if (previous == null) {
+                properties.remove(key);
+            } else {
+                properties.put(key, previous);
+            }
+        }
+    }
+
+    @Test
+    void captureAndNonGuiImportKeepUserDefinedValuesLiteral() throws Exception {
+        var recorder = new ProxyControl();
+        recorder.setNonGuiTreeModel(model);
+        var target = target();
+        recorder.setTarget(target);
+        var variables = new org.apache.jmeter.config.Arguments();
+        variables.addArgument("limit", "10");
+        model.insertNodeInto(new JMeterTreeNode(variables, model), target, 0);
+        var sampler = sampler("example.test", "/items/100?limit=10");
+        var capture = new RecordedSampler(sampler, new TestElement[0], target, "", 0,
+                result(sampler, 1000, 1100, "200"), false, null);
+        assertEquals(1, recorder.findRecordingVariables(List.of(capture)).size());
+        variables.setEnabled(false);
+        assertTrue(recorder.findRecordingVariables(List.of(capture)).isEmpty());
+        variables.setEnabled(true);
+        recorder.deliverSampler(sampler, new TestElement[0], result(sampler, 1000, 1100, "200"));
+        assertEquals("https://example.test/items/100?limit=10", sampler.getUrl().toString());
+        recorder.stopProxy();
+        var imported = (HTTPSamplerBase) model.getNodesOfType(HTTPSamplerBase.class).get(0).getTestElement();
+        assertEquals("https://example.test/items/100?limit=10", imported.getUrl().toString());
+    }
+
+    @Test
     void preflightSuffixAppliesOnlyToOptionsAndCanBeDisabled() throws Exception {
         var recorder = new ProxyControl();
         recorder.setNonGuiTreeModel(model);

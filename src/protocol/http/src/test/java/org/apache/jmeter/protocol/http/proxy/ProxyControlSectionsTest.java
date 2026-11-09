@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.proxy;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.lang.reflect.Method;
@@ -560,7 +561,7 @@ class ProxyControlSectionsTest extends JMeterTestCase {
         proxy.setNonGuiTreeModel(model);
         proxy.setTarget(recordMe());
         proxy.setIgnoreHttpErrors(true);
-        for (String status : List.of("0", "500", "404", "200")) {
+        for (String status : List.of("0", "500", "400", "200")) {
             HTTPSamplerProxy sampler = new HTTPSamplerProxy();
             sampler.setName(status);
             sampler.setDomain("example.invalid");
@@ -590,7 +591,17 @@ class ProxyControlSectionsTest extends JMeterTestCase {
         var assertions = model.getNodesOfType(org.apache.jmeter.assertions.ResponseAssertion.class);
         assertEquals(2, assertions.size());
         for (var assertion : assertions) {
-            assertTrue(((org.apache.jmeter.assertions.ResponseAssertion) assertion.getTestElement()).getAssumeSuccess());
+            var responseAssertion = (org.apache.jmeter.assertions.ResponseAssertion) assertion.getTestElement();
+            assertTrue(responseAssertion.getAssumeSuccess());
+            String recordedStatus = ((JMeterTreeNode) assertion.getParent()).getName();
+            for (String status : List.of("400", "500", "504", "200", recordedStatus + "0")) {
+                HTTPSampleResult response = new HTTPSampleResult();
+                response.setResponseCode(status);
+                response.setSuccessful(false);
+                var outcome = responseAssertion.getResult(response);
+                assertFalse(outcome.isError());
+                assertEquals(!recordedStatus.equals(status), outcome.isFailure(), status);
+            }
             assertTrue(((JMeterTreeNode) assertion.getParent()).getTestElement().isEnabled());
         }
     }

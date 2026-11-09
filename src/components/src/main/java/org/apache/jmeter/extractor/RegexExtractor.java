@@ -131,6 +131,7 @@ public class RegexExtractor extends AbstractScopedTestElement implements PostPro
         } else {
             foundMatch = extractWithOroRegex(previousResult, vars, refName, matchNumber);
         }
+        ExtractorEvidence.outcome(this, foundMatch, getRegex(), ExtractorEvidence.literalPrefix(getRegex()));
         if (!foundMatch && isFailOnNoMatch()) {
             ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
         }

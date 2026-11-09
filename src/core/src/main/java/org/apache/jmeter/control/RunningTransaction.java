@@ -144,7 +144,7 @@ public final class RunningTransaction {
         result.setBytes(result.getBytesAsLong() + sample.getBytesAsLong());
         result.setSentBytes(result.getSentBytes() + sample.getSentBytes());
         result.setLatency(result.getLatency() + sample.getLatency());
-        result.setConnectTime(result.getConnectTime() + sample.getConnectTime());
+        result.addConnectTime(sample.getConnectTime());
     }
 
     /**

@@ -44,6 +44,37 @@ import org.junit.jupiter.api.Test;
 public class TestUrlConfigGui {
 
     @Test
+    void connectionOverridesSurviveCopyAndDoNotLeakToNextSampler() throws Exception {
+        SwingUtilities.invokeAndWait(() -> {
+            UrlConfigGui gui = new UrlConfigGui();
+            HTTPSamplerProxy source = new HTTPSamplerProxy();
+            source.setProperty(HTTPSamplerBase.HTTP2_COALESCING, false);
+            source.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, "${upgrade}");
+            source.setProperty(HTTPSamplerBase.CONNECTION_REUSE, false);
+            source.setProperty("HTTPSampler.max_connections_per_host", "${connections}");
+            source.setProperty("HTTPSampler.connection_availability_timeout", "1234");
+            gui.configure(source);
+            HTTPSamplerProxy copy = new HTTPSamplerProxy();
+            gui.modifyTestElement(copy);
+            for (String key : java.util.List.of(HTTPSamplerBase.HTTP2_COALESCING,
+                    HTTPSamplerBase.HTTP3_UPGRADE, HTTPSamplerBase.CONNECTION_REUSE,
+                    "HTTPSampler.max_connections_per_host", "HTTPSampler.connection_availability_timeout")) {
+                Assertions.assertEquals(source.getProperty(key), copy.getProperty(key));
+            }
+            gui.configure(new HTTPSamplerProxy());
+            gui.modifyTestElement(copy);
+            Assertions.assertNull(copy.getPropertyOrNull(HTTPSamplerBase.HTTP2_COALESCING));
+            Assertions.assertNull(copy.getPropertyOrNull(HTTPSamplerBase.HTTP3_UPGRADE));
+            gui.configure(source);
+            gui.clear();
+            gui.modifyTestElement(copy);
+            Assertions.assertNull(copy.getPropertyOrNull(HTTPSamplerBase.CONNECTION_REUSE));
+            Assertions.assertNull(copy.getPropertyOrNull("HTTPSampler.max_connections_per_host"));
+            Assertions.assertNull(copy.getPropertyOrNull("HTTPSampler.connection_availability_timeout"));
+        });
+    }
+
+    @Test
     public void testTabCountUpdateDoesNotReenterWhileParameterCellIsEditing() throws Exception {
         SwingUtilities.invokeAndWait(() -> {
             try {

@@ -38,6 +38,16 @@ import org.junit.jupiter.api.Test;
 class ResultTableModelTest {
 
     @Test
+    void missingConnectTimeIsNullWhileMeasuredZeroIsNumeric() {
+        SampleResult sample = sampleWithTime(20);
+        ResultTableModel model = new ResultTableModel(null, null, DateTimeFormatter.ISO_INSTANT);
+        model.setRows(List.of(new ResultTableModel.ResultTableRow(sample, 0)));
+        assertNull(model.getValueAt(0, ResultTableModel.CONNECT_TIME));
+        sample.setConnectTime(0);
+        assertEquals(0L, model.getValueAt(0, ResultTableModel.CONNECT_TIME));
+    }
+
+    @Test
     void showsHttpCodeByDefaultAndKeepsEncodingOptional() {
         SampleResult sample = sampleWithTime(20);
         sample.setResponseCode("404");

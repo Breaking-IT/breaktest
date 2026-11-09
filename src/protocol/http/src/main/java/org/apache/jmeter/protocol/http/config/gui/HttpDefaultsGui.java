@@ -22,12 +22,16 @@ import java.awt.Dimension;
 import java.util.Arrays;
 
 import javax.swing.BorderFactory;
+import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
+import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JTabbedPane;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.UIManager;
 
 import org.apache.jmeter.config.ConfigTestElement;
 import org.apache.jmeter.config.gui.AbstractConfigGui;
@@ -93,6 +97,22 @@ public class HttpDefaultsGui extends AbstractConfigGui {
     private JTextField proxyUser;
     private JPasswordField proxyPass;
     private final JComboBox<String> httpProtocol = new JComboBox<>(HTTPSamplerBase.getHttpProtocolList());
+    private final JCheckBox http3Upgrade = new JCheckBox(JMeterUtils.getResString("http_defaults_http3_upgrade"), true);
+    private final JCheckBox http2Coalescing = new JCheckBox(
+            JMeterUtils.getResString("http_defaults_http2_coalescing"), true);
+    private JMeterProperty legacyHttp2Coalescing;
+    private boolean saveHttp2Coalescing = true;
+    private JMeterProperty legacyHttp3Upgrade;
+    private boolean saveHttp3Upgrade = true;
+    private JTabbedPane tabbedPane;
+    private final JComboBox<String> keepAlive = new JComboBox<>(new String[] {
+            JMeterUtils.getResString("http_defaults_keepalive_unset"),
+            JMeterUtils.getResString("http_defaults_keepalive_enabled"),
+            JMeterUtils.getResString("http_defaults_keepalive_disabled")
+    });
+    private JTextField maxConnectionsPerHost;
+    private JTextField connectionAvailabilityTimeout;
+    private boolean configuring;
     private JTextField connectTimeOut;
     private JTextField responseTimeOut;
     private JMeterProperty legacyHttpProtocol;
@@ -117,6 +137,8 @@ public class HttpDefaultsGui extends AbstractConfigGui {
                         new JTextComponentBinding(proxyUser, schema.getProxy().getUsername()),
                         new JTextComponentBinding(proxyPass, schema.getProxy().getPassword()),
                         proxyDestinations,
+                        new JTextComponentBinding(maxConnectionsPerHost, schema.getMaxConnectionsPerHost()),
+                        new JTextComponentBinding(connectionAvailabilityTimeout, schema.getConnectionAvailabilityTimeout()),
                         new JTextComponentBinding(connectTimeOut, schema.getConnectTimeout()),
                         new JTextComponentBinding(responseTimeOut, schema.getResponseTimeout())
                 )
@@ -159,6 +181,19 @@ public class HttpDefaultsGui extends AbstractConfigGui {
             config.removeProperty(httpSchema.getConcurrentDownloadPoolSize());
         }
 
+        // Read the editor too: expressions may not have been committed with Enter yet.
+        // Explicit false must remain distinct from an unset default.
+        String reuse = keepAlive.getEditor().getItem().toString().trim();
+        if (reuse.isEmpty() || reuse.equals(keepAlive.getItemAt(0))) {
+            config.removeProperty(HTTPSamplerBase.CONNECTION_REUSE);
+        } else if (reuse.equals(keepAlive.getItemAt(1))) {
+            config.setProperty(HTTPSamplerBase.CONNECTION_REUSE, true);
+        } else if (reuse.equals(keepAlive.getItemAt(2))) {
+            config.setProperty(HTTPSamplerBase.CONNECTION_REUSE, false);
+        } else {
+            config.setProperty(HTTPSamplerBase.CONNECTION_REUSE, reuse);
+        }
+
         String text = sourceIpAddr.getText();
         if (StringUtilities.isNotEmpty(text)) {
             config.set(httpSchema.getIpSourceType(), sourceIpType.getSelectedIndex());
@@ -167,6 +202,20 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         }
 
         config.removeProperty(httpSchema.getImplementation());
+        if (saveHttp2Coalescing) {
+            config.setProperty(HTTPSamplerBase.HTTP2_COALESCING, http2Coalescing.isSelected());
+        } else if (legacyHttp2Coalescing != null) {
+            config.setProperty(legacyHttp2Coalescing.clone());
+        } else {
+            config.removeProperty(HTTPSamplerBase.HTTP2_COALESCING);
+        }
+        if (saveHttp3Upgrade) {
+            config.setProperty(HTTPSamplerBase.HTTP3_UPGRADE, http3Upgrade.isSelected());
+        } else if (legacyHttp3Upgrade != null) {
+            config.setProperty(legacyHttp3Upgrade.clone());
+        } else {
+            config.removeProperty(HTTPSamplerBase.HTTP3_UPGRADE);
+        }
         String selectedProtocol = selectedHttpProtocol();
         if (StringUtilities.isBlank(selectedProtocol)) {
             config.removeProperty(httpSchema.getHttpProtocol());
@@ -181,21 +230,57 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         proxyDestinations.updateUi(new org.apache.jmeter.config.ConfigTestElement());
         urlConfigGui.clear();
         legacyHttpProtocol = null;
+        legacyHttp2Coalescing = null;
+        saveHttp2Coalescing = true;
+        http2Coalescing.setSelected(true);
+        legacyHttp3Upgrade = null;
+        saveHttp3Upgrade = true;
+        http3Upgrade.setSelected(true);
+        keepAlive.setSelectedIndex(0);
+        httpProtocol.setSelectedItem(HTTPSamplerBase.HTTP_PROTOCOL_DEFAULT);
     }
 
     @Override
     public void configure(TestElement el) {
-        super.configure(el);
-        AbstractTestElement samplerBase = (AbstractTestElement) el;
-        urlConfigGui.configure(el);
+        configuring = true;
+        try {
+            super.configure(el);
+            AbstractTestElement samplerBase = (AbstractTestElement) el;
+            urlConfigGui.configure(el);
 
-        HTTPSamplerBaseSchema httpSchema = HTTPSamplerBaseSchema.INSTANCE;
-        legacyHttpProtocol = el.getPropertyOrNull(httpSchema.getHttpProtocol().getName());
-        if (legacyHttpProtocol != null) {
-            legacyHttpProtocol = legacyHttpProtocol.clone();
+            HTTPSamplerBaseSchema httpSchema = HTTPSamplerBaseSchema.INSTANCE;
+            legacyHttp3Upgrade = el.getPropertyOrNull(HTTPSamplerBase.HTTP3_UPGRADE);
+            if (legacyHttp3Upgrade != null) {
+                legacyHttp3Upgrade = legacyHttp3Upgrade.clone();
+            }
+            legacyHttp2Coalescing = el.getPropertyOrNull(HTTPSamplerBase.HTTP2_COALESCING);
+            if (legacyHttp2Coalescing != null) {
+                legacyHttp2Coalescing = legacyHttp2Coalescing.clone();
+            }
+            saveHttp2Coalescing = false;
+            http2Coalescing.setSelected(el.getPropertyAsBoolean(HTTPSamplerBase.HTTP2_COALESCING, true));
+            saveHttp3Upgrade = false;
+            http3Upgrade.setSelected(el.getPropertyAsBoolean(HTTPSamplerBase.HTTP3_UPGRADE,
+                    JMeterUtils.getPropDefault("httpsampler.http3.prefer_for_default", true)));
+            legacyHttpProtocol = el.getPropertyOrNull(httpSchema.getHttpProtocol().getName());
+            if (legacyHttpProtocol != null) {
+                legacyHttpProtocol = legacyHttpProtocol.clone();
+            }
+            JMeterProperty reuse = el.getPropertyOrNull(HTTPSamplerBase.CONNECTION_REUSE);
+            if (reuse == null) {
+                keepAlive.setSelectedIndex(0);
+            } else if ("true".equals(reuse.getStringValue())) {
+                keepAlive.setSelectedIndex(1);
+            } else if ("false".equals(reuse.getStringValue())) {
+                keepAlive.setSelectedIndex(2);
+            } else {
+                keepAlive.setSelectedItem(reuse.getStringValue());
+            }
+            sourceIpType.setSelectedIndex(samplerBase.get(httpSchema.getIpSourceType()));
+            httpProtocol.setSelectedItem(configuredHttpProtocol());
+        } finally {
+            configuring = false;
         }
-        sourceIpType.setSelectedIndex(samplerBase.get(httpSchema.getIpSourceType()));
-        httpProtocol.setSelectedItem(configuredHttpProtocol());
     }
 
     private void init() { // WARNING: called from ctor so must not be overridden (i.e. must be private or final)
@@ -205,23 +290,35 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         // URL CONFIG
         urlConfigGui = new UrlConfigGui(false, true, false);
 
-        // HTTP request options
-        JPanel httpOptions = new HorizontalPanel();
-        httpOptions.add(getProtocolPanel());
-        httpOptions.add(getTimeOutPanel());
-        // AdvancedPanel (embedded resources, source address and optional tasks)
+        JPanel connectionsPanel = new VerticalPanel();
+        connectionsPanel.add(getProtocolPanel());
+        connectionsPanel.add(createConnectionPoolPanel());
+        connectionsPanel.add(getTimeOutPanel());
+        connectionsPanel.add(createSourceAddrPanel());
+        http2Coalescing.addActionListener(event -> saveHttp2Coalescing = true);
+        http3Upgrade.addActionListener(event -> saveHttp3Upgrade = true);
+        httpProtocol.addActionListener(event -> {
+            http2Coalescing.setEnabled(StringUtilities.isBlank(selectedHttpProtocol())
+                    || HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2.equals(selectedHttpProtocol()));
+            http3Upgrade.setEnabled(StringUtilities.isBlank(selectedHttpProtocol()));
+            if (!configuring && HTTPSamplerBase.HTTP_PROTOCOL_HTTP_1_1.equals(selectedHttpProtocol())
+                    && maxConnectionsPerHost.getText().isBlank()) {
+                maxConnectionsPerHost.setText("6");
+            }
+        });
+
+        JPanel proxyPanel = new VerticalPanel();
+        proxyPanel.add(getProxyServerPanel());
+
         JPanel advancedPanel = new VerticalPanel();
-        advancedPanel.add(httpOptions);
         advancedPanel.add(createEmbeddedRsrcPanel());
-        advancedPanel.add(createSourceAddrPanel());
-        advancedPanel.add(getProxyServerPanel());
         advancedPanel.add(createResponseProcessingPanel());
 
-        JTabbedPane tabbedPane = new JTabbedPane();
-        tabbedPane.add(JMeterUtils
-                .getResString("web_testing_basic"), urlConfigGui);
-        tabbedPane.add(JMeterUtils
-                .getResString("web_testing_advanced"), advancedPanel);
+        tabbedPane = new JTabbedPane();
+        tabbedPane.add(JMeterUtils.getResString("http_defaults_tab_default"), urlConfigGui);
+        tabbedPane.add(JMeterUtils.getResString("http_defaults_tab_connections"), connectionsPanel);
+        tabbedPane.add(JMeterUtils.getResString("http_defaults_tab_proxy"), proxyPanel);
+        tabbedPane.add(JMeterUtils.getResString("web_testing_advanced"), advancedPanel);
 
         JPanel emptyPanel = new JPanel();
         emptyPanel.setMaximumSize(new Dimension());
@@ -231,41 +328,56 @@ public class HttpDefaultsGui extends AbstractConfigGui {
         add(emptyPanel, BorderLayout.SOUTH);
     }
 
+    private JPanel createConnectionPoolPanel() {
+        JPanel panel = new JPanel(new MigLayout("insets 8, gap 10 4, wrap 3", "[][180!,fill][grow]"));
+        panel.setBorder(BorderFactory.createTitledBorder(JMeterUtils.getResString("http1_connections_title")));
+        keepAlive.setEditable(true);
+        keepAlive.setToolTipText(JMeterUtils.getResString("http_defaults_keepalive_help"));
+        addConnectionRow(panel, "http_defaults_keepalive", keepAlive, "http_defaults_keepalive_help");
+        maxConnectionsPerHost = new JTextField(10);
+        addConnectionRow(panel, "http1_max_connections_per_host", maxConnectionsPerHost, "http1_max_connections_help");
+        connectionAvailabilityTimeout = new JTextField(10);
+        addConnectionRow(panel, "http1_connection_availability_timeout", connectionAvailabilityTimeout,
+                "http1_connection_availability_help");
+        return panel;
+    }
+
+    private static void addConnectionRow(JPanel panel, String labelKey, JComponent input, String helpKey) {
+        JLabel label = new JLabel(JMeterUtils.getResString(labelKey));
+        label.setLabelFor(input);
+        panel.add(label);
+        panel.add(input, "h pref!, wrap");
+        JTextArea help = new JTextArea(JMeterUtils.getResString(helpKey));
+        help.setEditable(false);
+        help.setFocusable(false);
+        help.setOpaque(false);
+        help.setBorder(BorderFactory.createEmptyBorder());
+        help.setLineWrap(true);
+        help.setWrapStyleWord(true);
+        help.setFont(UIManager.getFont("Label.font").deriveFont(java.awt.Font.PLAIN));
+        // Wrapped text has an unbounded preferred height before the panel is laid out.
+        // Reserve two full-width lines below the row without a text-field border.
+        int helpHeight = 2 * help.getFontMetrics(help.getFont()).getHeight();
+        panel.add(help, "span 3, growx, w 0:pref, h " + helpHeight + "!, gapbottom 4, wrap");
+    }
+
     private JPanel getTimeOutPanel() {
-        JPanel timeOut = new HorizontalPanel();
+        JPanel timeOut = new JPanel(new MigLayout("novisualpadding, insets 8, gap 10 8, wrap 2", "[][180!,fill]"));
         timeOut.setBorder(BorderFactory.createTitledBorder(
-                JMeterUtils.getResString("web_server_timeout_title"))); // $NON-NLS-1$
-        final JPanel connPanel = getConnectTimeOutPanel();
-        final JPanel reqPanel = getResponseTimeOutPanel();
-        timeOut.add(connPanel);
-        timeOut.add(reqPanel);
-        return timeOut;
-    }
-
-    private JPanel getConnectTimeOutPanel() {
+                JMeterUtils.getResString("web_server_timeout_title")));
         connectTimeOut = new JTextField(10);
-
-        JLabel label = new JLabel(JMeterUtils.getResString("web_server_timeout_connect")); // $NON-NLS-1$
-        label.setLabelFor(connectTimeOut);
-
-        JPanel panel = new JPanel(new BorderLayout(5, 0));
-        panel.add(label, BorderLayout.WEST);
-        panel.add(connectTimeOut, BorderLayout.CENTER);
-
-        return panel;
-    }
-
-    private JPanel getResponseTimeOutPanel() {
         responseTimeOut = new JTextField(10);
-
-        JLabel label = new JLabel(JMeterUtils.getResString("web_server_timeout_response")); // $NON-NLS-1$
-        label.setLabelFor(responseTimeOut);
-
-        JPanel panel = new JPanel(new BorderLayout(5, 0));
-        panel.add(label, BorderLayout.WEST);
-        panel.add(responseTimeOut, BorderLayout.CENTER);
-
-        return panel;
+        int inputHeight = Math.max(connectTimeOut.getPreferredSize().height, responseTimeOut.getPreferredSize().height);
+        String inputConstraints = "h " + inputHeight + "!, sgy timeouts";
+        JLabel connectLabel = new JLabel(JMeterUtils.getResString("http_defaults_connect_timeout"));
+        connectLabel.setLabelFor(connectTimeOut);
+        timeOut.add(connectLabel);
+        timeOut.add(connectTimeOut, inputConstraints);
+        JLabel readLabel = new JLabel(JMeterUtils.getResString("http_defaults_read_timeout"));
+        readLabel.setLabelFor(responseTimeOut);
+        timeOut.add(readLabel);
+        timeOut.add(responseTimeOut, inputConstraints);
+        return timeOut;
     }
 
     protected JPanel createEmbeddedRsrcPanel() {
@@ -350,11 +462,17 @@ public class HttpDefaultsGui extends AbstractConfigGui {
      * @return the panel
      */
     protected final JPanel getProtocolPanel(){
-        JPanel implPanel = new HorizontalPanel();
+        JPanel implPanel = new VerticalPanel();
         implPanel.setBorder(BorderFactory.createTitledBorder(
                 JMeterUtils.getResString("web_server_client"))); // $NON-NLS-1$
-        implPanel.add(new JLabel(JMeterUtils.getResString("http_wire_protocol"))); // $NON-NLS-1$
-        implPanel.add(httpProtocol);
+        JPanel protocolRow = new HorizontalPanel();
+        protocolRow.add(new JLabel(JMeterUtils.getResString("http_wire_protocol"))); // $NON-NLS-1$
+        protocolRow.add(httpProtocol);
+        implPanel.add(protocolRow);
+        implPanel.add(http2Coalescing);
+        implPanel.add(new JLabel(JMeterUtils.getResString("http_defaults_http2_coalescing_help")));
+        implPanel.add(http3Upgrade);
+        implPanel.add(new JLabel(JMeterUtils.getResString("http_defaults_http3_upgrade_help")));
         return implPanel;
     }
 

@@ -22,7 +22,7 @@ of software distributed by Breaking IT a perpetual, worldwide, non-exclusive,
 irrevocable, royalty-free copyright license to reproduce, modify, prepare
 derivative works of, publicly display, publicly perform, distribute,
 sublicense, license, and otherwise use or exploit Your Contribution, alone or
-as part of BreakTest, under the BreakTest Community Source License, commercial
+as part of BreakTest, under the Apache License, Version 2.0, commercial
 or proprietary licenses, Open Source licenses, and any future licensing model.
 This grant includes the right for Breaking IT to enforce the license terms
 under which it distributes Your Contribution as part of BreakTest.

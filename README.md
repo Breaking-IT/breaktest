@@ -7,7 +7,7 @@ JMX workflow with a leaner runtime, current protocols, better debugging, and a
 faster development loop. Existing JMeter test plans remain important, but
 BreakTest is not intended to be a frozen copy of JMeter.
 
-[![License: source available](https://img.shields.io/badge/license-source--available-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 ## Why BreakTest Exists
 
@@ -24,7 +24,7 @@ BreakTest keeps that useful model and moves the runtime forward:
 - better GUI feedback while building, debugging, and repairing scripts
 - safer loading of old plans and plugin-heavy JMX files
 - AI-assisted scripting with Codex, Claude Code, Cursor Agent, Gemini CLI, Pi Code, OpenCode, Copilot CLI, and MCP workflows
-- a source-available Community edition that can be scaled by BreakTest Enterprise when one
+- an open-source Community edition that can be scaled by BreakTest Enterprise when one
   machine is no longer enough
 
 Compared with the upstream baseline this work has already shown about 50%
@@ -33,24 +33,23 @@ test shape, and runtime conditions.
 
 ## BreakTest And BreakTest Enterprise
 
-BreakTest Community is the source-available desktop and runtime distribution.
-You may use it to build, debug, validate, and run performance tests against
-systems you operate, and against systems you are authorized to test, including
-work carried out for clients. That use is subject to the Community license and
-any release-specific Community Limits.
+BreakTest Community is the open-source desktop and runtime distribution,
+licensed under Apache-2.0. Commercial use, modification, redistribution, and
+hosting are permitted subject to that license's terms.
 
 BreakTest Enterprise is the paid shell around scaled execution and analysis. It
 runs BreakTest, JMeter, and k6 tests across your own infrastructure with
 distributed load generators, realtime results, raw data retention, reports, SLO
 validation, team workflows, and AI-assisted analysis.
 
-The source stays available for permitted Community use. Enterprise is for
-commercially licensed use and running it seriously at scale.
+BreakTest Enterprise is a separate product under a commercial license. Its
+proprietary components are not covered by the Community Apache-2.0 license.
+Community use, including commercial use, does not require an Enterprise license.
 
 ## What Is New Compared With JMeter 5.6.3
 
 BreakTest is based on the JMeter workflow, but it makes deliberate changes where
-that helps day-to-day performance engineering. The initial community-licensed
+that helps day-to-day performance engineering. The initial Community
 release is not just a rename: it includes protocol, runtime, GUI, AI scripting,
 debugging, and migration work that has landed across the BreakTest PR series.
 
@@ -221,6 +220,17 @@ workload remain unchanged; the runtime still accepts legacy syntax.
 - CSV Data Set can read records in random order while preserving header behavior.
 - CSV preview shows the first variable assignments before running the test.
 - Tools > Archive browser imports and exports shared files stored under `files/` in the JMX archive.
+  Use Replace file to select new contents for an existing file without changing its archive path or references.
+  Importing an existing filename also asks to replace it. Changes take effect in the archive on Save,
+  which retains the previously saved contents in version history.
+- Tools > Version History opens the test plan's Versions tab, which lists previous saves and supports opening
+  a version or deleting selected versions. The Archive browser starts at the root; double-click a folder
+  to browse its contents and use Up to return. The `versions/` directory is visible there too.
+  Opening preserves the saved latest plan until the next save, which keeps that plan as another version.
+  Versions share unchanged attachments by SHA-256 checksum. Changed or removed files are kept while any
+  version needs them; deleting versions removes historical content only when no remaining version needs it.
+  Version sizes show the stored plan and reference manifest, excluding shared attachment content.
+  Existing full snapshots are converted to shared storage on save or version deletion.
   Save the test plan after importing files. CSV Data Set and HTTP file uploads can select files from
   the archive using their archive-source flags. For other fields that accept functions, use
   `${__archiveFile(filename)}` to obtain a local path to an archived file. Fields resolved by
@@ -395,7 +405,7 @@ Create release archives:
 Release versions are configured in `gradle.properties`:
 
 ```properties
-breaktest.version=2026.10.16
+breaktest.version=2026.10.26
 ```
 
 Do not include `-SNAPSHOT` in that property. Gradle appends the snapshot suffix
@@ -471,18 +481,15 @@ compatibility with Apache JMeter.
 
 ## License
 
-BreakTest-specific materials are licensed under the
-[BreakTest Community Source License 1.0](LICENSE). This is a source-available
-license, not an Open Source license.
+BreakTest Community is licensed under the [Apache License, Version 2.0](LICENSE).
+You may use, modify, redistribute, and host Community, including commercially,
+subject to the license's terms. The license does not grant trademark rights
+except as described in Section 6.
 
-Community use covers testing systems you operate and systems you are
-authorized to test, including testing performed for clients. Reselling or
-redistributing BreakTest, offering it to third parties as a hosted or managed
-service, reusing it in another product or JMeter extension, using it to build a
-competing product, rebranding it, and circumventing Community Limits require
-prior written permission or a commercial license from Breaking IT.
-
-Commercial licensing requests may be sent to `info@breakingit.nl`.
+BreakTest Enterprise is a separate product licensed under a commercial
+agreement with Breaking IT. Its proprietary components are not covered by
+this repository's Apache-2.0 license. Enterprise licensing requests may be
+sent to `info@breakingit.nl`.
 
 BreakTest is a derivative work of Apache JMeter. Copyright and attribution
 notices for Apache JMeter and other third-party components are retained in the

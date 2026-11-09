@@ -112,6 +112,7 @@ public class HtmlExtractor extends AbstractScopedTestElement implements PostProc
             String match;
             if (matchNumber >= 0) {// Original match behaviour
                 match = getCorrectMatch(matches, matchNumber);
+                ExtractorEvidence.outcome(this, match != null, expression, "");
                 if (match != null) {
                     vars.put(refName, match);
                 } else if (isFailOnNoMatch()) {
@@ -120,6 +121,7 @@ public class HtmlExtractor extends AbstractScopedTestElement implements PostProc
             } else // < 0 means we save all the matches
             {
                 matchCount = matches.size();
+                ExtractorEvidence.outcome(this, matchCount > 0, expression, "");
                 if (matchCount == 0 && isFailOnNoMatch()) {
                     ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
                 }

@@ -26,8 +26,10 @@ import java.net.Socket;
 import java.net.URL;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
+import java.net.http.HttpConnectTimeoutException;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
@@ -40,6 +42,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -61,6 +64,7 @@ import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
@@ -84,10 +88,9 @@ import org.slf4j.LoggerFactory;
  * <p>
  * For explicit HTTP/3 samplers, requests are sent HTTP/3-only by default
  * ({@code Http3DiscoveryMode.HTTP_3_URI_ONLY}), mirroring the "force HTTP/2" semantics of
- * the HTTP/2 protocol choice; {@code httpsampler.http3.force_http3=false} relaxes this to
- * {@code Http3DiscoveryMode.ANY} (attempt HTTP/3 directly, fall back to TCP). When
- * preferred for default-protocol samplers, {@code Http3DiscoveryMode.ALT_SVC} is used:
- * browser-like TCP first, upgrading to HTTP/3 once the server advertises it.
+ * the HTTP/2 protocol choice. JDK TCP fallback is never enabled. When
+ * preferred for default-protocol samplers, HC5 negotiates TCP with measured connection
+ * timing, upgrading to direct HTTP/3 after a same-authority Alt-Svc advertisement.
  * <p>
  * Known limitations compared to the HttpClient 5 implementations:
  * <ul>
@@ -115,14 +118,6 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     private static final String HTTP3_ERROR_PREFIX = "HTTP/3 over QUIC: ";
 
-    /**
-     * When true (default), explicit HTTP/3 samplers send requests HTTP/3-only and fail if
-     * the server does not answer over HTTP/3. When false, HTTP/3 is attempted directly
-     * with fallback to HTTP/2 or HTTP/1.1 over TCP.
-     */
-    private static final boolean FORCE_HTTP3 =
-            JMeterUtils.getPropDefault("httpsampler.http3.force_http3", true); //$NON-NLS-1$
-
     /** Ignore certificate-chain errors by default, matching the other HTTP samplers. */
     private static final boolean IGNORE_CERTIFICATE_ERRORS =
             JMeterUtils.getPropDefault("httpsampler.http3.ignore_certificate_errors", true); //$NON-NLS-1$
@@ -148,17 +143,28 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     private static final ConcurrentMap<Object, Map<Http3ClientKey, Http3ClientState>>
             HTTPCLIENTS_CACHE_PER_JMETER_THREAD = new ConcurrentHashMap<>();
 
+    // TLS identity and trust scope, unlike HTTP client settings, define session compatibility.
+    private static final ConcurrentMap<Object, Map<Http3TlsKey, SSLContext>> TLS_CONTEXTS_PER_USER =
+            new ConcurrentHashMap<>();
+
+    private static final ConcurrentMap<Object, ConcurrentMap<String, Long>> ALT_SVC_PER_USER =
+            new ConcurrentHashMap<>();
+
+    // Origins whose advertised HTTP/3 failed (e.g. UDP blocked) stay on TCP until this time.
+    private static final ConcurrentMap<Object, ConcurrentMap<String, Long>> BROKEN_ALT_SVC_PER_USER =
+            new ConcurrentHashMap<>();
+
+    private static final long BROKEN_ALTERNATIVE_MILLIS = 5 * 60 * 1000L;
+
     private volatile @Nullable CompletableFuture<HttpResponse<InputStream>> currentCall;
 
     /** How the client should establish HTTP/3 exchanges. */
     enum Http3Discovery {
         /** HTTP/3-only ({@code HTTP_3_URI_ONLY}); fails when the server has no HTTP/3. */
         HTTP3_ONLY,
-        /** Try HTTP/3 directly, racing a TCP connection as fallback ({@code ANY}). */
-        PREFER_HTTP3,
         /**
          * Browser-like: first request per origin over TCP (HTTP/2 or HTTP/1.1), later
-         * requests upgrade to HTTP/3 once the server advertises it ({@code ALT_SVC}).
+         * requests upgrade to HTTP/3 after a same-authority Alt-Svc advertisement.
          */
         ALT_SVC_UPGRADE
     }
@@ -170,7 +176,18 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     /** Creates the implementation for an explicit HTTP/3 protocol selection. */
     HTTPJavaHttp3Impl(HTTPSamplerBase testElement) {
-        this(testElement, FORCE_HTTP3 ? Http3Discovery.HTTP3_ONLY : Http3Discovery.PREFER_HTTP3);
+        this(testElement, explicitDiscovery(testElement));
+    }
+
+    static Http3Discovery explicitDiscovery(HTTPSamplerBase element) {
+        return explicitDiscovery(element, JMeterUtils.getPropDefault("httpsampler.http3.force_http3", true));
+    }
+
+    static Http3Discovery explicitDiscovery(HTTPSamplerBase element, boolean legacyForce) {
+        // Compatibility for old scripts only. Never enable the JDK's TCP fallback.
+        return element.getPropertyOrNull(HTTPSamplerBase.HTTP3_UPGRADE) == null
+                && !legacyForce
+                ? Http3Discovery.ALT_SVC_UPGRADE : Http3Discovery.HTTP3_ONLY;
     }
 
     HTTPJavaHttp3Impl(HTTPSamplerBase testElement, Http3Discovery discovery) {
@@ -190,6 +207,21 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     @Override
     protected HTTPSampleResult sample(URL url, String method, boolean areFollowingRedirect, int frameDepth) {
+        if (discovery == Http3Discovery.ALT_SVC_UPGRADE && !hasHttp3Alternative(url)) {
+            if (negotiatingAuthenticationClient == null) {
+                negotiatingAuthenticationClient = new HTTPHC5H2Impl(testElement);
+            }
+            activeAuthenticationClient = negotiatingAuthenticationClient;
+            try {
+                HTTPSampleResult result = negotiatingAuthenticationClient.sample(url, method, areFollowingRedirect, frameDepth);
+                if (result != null) {
+                    rememberAlternative(result);
+                }
+                return result;
+            } finally {
+                activeAuthenticationClient = null;
+            }
+        }
         HTTPHC5Impl fallback = authenticationClientFor(url);
         if (fallback != null) {
             if (discovery == Http3Discovery.HTTP3_ONLY) {
@@ -200,7 +232,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                 result.sampleStart();
                 result.sampleEnd();
                 return errorResult(new IllegalArgumentException(
-                        "The configured authentication requires HC5; disable HTTP/3-only mode"), result);
+                        "The configured authentication requires HC5; select Automatic protocol"), result);
             }
             activeAuthenticationClient = fallback;
             try {
@@ -235,6 +267,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         }
 
         res.sampleStart();
+        res.setConnectTime(org.apache.jmeter.samplers.SampleResult.CONNECT_TIME_UNAVAILABLE);
         try {
             HttpResponse<InputStream> response;
             try {
@@ -247,16 +280,31 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                 log.debug("HTTP/3 certificate validation failed for {}; retrying with the "
                         + "certificate observed through JMeter's lenient TLS context", url);
                 try {
-                    response = send(setupLenientClient(url, client).client(), request);
+                    client = setupLenientClient(url, client);
+                    response = send(client.client(), request);
                 } catch (Exception retryFailure) {
                     retryFailure.addSuppressed(cause);
                     throw retryFailure;
                 }
             }
             fillSampleResult(res, request, response, requestBodyBytes, destinationEndpoint);
+            if (discovery == Http3Discovery.ALT_SVC_UPGRADE) {
+                rememberAlternative(res);
+            }
             return resultProcessing(areFollowingRedirect, frameDepth, res);
         } catch (Exception e) {
             Throwable cause = e instanceof ExecutionException && e.getCause() != null ? e.getCause() : e;
+            // A slow response or a stopped test says nothing about whether QUIC works.
+            boolean http3Unusable = !(e instanceof InterruptedException
+                    || cause instanceof CancellationException
+                    || cause instanceof HttpTimeoutException
+                            && !(cause instanceof HttpConnectTimeoutException));
+            if (discovery == Http3Discovery.ALT_SVC_UPGRADE && http3Unusable) {
+                // Do not replay a potentially delivered request. Like browsers, keep the origin
+                // on TCP for a while instead of failing again after every re-advertisement.
+                brokenAlternatives().put(trustedOrigin(url), System.currentTimeMillis() + BROKEN_ALTERNATIVE_MILLIS);
+                alternatives().remove(trustedOrigin(url));
+            }
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
@@ -276,6 +324,49 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             return errorResult(cause, res);
         } finally {
             currentCall = null;
+        }
+    }
+
+    private static ConcurrentMap<String, Long> alternatives() {
+        Object owner = getJMeterThreadCacheKey();
+        if (owner instanceof JMeterThread thread) {
+            registerCleanup(thread);
+        }
+        return ALT_SVC_PER_USER.computeIfAbsent(owner, ignored -> new ConcurrentHashMap<>());
+    }
+
+    private static ConcurrentMap<String, Long> brokenAlternatives() {
+        alternatives(); // registers the user's cleanup
+        return BROKEN_ALT_SVC_PER_USER.computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new ConcurrentHashMap<>());
+    }
+
+    private static boolean hasHttp3Alternative(URL url) {
+        String origin = trustedOrigin(url);
+        long now = System.currentTimeMillis();
+        // A parallel response can publish an advertisement after failure removed it.
+        // The cooldown remains authoritative even when that stale entry survives.
+        Long broken = brokenAlternatives().get(origin);
+        if (broken != null && broken > now) {
+            return false;
+        }
+        Long expiry = alternatives().get(origin);
+        return expiry != null && expiry > now;
+    }
+
+    private static void rememberAlternative(HTTPSampleResult result) {
+        URL url = result.getURL();
+        if (url == null || !"https".equalsIgnoreCase(url.getProtocol())) {
+            return;
+        }
+        Long expiry = Http3Alternative.expiry(url, result.getResponseHeaders(), System.currentTimeMillis());
+        Long broken = brokenAlternatives().get(trustedOrigin(url));
+        if (expiry != null && (broken == null || broken <= System.currentTimeMillis())) {
+            alternatives().put(trustedOrigin(url), expiry);
+        }
+        for (var child : result.getSubResults()) {
+            if (child instanceof HTTPSampleResult http) {
+                rememberAlternative(http);
+            }
         }
     }
 
@@ -390,8 +481,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
                 getAutoRedirects(),
                 getIpSourceAddress(),
                 null, clientCertificateIdentity(url));
-        Map<Http3ClientKey, Http3ClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD
-                .computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new HashMap<>(3));
+        Map<Http3ClientKey, Http3ClientState> clients = currentClientCache();
         synchronized (clients) {
             if (IGNORE_CERTIFICATE_ERRORS) {
                 Http3ClientKey lenientKey = new Http3ClientKey(
@@ -408,7 +498,14 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
             // A legacy rotating alias is selected once for this cached client, not on every request.
             AsyncClientIdentity identity = key.clientIdentity() == null
                     ? ((JsseSSLManager) SSLManager.getInstance()).getAsyncClientIdentity() : key.clientIdentity();
-            client = new Http3ClientState(key, buildClient(key, identity.createQuicContext()), identity);
+            Map<Http3TlsKey, SSLContext> contexts = currentTlsContexts();
+            Http3TlsKey tlsKey = new Http3TlsKey(identity, null);
+            SSLContext context = contexts.get(tlsKey);
+            if (context == null) {
+                context = identity.createQuicContext();
+                contexts.put(tlsKey, context);
+            }
+            client = new Http3ClientState(key, buildClient(key, context), identity);
             log.debug("Created new HTTP/3 HttpClient: @{} {}", System.identityHashCode(client), key);
             clients.put(key, client);
             return client;
@@ -419,15 +516,20 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         Http3ClientKey originalKey = original.key();
         Http3ClientKey key = new Http3ClientKey(originalKey.connectTimeout(), originalKey.autoRedirect(),
                 originalKey.localAddress(), trustedOrigin(url), originalKey.clientIdentity());
-        Map<Http3ClientKey, Http3ClientState> clients = HTTPCLIENTS_CACHE_PER_JMETER_THREAD
-                .computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new HashMap<>(3));
+        Map<Http3ClientKey, Http3ClientState> clients = currentClientCache();
         synchronized (clients) {
             Http3ClientState client = clients.get(key);
             if (client != null) {
                 return client;
             }
             // Retrying must keep the exact identity of the failed attempt, including global rotation.
-            SSLContext sslContext = createQuicCompatibleLenientContext(url, original.identity());
+            Map<Http3TlsKey, SSLContext> contexts = currentTlsContexts();
+            Http3TlsKey tlsKey = new Http3TlsKey(original.identity(), trustedOrigin(url));
+            SSLContext sslContext = contexts.get(tlsKey);
+            if (sslContext == null) {
+                sslContext = createQuicCompatibleLenientContext(url, original.identity());
+                contexts.put(tlsKey, sslContext);
+            }
             client = new Http3ClientState(key, buildClient(key, sslContext), original.identity());
             log.debug("Created certificate-lenient HTTP/3 HttpClient: @{} {}",
                     System.identityHashCode(client), key);
@@ -536,6 +638,32 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         return builder.build();
     }
 
+    private static Map<Http3ClientKey, Http3ClientState> currentClientCache() {
+        Object key = getJMeterThreadCacheKey();
+        if (key instanceof JMeterThread owner) {
+            registerCleanup(owner);
+        }
+        return HTTPCLIENTS_CACHE_PER_JMETER_THREAD.computeIfAbsent(key, ignored -> new HashMap<>(3));
+    }
+
+    // Accessed while holding the owning client map's lock.
+    private static Map<Http3TlsKey, SSLContext> currentTlsContexts() {
+        return TLS_CONTEXTS_PER_USER.computeIfAbsent(getJMeterThreadCacheKey(), ignored -> new HashMap<>(3));
+    }
+
+    private static void registerCleanup(JMeterThread owner) {
+        Runnable cleanup = () -> removeUserClients(owner);
+        owner.registerThreadCleanup(HTTPJavaHttp3Impl.class, cleanup);
+        owner.registerUserCleanup(HTTPJavaHttp3Impl.class, cleanup);
+    }
+
+    private static void removeUserClients(Object key) {
+        ALT_SVC_PER_USER.remove(key);
+        BROKEN_ALT_SVC_PER_USER.remove(key);
+        TLS_CONTEXTS_PER_USER.remove(key);
+        closeClients(HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(key));
+    }
+
     private static Object getJMeterThreadCacheKey() {
         Object thread = JMeterContextService.getContext().getThread();
         return thread == null ? Thread.currentThread() : thread;
@@ -569,8 +697,8 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         }
         Object mode = switch (discovery) {
             case HTTP3_ONLY -> Http3RuntimeSupport.HTTP_3_URI_ONLY;
-            case PREFER_HTTP3 -> Http3RuntimeSupport.ANY;
-            case ALT_SVC_UPGRADE -> Http3RuntimeSupport.ALT_SVC;
+            // TCP discovery is handled by HC5, whose connection callbacks provide real timings.
+            case ALT_SVC_UPGRADE -> Http3RuntimeSupport.HTTP_3_URI_ONLY;
         };
         try {
             Http3RuntimeSupport.SET_OPTION.invoke(builder, Http3RuntimeSupport.H3_DISCOVERY, mode);
@@ -872,7 +1000,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         JMeterVariables jMeterVariables = JMeterContextService.getContext().getVariables();
         if (jMeterVariables == null || !jMeterVariables.isSameUserOnNextIteration()) {
             // New virtual user: drop cached clients so new QUIC connections are established
-            closeClients(HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(getJMeterThreadCacheKey()));
+            removeUserClients(getJMeterThreadCacheKey());
         }
     }
 
@@ -884,7 +1012,9 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         if (negotiatingAuthenticationClient != null) {
             negotiatingAuthenticationClient.threadFinished();
         }
-        closeClients(HTTPCLIENTS_CACHE_PER_JMETER_THREAD.remove(getJMeterThreadCacheKey()));
+        if (JMeterContextService.getContext().getThread() == null) {
+            removeUserClients(getJMeterThreadCacheKey());
+        }
     }
 
     private static void closeClients(@Nullable Map<Http3ClientKey, Http3ClientState> clients) {
@@ -916,6 +1046,8 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
 
     private record Http3ClientState(Http3ClientKey key, HttpClient client, AsyncClientIdentity identity) {
     }
+
+    private record Http3TlsKey(AsyncClientIdentity identity, @Nullable String trustedOrigin) { }
 
     private record Http3ClientKey(int connectTimeout, boolean autoRedirect,
             @Nullable InetAddress localAddress, @Nullable String trustedOrigin, @Nullable AsyncClientIdentity clientIdentity) {

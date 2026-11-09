@@ -20,6 +20,7 @@ package org.apache.jmeter.threads;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.apache.jmeter.testelement.AbstractTestElement;
 import org.apache.jmeter.util.JMeterUtils;
 
 /**
@@ -90,6 +91,7 @@ public final class JMeterContextService {
      * Invokes {@link ThreadLocal#remove()}.
      */
     static void removeContext(){ // Currently only used by JMeterThread
+        AbstractTestElement.clearThreadContext();
         threadContext.remove();
     }
 
@@ -100,6 +102,7 @@ public final class JMeterContextService {
      *            {@link JMeterContext}
      */
     public static void replaceContext(JMeterContext context) {
+        AbstractTestElement.clearThreadContext();
         threadContext.remove();
         threadContext.set(context);
     }

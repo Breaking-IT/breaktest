@@ -46,6 +46,8 @@ import javax.net.ssl.X509TrustManager;
 
 import org.apache.jmeter.config.ClientCertificateConfig;
 import org.apache.jmeter.services.FileServer;
+import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.util.keystore.JmeterKeyStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,7 +82,8 @@ public class JsseSSLManager extends SSLManager {
     static {
         if (log.isInfoEnabled()) {
             log.info("Using default SSL protocol: {}", DEFAULT_SSL_PROTOCOL);
-            log.info("SSL session context: {}", SHARED_SESSION_CONTEXT ? "shared" : "per-thread");
+            log.info("SSL session context: per virtual user; standalone: {}",
+                    SHARED_SESSION_CONTEXT ? "shared" : "per-thread");
 
             if (CPS > 0) {
                 log.info("Setting up HTTPS SlowProtocol, cps={}", CPS);
@@ -97,6 +100,12 @@ public class JsseSSLManager extends SSLManager {
 
     private SSLContext defaultContext; // If we are using a single session
     private ThreadLocal<SSLContext> threadlocal; // Otherwise
+
+    private final Map<JMeterThread, UserContext> userContexts = new ConcurrentHashMap<>();
+
+    private static final class UserContext {
+        private SSLContext context;
+    }
 
     /**
      * Create the SSLContext, and wrap all the X509KeyManagers with
@@ -162,14 +171,30 @@ public class JsseSSLManager extends SSLManager {
     }
 
     /**
-     * Returns the SSLContext we are using. This is either a context per thread,
-     * or, for backwards compatibility, a single shared context.
+     * Returns the SSLContext shared by all workers of the current virtual user.
+     * Outside a virtual user, retains the legacy per-thread or global context.
      *
      * @return The Context value
      * @throws GeneralSecurityException
      *             when constructing the context fails
      */
     public SSLContext getContext() throws GeneralSecurityException {
+        JMeterThread owner = JMeterContextService.getContext().getThread();
+        if (owner != null) {
+            UserContext state = userContexts.computeIfAbsent(owner, ignored -> {
+                Runnable cleanup = () -> userContexts.remove(owner);
+                owner.registerThreadCleanup(this, cleanup);
+                // A new user never reuses the previous user's TLS sessions.
+                owner.registerUserCleanup(this, cleanup);
+                return new UserContext();
+            });
+            synchronized (state) {
+                if (state.context == null) {
+                    state.context = createContext();
+                }
+                return state.context;
+            }
+        }
         if (SHARED_SESSION_CONTEXT) {
             if (log.isDebugEnabled()){
                 log.debug("Using shared SSL context for: {}", Thread.currentThread().getName());
@@ -192,10 +217,15 @@ public class JsseSSLManager extends SSLManager {
     }
 
     /**
-     * Resets the SSLContext if using per-thread contexts.
+     * Resets the current virtual user context, or the standalone thread context.
      *
      */
     public void resetContext() {
+        JMeterThread owner = JMeterContextService.getContext().getThread();
+        if (owner != null) {
+            userContexts.remove(owner);
+            return;
+        }
         if (!SHARED_SESSION_CONTEXT) {
             log.debug("Clearing session context for current thread");
             this.threadlocal.remove();

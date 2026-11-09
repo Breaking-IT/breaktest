@@ -28,6 +28,28 @@ import org.junit.jupiter.api.Test;
 class TestSampleResult implements JMeterSerialTest {
 
     @Test
+    void successfulPoolWaitMovesTheWholeMeasurementWindow() {
+        SampleResult result = new SampleResult();
+        result.setStartTime(1000);
+        result.excludeConnectionPoolWait(200);
+        result.setEndTime(1500);
+        Assertions.assertEquals(1200, result.getStartTime());
+        Assertions.assertEquals(300, result.getTime());
+        result.excludeConnectionPoolWait(100);
+        Assertions.assertEquals(1200, result.getStartTime(), "Completed results must not move");
+    }
+
+    @Test
+    void unavailableConnectionTimeSurvivesCopyAndAggregation() {
+        SampleResult result = new SampleResult();
+        result.setConnectTime(12);
+        result.addConnectTime(SampleResult.CONNECT_TIME_UNAVAILABLE);
+        result.addConnectTime(20);
+        Assertions.assertEquals(32, result.getConnectTime());
+        Assertions.assertEquals(32, new SampleResult(result).getConnectTime());
+    }
+
+    @Test
     void testElapsedTrue() throws Exception {
         SampleResult res = new SampleResult(true);
 

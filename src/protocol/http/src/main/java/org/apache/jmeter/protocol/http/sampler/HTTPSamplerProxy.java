@@ -233,8 +233,9 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
             }
         }
         HTTPSampleResult result = sampleWith(impl, u, method, areFollowingRedirect, depth);
-        if (impl instanceof HTTPHC5H2Impl && result != null) {
-            HTTPSamplerFactory.recordNegotiatedProtocol(implementation, this, u, result.getProtocolVersion());
+        if (result != null) {
+            HTTPSamplerFactory.recordNegotiatedProtocol(implementation, this, u, result.getProtocolVersion(),
+                    result.getResponseHeaders());
         }
         return result;
     }

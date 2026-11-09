@@ -20,7 +20,6 @@ package org.apache.jmeter.protocol.http.proxy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.util.Collection;
 import java.util.List;
 
 import org.apache.jmeter.config.Arguments;
@@ -45,10 +44,7 @@ class ProxyEncodedVariablesTest extends JMeterTestCase {
         sampler.getArguments().addArgument(argument);
         HeaderManager headers = new HeaderManager();
         headers.add(new Header("X-Token", "abc%2B123%2F%3D"));
-        var method = ProxyControl.class.getDeclaredMethod("replaceValues", TestElement.class,
-                TestElement[].class, Collection.class);
-        method.setAccessible(true);
-        method.invoke(null, sampler, new TestElement[] {headers}, List.of(variables));
+        RecordedVariableReplacer.replaceValues(sampler, new TestElement[] {headers}, List.of(variables));
         assertEquals("/submit?token=${__urlencode(${token})}", sampler.getPath());
         assertEquals("${token}", sampler.getArguments().getArgument(0).getValue());
         assertTrue(((HTTPArgument) sampler.getArguments().getArgument(0)).isAlwaysEncoded());
@@ -57,7 +53,7 @@ class ProxyEncodedVariablesTest extends JMeterTestCase {
         sampler = new HTTPSamplerProxy();
         sampler.setPostBodyRaw(true);
         sampler.addNonEncodedArgument("", "token=abc%2B123%2F%3D", "");
-        method.invoke(null, sampler, new TestElement[0], List.of(variables));
+        RecordedVariableReplacer.replaceValues(sampler, new TestElement[0], List.of(variables));
         assertEquals("token=${__urlencode(${token})}", sampler.getArguments().getArgument(0).getValue());
     }
 }

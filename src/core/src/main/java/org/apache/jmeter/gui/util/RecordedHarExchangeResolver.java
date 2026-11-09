@@ -685,7 +685,7 @@ public final class RecordedHarExchangeResolver {
         appendLine(builder,
                 request.path("method").asText(), // $NON-NLS-1$
                 request.path("url").asText(), // $NON-NLS-1$
-                displayHttpVersion(request.path("httpVersion").asText())); // $NON-NLS-1$
+                HttpProtocolDisplay.version(request.path("httpVersion").asText())); // $NON-NLS-1$
         builder.append(formatRequestHeaders(request));
         String body = requestBody(request.path("postData")); // $NON-NLS-1$
         appendBody(builder, body);
@@ -709,20 +709,16 @@ public final class RecordedHarExchangeResolver {
         StringBuilder builder = new StringBuilder();
         String httpVersion = response.path("httpVersion").asText(); // $NON-NLS-1$
         appendLine(builder,
-                displayHttpVersion(httpVersion),
+                HttpProtocolDisplay.version(httpVersion),
                 response.path("status").isMissingNode() ? "" : response.path("status").asText(), // $NON-NLS-1$ //$NON-NLS-2$
-                isHttp2(httpVersion) ? "" : response.path("statusText").asText()); // $NON-NLS-1$ //$NON-NLS-2$
+                isHttp2Or3(httpVersion) ? "" : response.path("statusText").asText()); // $NON-NLS-1$ //$NON-NLS-2$
         appendHeaders(builder, response.path("headers"), false); // $NON-NLS-1$
-        return builder.toString();
+        return HttpProtocolDisplay.responseHeaders(builder.toString());
     }
 
-    private static String displayHttpVersion(String httpVersion) {
-        return "HTTP/2.0".equalsIgnoreCase(httpVersion) ? "HTTP/2" : httpVersion; // $NON-NLS-1$ //$NON-NLS-2$
-    }
-
-    private static boolean isHttp2(String httpVersion) {
-        return "HTTP/2".equalsIgnoreCase(httpVersion) // $NON-NLS-1$
-                || "HTTP/2.0".equalsIgnoreCase(httpVersion); // $NON-NLS-1$
+    private static boolean isHttp2Or3(String httpVersion) {
+        String version = HttpProtocolDisplay.version(httpVersion);
+        return "HTTP/2".equals(version) || "HTTP/3".equals(version); // $NON-NLS-1$ //$NON-NLS-2$
     }
 
     private static void appendLine(StringBuilder builder, String... parts) {

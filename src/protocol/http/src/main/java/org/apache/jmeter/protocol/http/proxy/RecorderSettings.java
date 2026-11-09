@@ -44,6 +44,8 @@ public final class RecorderSettings {
     private RecorderSettings() { }
 
     public static void applyDefaults(ProxyControl recorder) {
+        // New recorders use Path; explicit saved preferences below still take precedence.
+        recorder.setHTTPSampleNamingMode(4);
         for (String key : KEYS) {
             String value = JMeterUtils.getProperty(PREFIX + key);
             if (value != null) {

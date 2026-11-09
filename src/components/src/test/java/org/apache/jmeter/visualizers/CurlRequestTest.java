@@ -113,7 +113,7 @@ class CurlRequestTest {
     @org.junit.jupiter.params.provider.CsvSource({"false, UTF-8", "true, UTF-8",
             "false, ISO-8859-1", "true, ISO-8859-1"})
     @Timeout(20)
-    void exportedCommandAndReplayDecodeGzipWithoutChangingRequest(boolean recordedAcceptEncoding, String charset) throws Exception {
+    void exportedCommandDecodesGzipWithoutChangingRequest(boolean recordedAcceptEncoding, String charset) throws Exception {
         Assumptions.assumeFalse(System.getProperty("os.name").startsWith("Windows"));
         try {
             Assumptions.assumeTrue(new ProcessBuilder("curl", "--version").start().waitFor() == 0);
@@ -129,7 +129,7 @@ class CurlRequestTest {
             CompletableFuture<List<String>> received = CompletableFuture.supplyAsync(() -> {
                 List<String> requests = new ArrayList<>();
                 try {
-                    for (int i = 0; i < 2; i++) {
+                    for (int i = 0; i < 1; i++) {
                         try (var socket = server.accept()) {
                             socket.setSoTimeout(10000);
                             var input = socket.getInputStream();
@@ -168,12 +168,10 @@ class CurlRequestTest {
                 assertTrue(request.command().contains("--data-raw "));
                 assertFalse(request.command().contains("printf"));
             }
-            assertTrue(request.replay().endsWith("Decoded response"));
             Process exported = new ProcessBuilder("sh", "-c", request.command()).redirectErrorStream(true).start();
             assertTrue(new String(exported.getInputStream().readAllBytes(), StandardCharsets.UTF_8).endsWith("Decoded response"));
             assertEquals(0, exported.waitFor());
             List<String> requests = received.get(10, TimeUnit.SECONDS);
-            assertEquals(requests.get(0), requests.get(1));
             if (recordedAcceptEncoding) {
                 assertTrue(requests.get(0).contains("Accept-Encoding: gzip, deflate\r\n"));
             } else {

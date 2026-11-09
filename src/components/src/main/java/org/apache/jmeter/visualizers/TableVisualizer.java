@@ -132,6 +132,9 @@ public class TableVisualizer extends AbstractVisualizer implements Clearable {
             null, // Sample Time
             null, // Status
             null, // Bytes
+            null, // Sent bytes
+            null, // Latency
+            new ConnectTimeRenderer(), // Connect time
         };
 
     /**

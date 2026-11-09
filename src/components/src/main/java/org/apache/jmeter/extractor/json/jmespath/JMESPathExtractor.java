@@ -24,6 +24,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 
+import org.apache.jmeter.extractor.ExtractorEvidence;
 import org.apache.jmeter.extractor.ExtractorFailure;
 import org.apache.jmeter.extractor.ExtractorTestResult;
 import org.apache.jmeter.processor.PostProcessor;
@@ -87,6 +88,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
         clearOldRefVars(vars, refName);
         if (jsonResponse.isEmpty()) {
             handleEmptyResponse(vars, refName, defaultValue);
+            ExtractorEvidence.outcome(this, false, jsonPathExpression, "");
             if (isFailOnNoMatch()) {
                 ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }
@@ -111,6 +113,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
                 foundMatch = handleListResult(vars, refName, defaultValue, matchNumber, resultList);
             } else if (resultList.isEmpty()){
                 handleNullResult(vars, refName, defaultValue, matchNumber);
+                ExtractorEvidence.outcome(this, false, jsonPathExpression, "");
                 if (isFailOnNoMatch()) {
                     ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
                 }
@@ -120,6 +123,7 @@ public class JMESPathExtractor extends AbstractScopedTestElement
                 handleSingleResult(vars, refName, matchNumber, resultList);
                 foundMatch = true;
             }
+            ExtractorEvidence.outcome(this, foundMatch, jsonPathExpression, "");
             if (!foundMatch && isFailOnNoMatch()) {
                 ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }

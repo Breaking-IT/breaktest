@@ -113,6 +113,8 @@ public class BoundaryExtractor extends AbstractScopedTestElement implements Post
         try {
             prevCount = removePrevCount(vars, refName);
             List<String> matches = extractMatches(previousResult, vars, matchNumber);
+            ExtractorEvidence.outcome(this, !matches.isEmpty(), getLeftBoundary() + "…" + getRightBoundary(),
+                    getLeftBoundary());
             if (matches.isEmpty() && isFailOnNoMatch()) {
                 ExtractorFailure.failOnNoMatch(previousResult, getName(), refName);
             }

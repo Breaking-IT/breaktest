@@ -18,6 +18,7 @@
 package org.apache.jmeter.protocol.http.control;
 
 import static org.apache.jmeter.protocol.http.util.ConversionUtils.toUrl;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -127,6 +128,42 @@ public class TestHTTPMirrorThread extends JMeterTestCase {
             logger.removeAppender(appender);
             appender.stop();
         }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"200 OK", "302 Temporary Redirect"})
+    void readsRequestBodyBeforeSendingFinalResponse(String status) throws Exception {
+        byte[] headers = ("GET / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 16384\r\n"
+                + "X-ResponseStatus: " + status + "\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1);
+        ByteArrayOutputStream request = new ByteArrayOutputStream();
+        request.write(headers);
+        request.write(new byte[16384]);
+        ByteArrayOutputStream response = new ByteArrayOutputStream();
+        try (Socket socket = new Socket() {
+            @Override
+            public InputStream getInputStream() {
+                return new ByteArrayInputStream(request.toByteArray()) {
+                    @Override
+                    public synchronized int read(byte[] bytes, int offset, int length) {
+                        if (pos < headers.length) {
+                            // Deliver the body separately, as a real socket is allowed to do.
+                            return super.read(bytes, offset, Math.min(length, headers.length - pos));
+                        }
+                        assertEquals(0, response.size(),
+                                "A final response can make an async client stop uploading the body");
+                        return super.read(bytes, offset, length);
+                    }
+                };
+            }
+
+            @Override
+            public OutputStream getOutputStream() {
+                return response;
+            }
+        }) {
+            new HttpMirrorThread(socket).run();
+        }
+        assertArrayEquals(request.toByteArray(), getMirroredResponse(response.toByteArray()));
     }
 
     @Test

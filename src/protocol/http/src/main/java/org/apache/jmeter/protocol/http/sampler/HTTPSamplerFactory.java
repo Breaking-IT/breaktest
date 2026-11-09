@@ -83,15 +83,9 @@ public final class HTTPSamplerFactory {
         return new String[]{IMPL_HTTP_CLIENT5};
     }
 
-    /**
-     * When true and the runtime supports HTTP/3 (Java 27+), samplers with a blank/default
-     * protocol use the JDK HTTP/3 client with Alt-Svc discovery (HTTP/3 preferred, falling
-     * back to HTTP/2 or HTTP/1.1 per request) instead of HttpClient5 negotiation.
-     * Samplers using features the HTTP/3 implementation does not support (multipart,
-     * proxies) keep using HttpClient5.
-     */
+    /** Compatibility preference used only when the script has no saved upgrade choice. */
     private static final boolean PREFER_HTTP3_FOR_DEFAULT =
-            JMeterUtils.getPropDefault("httpsampler.http3.prefer_for_default", false); //$NON-NLS-1$
+            JMeterUtils.getPropDefault("httpsampler.http3.prefer_for_default", true); //$NON-NLS-1$
 
     /**
      * JMeter property, default true: cleartext ({@code http://}) requests whose HTTP version is
@@ -114,15 +108,13 @@ public final class HTTPSamplerFactory {
      * @return true when the HTTP/1.1 implementation should send this request
      */
     public static boolean usesHttp11ForCleartext(String impl, HTTPSamplerBase base, URL url) {
-        return usesHttp11ForCleartext(impl, base, url,
-                JMeterUtils.getPropDefault(CLEARTEXT_HTTP11_IMPL, true), PREFER_HTTP3_FOR_DEFAULT);
+        return usesHttp11ForCleartext(impl, base, url, JMeterUtils.getPropDefault(CLEARTEXT_HTTP11_IMPL, true));
     }
 
-    // package-private so tests can exercise the opt-out and HTTP/3 preference paths
-    static boolean usesHttp11ForCleartext(String impl, HTTPSamplerBase base, URL url,
-            boolean enabled, boolean preferHttp3ForDefault) {
+    // package-private so tests can exercise the opt-out path. The HTTP/3 upgrade preference does
+    // not matter here: HTTP/3 is only reached from an https origin's Alt-Svc advertisement.
+    static boolean usesHttp11ForCleartext(String impl, HTTPSamplerBase base, URL url, boolean enabled) {
         return enabled
-                && !preferHttp3ForDefault
                 && HTTPConstants.PROTOCOL_HTTP.equalsIgnoreCase(url.getProtocol())
                 && StringUtilities.isBlank(base.getHttpProtocol())
                 && (StringUtilities.isBlank(impl) || isKnownImplementation(impl));
@@ -154,8 +146,7 @@ public final class HTTPSamplerFactory {
     }
 
     private static boolean negotiatesOverTls(String impl, HTTPSamplerBase base, URL url) {
-        return !PREFER_HTTP3_FOR_DEFAULT
-                && HTTPConstants.PROTOCOL_HTTPS.equalsIgnoreCase(url.getProtocol())
+        return HTTPConstants.PROTOCOL_HTTPS.equalsIgnoreCase(url.getProtocol())
                 && StringUtilities.isBlank(base.getHttpProtocol())
                 && (StringUtilities.isBlank(impl) || isKnownImplementation(impl))
                 && JMeterUtils.getPropDefault(TLS_HTTP11_IMPL, true);
@@ -169,10 +160,15 @@ public final class HTTPSamplerFactory {
      * @param base            the sampler
      * @param url             the URL that was sampled
      * @param protocolVersion the protocol the response used, as reported on the sample result
+     * @param responseHeaders the response headers; a host that advertises an alternative service
+     *                        (HTTP/3 through Alt-Svc) must keep reaching the negotiating client
      */
-    static void recordNegotiatedProtocol(String impl, HTTPSamplerBase base, URL url, String protocolVersion) {
+    static void recordNegotiatedProtocol(String impl, HTTPSamplerBase base, URL url, String protocolVersion,
+            String responseHeaders) {
         if (protocolVersion != null && protocolVersion.startsWith("HTTP/1.") //$NON-NLS-1$
-                && negotiatesOverTls(impl, base, url)) {
+                && negotiatesOverTls(impl, base, url)
+                && (responseHeaders == null
+                        || !responseHeaders.toLowerCase(java.util.Locale.ROOT).contains("alt-svc:"))) { //$NON-NLS-1$
             http11OnlyOrigins().put(url.getAuthority(), Boolean.TRUE);
         }
     }
@@ -220,22 +216,26 @@ public final class HTTPSamplerFactory {
             if (base.isHttp3Protocol()) {
                 throw new IllegalArgumentException("SSE supports HTTP/1.1 and HTTP/2; select either or the default protocol");
             }
-            return base.isHttp11Protocol() ? new HTTPHC5Impl(base) : new HTTPHC5H2Impl(base);
+            return base.isHttp11Protocol() || base.isHttp10Protocol() ? new HTTPHC5Impl(base) : new HTTPHC5H2Impl(base);
         }
         if (base.isHttp3Protocol()) {
             if (http3Supported) {
                 return new HTTPJavaHttp3Impl(base);
             }
+            // The upgrade checkbox may come from unrelated Defaults; it cannot mark a strict profile.
             Http3RuntimeSupport.warnHttp3FallbackOnce();
-            return new HTTPHC5H2Impl(base); // isHttp2Protocol() is false, so the impl negotiates
+            return new HTTPHC5H2Impl(base);
         }
-        if (preferHttp3ForDefault && http3Supported
+        boolean upgrade = base.getPropertyAsBoolean(HTTPSamplerBase.HTTP3_UPGRADE, preferHttp3ForDefault);
+        // The scheme may come from a full URL path or a variable and the impl is cached, so the
+        // implementation checks each request's scheme; plain HTTP stays on HC5.
+        if (upgrade && http3Supported
                 && StringUtilities.isBlank(base.getHttpProtocol())
                 && supportedByJavaHttp3Client(base)) {
             // Browser-like: first request per origin over TCP, upgrade to HTTP/3 on Alt-Svc
             return new HTTPJavaHttp3Impl(base, HTTPJavaHttp3Impl.Http3Discovery.ALT_SVC_UPGRADE);
         }
-        if (!base.isHttp11Protocol()) {
+        if (!base.isHttp11Protocol() && !base.isHttp10Protocol()) {
             return new HTTPHC5H2Impl(base);
         }
         return new HTTPHC5Impl(base);

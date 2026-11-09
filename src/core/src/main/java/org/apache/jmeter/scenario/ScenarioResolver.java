@@ -549,6 +549,7 @@ public final class ScenarioResolver {
             if (element instanceof TestPlan testPlan) {
                 Map<String, String> variables = testPlan.getUserDefinedVariables();
                 TestPlan copy = (TestPlan) testPlan.clone();
+                ValidationCheckpoints.inheritSourceIdentity(testPlan, copy);
                 if (!variables.isEmpty()) {
                     copy.setUserDefinedVariables(evaluated(variables));
                 }
@@ -556,6 +557,7 @@ public final class ScenarioResolver {
             }
             if (element != null && element.getClass() == Arguments.class) {
                 Arguments copy = (Arguments) ((Arguments) element).clone();
+                ValidationCheckpoints.inheritSourceIdentity((Arguments) element, copy);
                 Arguments values = evaluated(copy.getArgumentsAsMap());
                 copy.removeAllArguments();
                 values.getArgumentsAsMap().forEach(copy::addArgument);

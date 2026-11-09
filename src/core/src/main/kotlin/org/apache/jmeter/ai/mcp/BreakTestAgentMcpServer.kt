@@ -1144,7 +1144,7 @@ public object BreakTestAgentMcpServer {
                 literal = arguments.requiredText("literal"),
             ),
         )
-        outputPath.outputStream().use { SaveService.saveTree(tree, it) }
+        SaveService.saveTreeToFile(tree, outputPath.toPath())
         return mapOf(
             "outputPath" to outputPath.path,
             "edit" to result,
@@ -1176,7 +1176,7 @@ public object BreakTestAgentMcpServer {
                 literal = candidate.literal,
             ),
         )
-        outputPath.outputStream().use { SaveService.saveTree(tree, it) }
+        SaveService.saveTreeToFile(tree, outputPath.toPath())
         return mapOf(
             "changed" to true,
             "outputPath" to outputPath.path,

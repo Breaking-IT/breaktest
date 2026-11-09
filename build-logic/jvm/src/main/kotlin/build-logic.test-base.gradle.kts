@@ -17,10 +17,10 @@
 
 import com.github.vlsi.gradle.dsl.configureEach
 import com.github.vlsi.gradle.properties.dsl.props
-import java.util.TimeZone
 import org.apache.jmeter.buildtools.testing.TestEnvironmentInputs
 import org.gradle.api.tasks.testing.Test
 import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import java.util.TimeZone
 
 plugins {
     id("java-library")

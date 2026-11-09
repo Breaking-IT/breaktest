@@ -45,6 +45,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
@@ -109,6 +110,7 @@ import org.apache.hc.client5.http.impl.classic.HttpClients;
 import org.apache.hc.client5.http.impl.classic.RequestFailedException;
 import org.apache.hc.client5.http.impl.cookie.IgnoreCookieSpecFactory;
 import org.apache.hc.client5.http.impl.io.DefaultHttpClientConnectionOperator;
+import org.apache.hc.client5.http.impl.io.ManagedHttpClientConnectionFactory;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.routing.DefaultRoutePlanner;
 import org.apache.hc.client5.http.io.ManagedHttpClientConnection;
@@ -129,11 +131,13 @@ import org.apache.hc.core5.http.HttpHost;
 import org.apache.hc.core5.http.HttpRequest;
 import org.apache.hc.core5.http.HttpRequestInterceptor;
 import org.apache.hc.core5.http.HttpResponse;
+import org.apache.hc.core5.http.HttpVersion;
 import org.apache.hc.core5.http.NameValuePair;
 import org.apache.hc.core5.http.ProtocolVersion;
 import org.apache.hc.core5.http.config.Lookup;
 import org.apache.hc.core5.http.config.Registry;
 import org.apache.hc.core5.http.config.RegistryBuilder;
+import org.apache.hc.core5.http.impl.io.DefaultHttpRequestWriter;
 import org.apache.hc.core5.http.impl.io.HttpRequestExecutor;
 import org.apache.hc.core5.http.io.HttpClientConnection;
 import org.apache.hc.core5.http.io.SocketConfig;
@@ -170,6 +174,7 @@ import org.apache.jmeter.services.FileServer;
 import org.apache.jmeter.testelement.property.CollectionProperty;
 import org.apache.jmeter.testelement.property.JMeterProperty;
 import org.apache.jmeter.threads.JMeterContextService;
+import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.threads.JMeterVariables;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.util.JsseSSLManager;
@@ -190,6 +195,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     private static final String JMETER_VARIABLE_USER_TOKEN = "__jmeter.U_T__"; //$NON-NLS-1$
 
     static final String CONTEXT_ATTRIBUTE_SSE = "__jmeter.SSE__";
+    private static final ThreadLocal<SampleResult> INITIAL_POOL_LEASE = new ThreadLocal<>();
+
     static final String CONTEXT_ATTRIBUTE_SAMPLER_RESULT = "__jmeter.S_R__"; //$NON-NLS-1$
 
     // Holds data used by HTTP request if embedded resource download is enabled
@@ -633,6 +640,17 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     private static final HttpRequestInterceptor PREEMPTIVE_AUTH_INTERCEPTOR = new PreemptiveAuthRequestInterceptor();
 
     // see  https://stackoverflow.com/questions/26166469/measure-bandwidth-usage-with-apache-httpcomponents-httpclient
+    // HttpCore's default writer uses its configured version rather than the request version.
+    // Honor explicit HTTP/1.0 per request so pooled HTTP/1.1 clients remain unaffected.
+    private static final ManagedHttpClientConnectionFactory CONNECTION_FACTORY =
+            ManagedHttpClientConnectionFactory.builder().requestWriterFactory(() -> new DefaultHttpRequestWriter() {
+                @Override
+                protected HttpVersion protocolVersion(HttpRequest request) {
+                    return HttpVersion.HTTP_1_0.equals(request.getVersion())
+                            ? HttpVersion.HTTP_1_0 : super.protocolVersion(request);
+                }
+            }).build();
+
     private static final HttpRequestExecutor REQUEST_EXECUTOR = new HttpRequestExecutor() {
         @Override
         public ClassicHttpResponse execute(
@@ -705,12 +723,11 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         return protocolVersion.toString();
     }
 
-    /**
-     * Each thread owns its client pool map. Inheriting a mutable map lets one user's
-     * teardown close another user's in-flight requests. Embedded downloads share
-     * their parent client explicitly through samplerContext. SSE readers explicitly
-     * borrow their owner's map; cache creation and teardown synchronize on that map.
-     */
+    // Parallel and fork workers retain the owning JMeterThread in their context.
+    // Keep standalone/recording and explicitly borrowed SSE pools thread-local.
+    private static final Map<JMeterThread, Map<HttpClientKey, HttpClientState>>
+            HTTPCLIENTS_CACHE_PER_USER = new ConcurrentHashMap<>();
+
     private static final ThreadLocal<Map<HttpClientKey, HttpClientState>>
             HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY = new ThreadLocal<>() {
         @Override
@@ -719,9 +736,28 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         }
     };
 
+    private static Map<HttpClientKey, HttpClientState> currentClientCache() {
+        JMeterThread owner = JMeterContextService.getContext().getThread();
+        if (owner == null) {
+            return HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
+        }
+        return HTTPCLIENTS_CACHE_PER_USER.computeIfAbsent(owner, ignored -> {
+            Runnable cleanup = () -> {
+                Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_USER.remove(owner);
+                if (clients != null) {
+                    closeConnections(clients);
+                }
+            };
+            owner.registerThreadCleanup(HTTPHC5Impl.class, cleanup);
+            // A new user never reuses the previous user's connections or TLS sessions.
+            owner.registerUserCleanup(HTTPHC5Impl.class, cleanup);
+            return new HashMap<>(5);
+        });
+    }
+
     /** Transfers this flow's HTTP/1.1 pool to its SSE reader, without transferring ownership. */
     public static Runnable borrowClientCacheForSse() {
-        Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
+        Map<HttpClientKey, HttpClientState> clients = currentClientCache();
         org.apache.jmeter.protocol.sse.SseSessions.current().registerTransportCleanup(
                 clients, () -> closeConnections(clients));
         return () -> HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.set(clients);
@@ -734,6 +770,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         private final PoolingHttpClientConnectionManager connectionManager;
         private final HttpHost proxyHost;
         private AuthExchange proxyAuthExchange;
+        private int maxPerRoute;
 
         private HttpClientState(CloseableHttpClient client, PoolingHttpClientConnectionManager connectionManager,
                 HttpHost proxyHost, AsyncClientIdentity clientIdentity, Map<HttpClientKey, HttpClientState> ownerClients) {
@@ -860,8 +897,12 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             // store the SampleResult in LocalContext to compute connect time
             localContext.setAttribute(CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
             // perform the sample
-            httpResponse =
-                    executeRequest(httpClient, httpRequest, localContext, url);
+            INITIAL_POOL_LEASE.set(res);
+            try {
+                httpResponse = executeRequest(httpClient, httpRequest, localContext, url);
+            } finally {
+                INITIAL_POOL_LEASE.remove();
+            }
             saveProxyAuth(clientState, clientContext);
             if (log.isDebugEnabled()) {
                 log.debug("Headers in request before:{}", Arrays.asList(httpRequest.getHeaders()));
@@ -1093,6 +1134,9 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         } else {
             throw new IllegalArgumentException("Unexpected method: '"+method+"'");
         }
+        if (testElement.isHttp10Protocol()) {
+            result.setVersion(HttpVersion.HTTP_1_0);
+        }
         return result;
     }
 
@@ -1140,10 +1184,9 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             log.debug("Found user token:{} as JMeter variable:{}, storing it in HttpContext", userToken, JMETER_VARIABLE_USER_TOKEN);
             HttpClientContext.adapt(localContext).setUserToken(userToken);
         } else {
-            // It would be better to create a ClientSessionManager that would compute this value
-            // for now it can be Thread.currentThread().getName() but must be changed when we would change
-            // the Thread per User model
-            String userId = Thread.currentThread().getName();
+            // All branches need the same token, including when the first requests are parallel.
+            JMeterThread owner = JMeterContextService.getContext().getThread();
+            Object userId = owner == null ? Thread.currentThread().getName() : owner;
             log.debug("Storing in HttpContext the user token: {}", userId);
             HttpClientContext.adapt(localContext).setUserToken(userId);
         }
@@ -1362,7 +1405,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         // Download workers borrow the owning user's cache. Any additional identity/route
         // pools they need are therefore also closed when that user finishes.
         Map<HttpClientKey, HttpClientState> mapHttpClientPerHttpClientKey = parent == null
-                ? HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get() : parent.ownerClients;
+                ? currentClientCache() : parent.ownerClients;
         synchronized (mapHttpClientPerHttpClientKey) {
             return setupClient(key, jMeterVariables, clientContext, mapHttpClientPerHttpClientKey);
         }
@@ -1415,26 +1458,44 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                     register("http", CONNECTION_SOCKET_FACTORY).
                     build();
 
-            // Modern browsers use more connections per host than the current httpclient default (2)
-            // when using parallel download the httpclient and connection manager are shared by the downloads threads
-            // to be realistic JMeter must set an higher value to DefaultMaxPerRoute
+            // Sequential requests and parallel downloads share the virtual user's pool.
+            // Apply the configured cap (or six by default) below, including for cached clients.
             PoolingHttpClientConnectionManager pHCCM =
                     new PoolingHttpClientConnectionManager(
                             new JMeterDefaultHttpClientConnectionOperator(registry, null, resolver),
-                            null, null, TimeValue.ofMilliseconds(TIME_TO_LIVE), null);
+                            null, null, TimeValue.ofMilliseconds(TIME_TO_LIVE), CONNECTION_FACTORY) {
+                        @Override
+                        public org.apache.hc.client5.http.io.LeaseRequest lease(String id,
+                                org.apache.hc.client5.http.HttpRoute route, Timeout timeout, Object state) {
+                            SampleResult sample = INITIAL_POOL_LEASE.get();
+                            INITIAL_POOL_LEASE.remove(); // Only the initial lease, not retries or redirects.
+                            long started = System.nanoTime();
+                            var lease = super.lease(id, route, timeout, state);
+                            if (sample == null) {
+                                return lease;
+                            }
+                            return new org.apache.hc.client5.http.io.LeaseRequest() {
+                                @Override
+                                public org.apache.hc.client5.http.io.ConnectionEndpoint get(Timeout wait)
+                                        throws InterruptedException, java.util.concurrent.ExecutionException,
+                                        java.util.concurrent.TimeoutException {
+                                    var endpoint = lease.get(wait);
+                                    // Only a successful lease moves the start. Timeouts retain their wait.
+                                    sample.excludeConnectionPoolWait(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+                                    return endpoint;
+                                }
+
+                                @Override
+                                public boolean cancel() {
+                                    return lease.cancel();
+                                }
+                            };
+                        }
+                    };
             pHCCM.setDefaultConnectionConfig(ConnectionConfig.custom()
                     .setTimeToLive(TIME_TO_LIVE, TimeUnit.MILLISECONDS)
                     .setValidateAfterInactivity(VALIDITY_AFTER_INACTIVITY_TIMEOUT, TimeUnit.MILLISECONDS)
                     .build());
-
-            if(concurrentDwn) {
-                try {
-                    int maxConcurrentDownloads = Integer.parseInt(this.testElement.getConcurrentPool());
-                    pHCCM.setDefaultMaxPerRoute(Math.max(maxConcurrentDownloads, pHCCM.getDefaultMaxPerRoute()));
-                } catch (NumberFormatException nfe) {
-                   // no need to log -> will be done by the sampler
-                }
-            }
 
             CookieSpecFactory cookieSpecProvider = new IgnoreCookieSpecFactory();
             Lookup<CookieSpecFactory> cookieSpecRegistry = RegistryBuilder.<CookieSpecFactory>create()
@@ -1505,12 +1566,22 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             if (log.isDebugEnabled()) {
                 log.debug("Created new HttpClient: @{} {}", System.identityHashCode(httpClient), key);
             }
+            // Embedded resources may borrow this pool across origins. Limit each route,
+            // not the combined connections to independent hosts.
+            pHCCM.setMaxTotal(Integer.MAX_VALUE);
             clientState = new HttpClientState(httpClient, pHCCM, proxy, key.clientIdentity, mapHttpClientPerHttpClientKey);
             mapHttpClientPerHttpClientKey.put(key, clientState); // save the agent for next time round
         } else {
             if (log.isDebugEnabled()) {
                 log.debug("Reusing the HttpClient: @{} {}", System.identityHashCode(httpClient),key);
             }
+        }
+        int configuredMaxConnections = testElement.getMaxConnectionsPerHost();
+        int maxConnections = configuredMaxConnections > 0 ? configuredMaxConnections : 6;
+        // Cached clients follow later samplers' settings without taking the pool lock per sample.
+        if (clientState.maxPerRoute != maxConnections) {
+            clientState.getConnectionManager().setDefaultMaxPerRoute(maxConnections);
+            clientState.maxPerRoute = maxConnections;
         }
         setupProxyAuthState(clientState, clientContext);
 
@@ -1592,6 +1663,13 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     protected void setupRequest(URL url, HttpUriRequestBase httpRequest, HTTPSampleResult res)
         throws IOException {
         RequestConfig.Builder rCB = RequestConfig.custom();
+        int availabilityTimeout = testElement.getConnectionAvailabilityTimeout();
+        if (availabilityTimeout >= 0) {
+            // The classic pool waits with Future.get(timeout), where zero means no wait.
+            // Translate the UI's unlimited value to an effectively unbounded, cancellable wait.
+            rCB.setConnectionRequestTimeout(Timeout.ofMilliseconds(
+                    availabilityTimeout == 0 ? Long.MAX_VALUE : availabilityTimeout));
+        }
         int rto = getResponseTimeout();
         if (rto > 0){
             rCB.setResponseTimeout(Timeout.ofMilliseconds(rto));
@@ -2219,7 +2297,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     @Override
     protected void threadFinished() {
         log.debug("Thread Finished");
-        closeThreadLocalConnections();
+        if (JMeterContextService.getContext().getThread() == null) {
+            closeThreadLocalConnections();
+        }
+        // Engine-owned pools close after all workers and thread listeners finish.
     }
 
     @Override

@@ -45,6 +45,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.jmeter.assertions.Assertion;
@@ -3427,7 +3428,7 @@ class TestJMeterThread {
 
     @ParameterizedTest
     @CsvSource({ "false, false", "true, false", "false, true", "true, true" })
-    void testStopReportsInterruptedTransactionOnce(boolean startNextLoopOnError, boolean nested)
+    void testStopOmitsInterruptedRequestFromTransactions(boolean startNextLoopOnError, boolean nested)
             throws InterruptedException {
         LoopController loop = new LoopController();
         loop.setLoops(2);
@@ -3474,26 +3475,200 @@ class TestJMeterThread {
 
         assertEquals(0, subsequentCalls.get(), "Stop must not start another request");
         List<SampleEvent> events = listener.events();
-        assertEquals(nested
-                ? List.of("interrupted-request", "inner-transaction", "transaction")
-                : List.of("interrupted-request", "transaction"),
+        assertEquals(nested ? List.of("inner-transaction", "transaction") : List.of("transaction"),
                 events.stream().map(event -> event.getResult().getSampleLabel()).toList(),
-                "The request and each transaction must be reported exactly once");
+                "Cancelled requests must not be reported as failures");
         for (SampleEvent event : events) {
-            assertFalse(event.getResult().isSuccessful());
-        }
-        for (SampleEvent event : listener.transactionEvents()) {
-            assertEquals("Number of samples in transaction : 1, number of failing samples : 1",
+            assertTrue(event.getResult().isSuccessful());
+            assertEquals("Number of samples in transaction : 0, number of failing samples : 0",
                     event.getResult().getResponseMessage());
         }
         assertEquals(nested ? 2 : 1, listener.transactionEvents().size());
-        SampleResult request = events.get(0).getResult();
-        SampleResult innermost = events.get(1).getResult();
-        assertEquals(innermost.getTransaction(), request.getParentTransaction(),
-                "The request must point to the innermost transaction");
         if (nested) {
-            assertEquals(events.get(2).getResult().getTransaction(), innermost.getParentTransaction(),
+            assertEquals(events.get(1).getResult().getTransaction(), events.get(0).getResult().getParentTransaction(),
                     "The inner transaction must point to the outer transaction");
+        }
+    }
+
+    @Test
+    void parallelStopNowKeepsTriggeringFailureButOmitsCancelledSibling() throws Exception {
+        InterruptibleFailureSampler sibling = new InterruptibleFailureSampler();
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        JMeterThread user = parallelStopUser(sibling, sibling.started, new StopOwnerPostProcessor(owner), listener);
+        owner.set(user);
+        Thread runner = new Thread(user);
+        runner.start();
+        try {
+            runner.join(10_000);
+            assertFalse(runner.isAlive());
+            assertEquals(List.of("original-failure"), listener.events().stream()
+                    .map(event -> event.getResult().getSampleLabel()).toList());
+            assertFalse(listener.events().get(0).getResult().isSuccessful());
+        } finally {
+            user.stop();
+            user.interrupt();
+            runner.interrupt();
+            runner.join(5_000);
+        }
+    }
+
+    @Test
+    void parallelGracefulStopLetsInFlightSiblingFinish() throws Exception {
+        CountDownLatch siblingStarted = new CountDownLatch(1);
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        AbstractSampler sibling = new AbstractSampler() {
+            @Override
+            public SampleResult sample(Entry entry) {
+                SampleResult result = new SampleResult();
+                result.setSampleLabel(getName());
+                result.sampleStart();
+                siblingStarted.countDown();
+                long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+                // Complete only after the triggering failure has stopped the owner gracefully
+                while (owner.get().isRunning() && System.nanoTime() < deadline) {
+                    Thread.onSpinWait();
+                }
+                boolean interrupted = false;
+                try {
+                    // Like an in-flight HTTP call, an interrupt during this window aborts the request
+                    TimeUnit.MILLISECONDS.sleep(200);
+                } catch (InterruptedException e) {
+                    interrupted = true;
+                }
+                result.setSuccessful(!interrupted && !owner.get().isRunning());
+                result.sampleEnd();
+                return result;
+            }
+        };
+        sibling.setName("in-flight-sibling");
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        JMeterThread user = parallelStopUser(sibling, siblingStarted, null, listener);
+        user.setOnErrorStopThread(true);
+        owner.set(user);
+        Thread runner = new Thread(user);
+        runner.start();
+        try {
+            runner.join(10_000);
+            assertFalse(runner.isAlive());
+            Map<String, Boolean> outcomes = listener.events().stream()
+                    .collect(Collectors.toMap(event -> event.getResult().getSampleLabel(),
+                            event -> event.getResult().isSuccessful()));
+            assertEquals(Map.of("original-failure", false, "in-flight-sibling", true), outcomes,
+                    "A graceful stop must record the in-flight sibling instead of cancelling it");
+        } finally {
+            user.stop();
+            user.interrupt();
+            runner.interrupt();
+            runner.join(5_000);
+        }
+    }
+
+    @Test
+    void gracefulStopKeepsStoppableSamplerResult() throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch stopped = new CountDownLatch(1);
+        class PartialStoppableSampler extends AbstractSampler implements StoppableSampler {
+            private static final long serialVersionUID = 1L;
+
+            @Override
+            public SampleResult sample(Entry entry) {
+                SampleResult result = new SampleResult();
+                result.setSampleLabel(getName());
+                result.sampleStart();
+                started.countDown();
+                try {
+                    stopped.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                // A stopped subscriber reports what it received, which may be a failed sample
+                result.setSuccessful(false);
+                result.sampleEnd();
+                return result;
+            }
+
+            @Override
+            public void stop() {
+                stopped.countDown();
+            }
+        }
+        PartialStoppableSampler sampler = new PartialStoppableSampler();
+        sampler.setName("stopped-subscriber");
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(createLoopController());
+        loopTree.add(sampler);
+        loopTree.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("graceful-stop");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier());
+        user.setThreadGroup(group);
+        Thread runner = new Thread(user);
+        runner.start();
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            user.stop();
+            runner.join(10_000);
+            assertFalse(runner.isAlive());
+            assertEquals(List.of("stopped-subscriber"), listener.events().stream()
+                    .map(event -> event.getResult().getSampleLabel()).toList(),
+                    "StoppableSampler.stop() is a clean shutdown; its result must be recorded");
+        } finally {
+            user.stop();
+            runner.interrupt();
+            runner.join(5_000);
+        }
+    }
+
+    private static JMeterThread parallelStopUser(Sampler sibling, CountDownLatch siblingStarted,
+            PostProcessor triggerPostProcessor, RecordingSampleListener listener) {
+        ParallelController parallel = new ParallelController();
+        parallel.setMaxParallel(2);
+        AbstractSampler trigger = new AbstractSampler() {
+            @Override
+            public SampleResult sample(Entry entry) {
+                try {
+                    assertTrue(siblingStarted.await(5, TimeUnit.SECONDS));
+                } catch (InterruptedException e) {
+                    throw new AssertionError(e);
+                }
+                SampleResult result = new SampleResult();
+                result.setSampleLabel("original-failure");
+                result.sampleStart();
+                result.setSuccessful(false);
+                result.sampleEnd();
+                return result;
+            }
+        };
+        trigger.setName("original-failure");
+        HashTree tree = new ListedHashTree();
+        HashTree loopTree = tree.add(createLoopController());
+        HashTree branches = loopTree.add(parallel);
+        branches.add(sibling);
+        HashTree triggerTree = branches.add(trigger);
+        if (triggerPostProcessor != null) {
+            triggerTree.add(triggerPostProcessor);
+        }
+        loopTree.add(listener);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("stop-parallel");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier());
+        user.setThreadGroup(group);
+        return user;
+    }
+
+    private static final class StopOwnerPostProcessor extends AbstractTestElement implements PostProcessor {
+        private final AtomicReference<JMeterThread> owner;
+
+        private StopOwnerPostProcessor(AtomicReference<JMeterThread> owner) {
+            this.owner = owner;
+        }
+
+        @Override
+        public void process() {
+            owner.get().stop();
+            owner.get().interrupt();
         }
     }
 
@@ -3758,6 +3933,137 @@ class TestJMeterThread {
         assertEquals(List.of("transaction"),
                 visualizer.startedTransactions().stream().map(SampleResult::getSampleLabel).toList(),
                 "The visualizer must be told when the transaction starts");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"parallel, false", "parallel, true", "nested, false", "nested, true", "fork, false", "fork, true"})
+    void parallelShutdownTimeoutDefersCleanupAndDiscardsLateResults(String flow, boolean successful)
+            throws Exception {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch cleaned = new CountDownLatch(1);
+        AtomicBoolean listenerFinished = new AtomicBoolean();
+        AtomicBoolean cleanupAfterListener = new AtomicBoolean();
+        AtomicInteger userCleanupCalls = new AtomicInteger();
+        AtomicInteger threadCleanupCalls = new AtomicInteger();
+        AtomicReference<JMeterThread> owner = new AtomicReference<>();
+        AtomicReference<Thread> worker = new AtomicReference<>();
+        AbstractSampler stubborn = new AbstractSampler() {
+            @Override
+            public SampleResult sample(Entry entry) {
+                worker.set(Thread.currentThread());
+                started.countDown();
+                boolean waiting = true;
+                while (waiting) {
+                    try {
+                        release.await();
+                        waiting = false;
+                    } catch (InterruptedException ignored) {
+                        // Deliberately model a custom sampler that ignores shutdown interrupts.
+                    }
+                }
+                // Registrations made after the owner has stopped must still be cleaned up.
+                owner.get().registerUserCleanup("late-resource", userCleanupCalls::incrementAndGet);
+                SampleResult result = new SampleResult();
+                result.setSampleLabel("late-result");
+                result.sampleStart();
+                result.setSuccessful(successful);
+                result.sampleEnd();
+                return result;
+            }
+        };
+        stubborn.setName("stubborn");
+        ParallelController parallel = new ParallelController();
+        parallel.setName("outer");
+        parallel.setMaxParallel(1);
+        HashTree tree = new ListedHashTree();
+        LoopController loop = createLoopController();
+        loop.setLoops(1);
+        loop.setContinueForever(false);
+        HashTree loopTree = tree.add(loop);
+        HashTree parent = loopTree;
+        if ("fork".equals(flow)) {
+            ForkController fork = newConfiguredForkController();
+            fork.setIterationEndAction(IterationEndAction.WAIT);
+            parent = parent.add(fork);
+        }
+        HashTree branch = parent.add(parallel);
+        if ("nested".equals(flow)) {
+            ParallelController inner = new ParallelController();
+            inner.setName("inner");
+            inner.setMaxParallel(1);
+            branch = branch.add(inner);
+        }
+        branch.add(stubborn);
+        RecordingSampleListener listener = new RecordingSampleListener("results");
+        loopTree.add(listener);
+        loopTree.add(new RecordingThreadListener(listenerFinished));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("timeout-group");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier()) {
+            @Override
+            long parallelShutdownTimeoutMillis() {
+                return 50;
+            }
+        };
+        user.setThreadGroup(group);
+        user.setThreadName("timeout-user");
+        owner.set(user);
+        user.registerThreadCleanup("resource", () -> {
+            cleanupAfterListener.set(listenerFinished.get());
+            threadCleanupCalls.incrementAndGet();
+            cleaned.countDown();
+        });
+        Thread runner = new Thread(user);
+        runner.start();
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            user.stop();
+            runner.interrupt();
+            runner.join(2_000);
+            assertFalse(runner.isAlive(), "an interrupt-ignoring branch must not block user shutdown");
+            assertTrue(worker.get().isAlive(), "the branch must still be using its resources");
+            assertTrue(worker.get().isDaemon(), "detached branches must not keep the JVM alive");
+            assertFalse(listenerFinished.get(), "thread listeners can close resources and must be deferred");
+            assertEquals(0, threadCleanupCalls.get());
+            assertEquals(0, group.getNumberOfThreads());
+            release.countDown();
+            assertTrue(cleaned.await(5, TimeUnit.SECONDS), "cleanup must run when the last branch exits");
+            assertTrue(cleanupAfterListener.get());
+            assertEquals(1, userCleanupCalls.get());
+            assertEquals(1, threadCleanupCalls.get());
+            assertTrue(listener.events().isEmpty(), "even successful late results must be omitted");
+        } finally {
+            release.countDown();
+            runner.interrupt();
+            runner.join(5_000);
+            cleaned.await(5, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    void zeroCancellationDeadlineDoesNotStopNormallyCompletedParallelController() {
+        AtomicInteger calls = new AtomicInteger();
+        LoopController loop = createLoopController();
+        loop.setLoops(2);
+        loop.setContinueForever(false);
+        HashTree tree = new ListedHashTree();
+        HashTree children = tree.add(loop);
+        ParallelController parallel = new ParallelController();
+        parallel.setMaxParallel(1);
+        children.add(parallel).add(new ResultStatusSampler("parallel", true, calls));
+        children.add(new ResultStatusSampler("after-parallel", true, calls));
+        ThreadGroup group = new ThreadGroup();
+        group.setName("zero-timeout");
+        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier()) {
+            @Override
+            long parallelShutdownTimeoutMillis() {
+                return 0;
+            }
+        };
+        user.setThreadGroup(group);
+        user.run();
+        assertEquals(4, calls.get(), "normal completion must continue to subsequent samplers and iterations");
     }
 
     @Test

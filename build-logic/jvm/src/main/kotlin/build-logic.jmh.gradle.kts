@@ -27,7 +27,7 @@ if (file("src/jmh/kotlin").isDirectory) {
 }
 
 dependencies {
-    findProject(":src:bom-testing")?.let{
+    findProject(":src:bom-testing")?.let {
         jmhImplementation(platform(it))
     }
     jmhImplementation("org.openjdk.jmh:jmh-core")

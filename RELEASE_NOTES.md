@@ -13,6 +13,117 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.10.26 — Apache-2.0, Recording Review, and Reliable Shutdown
+
+This release makes BreakTest Community available under Apache-2.0 and improves recording review, request replay, dynamic workload weights, and test shutdown.
+
+## Apache-2.0 Community License
+
+- BreakTest Community now uses Apache License 2.0. Commercial use, modification, redistribution, and hosting are permitted subject to its terms.
+- Earlier Community releases from 2026.07.13 through 2026.10.21 may also be used under Apache-2.0, in addition to the license they shipped with.
+- BreakTest Enterprise remains a separate commercially licensed product. Its proprietary components are not covered by the Community license. Enterprise licensing requests may be sent to `info@breakingit.nl`.
+- The Apache License does not grant rights to the BreakTest name or logo; see NOTICE.
+
+Sources: [#279](https://github.com/Breaking-IT/breaktest/pull/279).
+
+## Review Recorded Variables Before Replacing Values
+
+- Recorded values remain literal until you enable variable matching in the finish wizard and accept individual replacement pairs. Review the affected fields before and after replacement; existing variable references and recording metadata are preserved.
+- Matching runs in the background with progress feedback, keeping the wizard responsive while it searches larger recordings.
+- Transaction-name edits take effect immediately in both recorder windows, including mobile recording without pressing Enter or moving focus.
+- New recorders default to Path naming unless an explicitly saved preference overrides it. The finish wizard provides more room and scrollable options.
+
+Sources: [#280](https://github.com/Breaking-IT/breaktest/pull/280).
+
+## Replay Requests With BreakTest's HTTP Engines
+
+- View Results Tree replay uses HC5 for HTTP/1.0, HTTP/1.1, and HTTP/2, and the Java HTTP client for HTTP/3. Replay no longer depends on the installed curl's protocol support; Copy cURL remains available.
+- Replayed requests appear in the current results view with request, response, and metrics tabs. The original sampler and recorded exchange remain available for navigation and comparison.
+- Pretty Print formats the raw request body. Double-clicking a result restores the docked details pane, and replay results are revealed even when filters would hide them.
+- Recorded/replayed comparisons normalize equivalent protocol labels and matching status headers while retaining conflicting values.
+
+Sources: [#274](https://github.com/Breaking-IT/breaktest/pull/274).
+
+## Dynamic Weights and Editor Fixes
+
+- Weighted Switch Controller accepts variable and function expressions. Invalid runtime values count as zero for that iteration and warn once per child per test; later valid values become selectable again. Invalid numeric literals still fail validation.
+- Ask AI script updates can be undone reliably.
+- HTTP header clipboard import preserves values containing colons.
+- Recorded HTTP error assertions ignore only the recorded status, so unrelated errors remain visible.
+
+Sources: [#275](https://github.com/Breaking-IT/breaktest/pull/275), [#276](https://github.com/Breaking-IT/breaktest/pull/276), [#277](https://github.com/Breaking-IT/breaktest/pull/277), [#278](https://github.com/Breaking-IT/breaktest/pull/278).
+
+## Cleaner and Bounded Test Shutdown
+
+- Cancelled in-flight samples no longer create artificial error spikes in listeners and transaction counters. Completed results, including the request that triggers shutdown, are retained; graceful stop still allows in-flight requests to finish.
+- Parallel cancellation waits are bounded by `jmeterthread.parallel.shutdown_timeout` (default 1000 ms; 0 skips the wait). Lingering workers stop their owning virtual user, cannot emit late results, and defer shared-resource cleanup until they exit.
+- HTTP/2 cleanup preserves interrupt state across clients and retries interrupted reactor shutdown waits within a fixed deadline before closing the client. HTTP/1.1 route limits are applied before waiting leases proceed.
+
+Sources: [#281](https://github.com/Breaking-IT/breaktest/pull/281).
+
+## Upgrade Notes
+
+Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later and remains a beta transport.
+
+Recorder variable substitution is now opt-in and reviewed rather than automatic. Manual request replay sends real requests and adds results only to the current view, not other listeners or results files. It uses normal sampler response storage, so large retained responses can consume more memory than the previous curl replay limit.
+
+Java cannot forcibly terminate an uncooperative sampler safely. Resources remain retained until it exits; on the deferred cleanup path, thread-finished callbacks run on a separate daemon thread with the owner context. Plugins relying on the original Java thread's ThreadLocal state must account for this. Cancelled calls skip postprocessors and assertions, and a genuine failure racing cancellation can be omitted.
+
+[Full changelog since 2026.10.21](https://github.com/Breaking-IT/breaktest/compare/2026.10.21...2026.10.26)
+
+# BreakTest 2026.10.21 — Script Readiness, Archive History, and HTTP Connection Reuse
+
+This release adds evidence-based script readiness checks, recoverable saves inside JMX archives, and shared HTTP connection state within each virtual user. It also improves protocol selection, connection timing, and correlation dialogs.
+
+## Check Whether a Script Is Ready to Run
+
+- **Tools > Check script readiness...** opens a wizard that checks the selected or all thread groups: successful validation, transaction verification coverage, unused and unmatched extractions, extractor processing time, think time, unresolved `${...}` values sent in requests, files and configuration, validation exercise coverage, hardcoded recorded values, and optional repeatability in a fresh session.
+- **Runtime evidence from a normal validation.** The readiness validation goes through the usual validation path with per-run settings. Supported extractors report every match outcome, extractor time is measured apart from the request (also offline against captured responses), and sent URLs, headers and request data are scanned for literal and URL-encoded `${...}`.
+- **An honest verdict.** Ready, Needs attention or Not verified, with counts instead of a score. Runtime checks without current evidence are Not verified; a content fingerprint marks evidence stale after any plan edit. Running a subset of the checks never gives Ready.
+- **Response bodies that scripts need, and those nobody needs.** A script reading the previous response body (JSR223 or BeanShell, or `${__groovy(...)}` in a field) is a warning when requests of its thread group discard successful bodies, since validation keeps every body and would not show the script reading an empty one. Without such scripts, a suggestion points out requests whose successful bodies nothing needs and recommends Store on error only, usually once on HTTP Request Defaults. Suggestions never change the verdict.
+- **Accepted exceptions travel with the script.** Accept a finding with a reason, mark an extractor optional or a transaction as background activity. Exceptions are stored on the element in the JMX, are undoable, and unused ones are listed.
+
+Evidence stays in memory, is redacted and never logged at INFO or above. Large or binary request bodies may be truncated in recorded request data, so unresolved values in them are not verified. Exceptions can be dropped by the few legacy editors that rebuild their element on edit. See the user manual section *Script readiness* for details.
+
+Sources: [#268](https://github.com/Breaking-IT/breaktest/pull/268).
+
+## Recover Earlier Saves and Manage Archive Files
+
+- **Keep saved versions inside the JMX archive.** Open the Test Plan's Versions tab or **Tools > Version History** to inspect and open earlier saves. Opening a version leaves the saved latest plan intact until Save; saving preserves the previous latest as another version.
+- **Share unchanged attachments across versions.** History reuses attachment content by checksum while retaining changed and removed files needed by older plans. Delete selected versions together to remove history and content no surviving version needs.
+- **Browse folders and replace files in place.** The Archive browser starts at the archive root, supports folder navigation, and links to Version History. Replace file keeps the archive path and plan references intact; the next save preserves the previously saved contents in history.
+
+Version sizes exclude shared attachment content. Internal history files are protected from generic replacement and deletion. Failed saves preserve the original archive, and unreadable history is retained when recovery cannot safely inspect its dependencies.
+
+Sources: [#272](https://github.com/Breaking-IT/breaktest/pull/272).
+
+## Reuse HTTP Connections Within Each Virtual User
+
+- **Share HTTP/1.1 pools and TLS sessions across sequential and parallel requests.** Virtual users remain isolated. HTTP Request Defaults adds per-host connection limits (default six), connection availability timeouts, and keep-alive controls under Protocol & Connections.
+- **Reuse HTTP/2 connections across eligible hosts.** Coalescing checks DNS, certificates, port, and client identity, and is enabled by default, including for existing scripts without an explicit setting. Disable it in HTTP Request Defaults when separate connections per origin are required.
+- **Upgrade Automatic HTTPS after discovery.** On Java 27+, Automatic starts with HC5 TCP/TLS negotiation and can use native Java HTTP/3 after a same-host, same-port Alt-Svc advertisement. New Automatic profiles enable the upgrade checkbox; explicit HTTP/1.1 and HTTP/2 do not upgrade. Failed HTTP/3 attempts clear discovery and apply a cooldown without replaying the failed request.
+- **Show only measured connection times.** Reused connections and unavailable HTTP/3 setup timings appear blank and do not contribute to connection-time averages. Actual measured zero values remain zero. Successful initial HTTP/1.1 pool waits are excluded from request start, elapsed time, and latency; surrounding transactions retain their full duration.
+
+Sources: [#269](https://github.com/Breaking-IT/breaktest/pull/269).
+
+## Reliability and Editor Fixes
+
+- Preserve page bodies needed for embedded-resource parsing even when successful response bodies are discarded, and fix compressed response cleanup while retaining lazy decoding.
+- Keep correlation review controls usable in smaller windows and bound replacement confirmation dialogs for long values.
+- Reset HTTP and TLS state when starting a new user, recover closed coalesced connection leases, and prevent late advertisements from bypassing HTTP/3 cooldown.
+
+Sources: [#269](https://github.com/Breaking-IT/breaktest/pull/269), [#270](https://github.com/Breaking-IT/breaktest/pull/270), [#271](https://github.com/Breaking-IT/breaktest/pull/271).
+
+## Upgrade Notes
+
+Java 21 remains the minimum runtime; HTTP/3 requires Java 27 or later and remains a beta transport. Native HTTP/3 does not provide cross-host QUIC coalescing or measured QUIC connect times.
+
+Connection-time exports now distinguish missing measurements: CSV leaves Connect empty, and XML omits the connect-time attribute. Consumers must accept missing values. Older numeric results, including zero, remain readable without reinterpretation. Aggregated XML results in statistical mode also add a `ctc` attribute with the number of samples that measured a connection time; older aggregated results without it assume every sample was measured.
+
+Existing scripts without an HTTP/2 coalescing setting now enable it. Existing Automatic protocol settings retain their legacy preferences unless explicitly overridden in the plan. For explicit HTTP/3 selections in scripts without a saved HTTP/3 upgrade setting, the deprecated `httpsampler.http3.force_http3=false` now uses HC5 Automatic negotiation with Alt-Svc upgrade instead of JDK TCP fallback.
+
+[Full changelog since 2026.10.16](https://github.com/Breaking-IT/breaktest/compare/2026.10.16...2026.10.21)
+
 # BreakTest 2026.10.16 — OpenAPI Import, Structured Data Sets, and Resumable Validation
 
 This feature release expands how you build and debug tests: generate reusable requests from an API specification, drive iterations with JSON, XML, or YAML data, and continue validation from a failed request after editing the plan. Request replay and cURL export make individual calls easier to investigate, alongside editor improvements and a Groovy 6 upgrade.

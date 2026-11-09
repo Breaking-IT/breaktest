@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import org.apache.jmeter.extractor.ExtractorEvidence;
 import org.apache.jmeter.extractor.ExtractorFailure;
 import org.apache.jmeter.extractor.ExtractorTestResult;
 import org.apache.jmeter.processor.PostProcessor;
@@ -88,12 +89,14 @@ public class JSONPostProcessor
             try {
                 if (jsonResponses.isEmpty()) {
                     handleEmptyResponse(vars, defaultValues[i], currentRefName);
+                    ExtractorEvidence.outcome(this, false, currentJsonPath, "");
                     if (isFailOnNoMatch()) {
                         ExtractorFailure.failOnNoMatch(previousResult, getName(), currentRefName);
                     }
                 } else {
                     List<Object> extractedValues = extractValues(jsonResponses, currentJsonPath);
                     boolean foundMatch = handleResult(vars, defaultValues[i], matchNumber, currentRefName, extractedValues);
+                    ExtractorEvidence.outcome(this, foundMatch, currentJsonPath, "");
                     if (!foundMatch && isFailOnNoMatch()) {
                         ExtractorFailure.failOnNoMatch(previousResult, getName(), currentRefName);
                     }

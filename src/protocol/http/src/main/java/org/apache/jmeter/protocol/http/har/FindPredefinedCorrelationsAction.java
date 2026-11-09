@@ -1033,7 +1033,7 @@ public final class FindPredefinedCorrelationsAction extends AbstractActionWithNo
         return choices;
     }
 
-    private static boolean hasRecordedSampler(JMeterTreeNode threadGroupNode) {
+    static boolean hasRecordedSampler(JMeterTreeNode threadGroupNode) {
         Enumeration<TreeNode> nodes = threadGroupNode.preorderEnumeration();
         while (nodes.hasMoreElements()) {
             TreeNode candidate = nodes.nextElement();

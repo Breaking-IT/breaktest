@@ -36,6 +36,7 @@ import org.apache.jmeter.control.TransactionController;
 import org.apache.jmeter.protocol.http.control.CookieManager;
 import org.apache.jmeter.protocol.http.control.Header;
 import org.apache.jmeter.protocol.http.control.HeaderManager;
+import org.apache.jmeter.protocol.http.sampler.HTTPSampleResult;
 import org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy;
 import org.apache.jmeter.protocol.http.util.HTTPArgument;
 import org.apache.jmeter.reporters.ResultCollector;
@@ -518,6 +519,14 @@ public class HarConverterTest {
         assertNotNull(assertion, "ignore-error assertion present");
         assertEquals("Ignore HTTP-500", assertion.getName());
         assertTrue(assertion.getAssumeSuccess());
+        for (String status : List.of("500", "400", "504", "200", "5000")) {
+            HTTPSampleResult response = new HTTPSampleResult();
+            response.setResponseCode(status);
+            response.setSuccessful(false);
+            var outcome = assertion.getResult(response);
+            assertFalse(outcome.isError());
+            assertEquals(!"500".equals(status), outcome.isFailure(), status);
+        }
     }
 
     @Test

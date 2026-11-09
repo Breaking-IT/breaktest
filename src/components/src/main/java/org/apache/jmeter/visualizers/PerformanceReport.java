@@ -1069,16 +1069,18 @@ public class PerformanceReport extends AbstractVisualizer implements Clearable, 
                 allResponseTimeDistribution.addValue(result.getTime(), sampleCount);
             }
             long connectTime = result.getConnectTime();
-            if (connectTime > 0) {
-                allConnectTimes.addValue(connectTime, sampleCount);
+            int connectionCount = result instanceof org.apache.jmeter.samplers.StatisticalSampleResult statistical
+                    ? statistical.getConnectTimeCount() : sampleCount;
+            if (connectTime >= 0) {
+                allConnectTimes.addValue(connectTime, connectionCount);
             }
             if (result.isSuccessful()) {
                 successfulResponseTimes.addValue(result.getTime(), sampleCount);
                 if (successfulResponseTimeDistribution != null) {
                     successfulResponseTimeDistribution.addValue(result.getTime(), sampleCount);
                 }
-                if (connectTime > 0) {
-                    successfulConnectTimes.addValue(connectTime, sampleCount);
+                if (connectTime >= 0) {
+                    successfulConnectTimes.addValue(connectTime, connectionCount);
                 }
             }
             firstTime = Math.min(firstTime, result.getStartTime());
