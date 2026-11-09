@@ -475,13 +475,6 @@ class AiAutoScriptingActionTest {
         assertFalse(hasRepairBlocker("Status: completed", "Remaining blocker: final validation could not be completed."));
     }
 
-    @Test
-    void fileBackedRepairTargetsActivePlanInsteadOfBackupOrClone() {
-        assertEquals("", AiAutoScriptingAction.repairTargetPath(false, "/plans/current.jmx"));
-        assertEquals(new java.io.File("/plans/current.jmx").getAbsolutePath(),
-                AiAutoScriptingAction.repairTargetPath(true, "/plans/current.jmx"));
-    }
-
     @ParameterizedTest
     @CsvSource({"PI,--thinking,low", "CLAUDE,--effort,low", "OPENCODE,--variant,low",
         "CODEX,-c,model_reasoning_effort=\"low\""})
@@ -495,9 +488,9 @@ class AiAutoScriptingActionTest {
             Method withThinking = request.getClass().getDeclaredMethod("withThinkingLevel", levelClass);
             withThinking.setAccessible(true);
             request = withThinking.invoke(request, enumConstant(levelClass, "LOW"));
-            Method withPaths = request.getClass().getDeclaredMethod("withPaths", String.class, String.class);
-            withPaths.setAccessible(true);
-            request = withPaths.invoke(request, "/backup.jmx", "/plan.jmx");
+            Method withBackupPath = request.getClass().getDeclaredMethod("withBackupPath", String.class);
+            withBackupPath.setAccessible(true);
+            request = withBackupPath.invoke(request, "/backup.jmx");
             List<String> command = commandFor(request);
             assertTrue(java.util.stream.IntStream.range(0, command.size() - 1)
                     .anyMatch(i -> command.get(i).equals(flag) && command.get(i + 1).equals(value)), command.toString());
@@ -573,9 +566,9 @@ class AiAutoScriptingActionTest {
             Method withThinking = request.getClass().getDeclaredMethod("withThinkingLevel", nestedClass("AiThinkingLevel"));
             withThinking.setAccessible(true);
             request = withThinking.invoke(request, enumConstant(nestedClass("AiThinkingLevel"), "LOW"));
-            Method withPaths = request.getClass().getDeclaredMethod("withPaths", String.class, String.class);
-            withPaths.setAccessible(true);
-            request = withPaths.invoke(request, "/backup.jmx", "/plan.jmx");
+            Method withBackupPath = request.getClass().getDeclaredMethod("withBackupPath", String.class);
+            withBackupPath.setAccessible(true);
+            request = withBackupPath.invoke(request, "/backup.jmx");
             List<String> command = commandFor(request);
             assertEquals(1, java.util.Collections.frequency(command, "--model"));
             assertEquals("omlx/local-model", command.get(command.indexOf("--model") + 1));
@@ -988,7 +981,6 @@ class AiAutoScriptingActionTest {
         Class<?> requestClass = nestedClass("AiRunRequest");
         Class<?> toolClass = nestedClass("AiTool");
         Class<?> modeClass = nestedClass("AiRunMode");
-        Class<?> editSurfaceClass = nestedClass("AiEditSurface");
         Object tool = enumConstant(toolClass, toolName);
         Constructor<?> constructor = null;
         for (Constructor<?> candidate : requestClass.getDeclaredConstructors()) {
@@ -1005,7 +997,7 @@ class AiAutoScriptingActionTest {
                 tool,
                 null,
                 modeClass.getEnumConstants()[0],
-                editSurfaceClass.getEnumConstants()[0],
+                false,
                 false,
                 60,
                 0,

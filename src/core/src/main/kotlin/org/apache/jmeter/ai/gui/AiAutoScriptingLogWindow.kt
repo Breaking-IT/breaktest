@@ -67,6 +67,8 @@ public object AiAutoScriptingLogWindow {
     private var separateWindowMode = false
     private var startedAt: Instant? = null
     private var stopHandler: Runnable? = null
+    private var revertButton: JButton? = null
+    private var revertHandler: Runnable? = null
     private val timer = Timer(1_000) { updateStatus() }
     private val changeModel = ChangeTableModel()
 
@@ -186,6 +188,15 @@ public object AiAutoScriptingLogWindow {
     public fun setStopHandler(handler: Runnable?) {
         onEdt {
             stopHandler = handler
+            updateStopButton()
+        }
+    }
+
+    /** Offers "Revert" for the last run; null withdraws the offer. */
+    @JvmStatic
+    public fun setRevertHandler(handler: Runnable?) {
+        onEdt {
+            revertHandler = handler
             updateStopButton()
         }
     }
@@ -330,8 +341,14 @@ public object AiAutoScriptingLogWindow {
             add(
                 JPanel(BorderLayout(6, 0)).apply {
                     add(
-                        JButton("Clear").apply {
-                            addActionListener { clear() }
+                        JPanel(BorderLayout(6, 0)).apply {
+                            add(ensureRevertButton(), BorderLayout.WEST)
+                            add(
+                                JButton("Clear").apply {
+                                    addActionListener { clear() }
+                                },
+                                BorderLayout.EAST
+                            )
                         },
                         BorderLayout.WEST
                     )
@@ -362,8 +379,23 @@ public object AiAutoScriptingLogWindow {
         return button
     }
 
+    private fun ensureRevertButton(): JButton {
+        revertButton?.let { return it }
+        val button = JButton("Revert").apply {
+            isEnabled = false
+            toolTipText = "Put the plan back as it was before the last AI run, including the thread group, " +
+                "its copy and shared variables"
+            addActionListener { revertHandler?.run() }
+        }
+        revertButton = button
+        updateStopButton()
+        return button
+    }
+
     private fun updateStopButton() {
         stopButton?.isEnabled = stopHandler != null && startedAt != null
+        // Reverting replaces the whole plan, so not while a run is still editing it.
+        revertButton?.isEnabled = revertHandler != null && startedAt == null
     }
 
     private fun ensurePlacementButton(): JButton {

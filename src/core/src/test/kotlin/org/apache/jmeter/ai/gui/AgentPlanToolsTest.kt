@@ -329,6 +329,31 @@ class AgentPlanToolsTest : JMeterTestCase() {
     }
 
     @Test
+    fun `keeping a copy adds one disabled copy after the thread group and replaces an older one`() {
+        val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
+        val originalId = (group.testElement as ThreadGroup).orCreateThreadGroupId
+
+        assertEquals("Shoppers (before AI repair)", BreakTestAgentGuiService.keepThreadGroupCopy("Plan / Shoppers"))
+        request.testElement.setProperty("endpoint", "/cart/changed-by-repair")
+        BreakTestAgentGuiService.keepThreadGroupCopy("Plan / Shoppers")
+
+        assertEquals(2, plan.childCount, "the second copy replaced the first")
+        assertEquals(group, plan.getChildAt(0), "the original stays first and is the one that is edited")
+        assertTrue(group.isEnabled)
+        assertEquals(originalId, (group.testElement as ThreadGroup).threadGroupId)
+        val copy = plan.getChildAt(1) as JMeterTreeNode
+        assertEquals("Shoppers (before AI repair)", copy.testElement.name)
+        assertFalse(copy.isEnabled)
+        assertTrue((copy.testElement as ThreadGroup).threadGroupId != originalId, "scenarios keep pointing at the original")
+        assertEquals(2, copy.childCount)
+        assertEquals(
+            "/cart/changed-by-repair", (copy.getChildAt(1) as JMeterTreeNode).testElement.getPropertyAsString("endpoint"),
+            "the newer copy holds the newer state",
+        )
+        assertTrue(AiAutoScriptingLogWindow.changes().none { it["summary"].orEmpty().contains("before AI repair") })
+    }
+
+    @Test
     fun `scoped search reports node names rooted at the plan`() {
         val match = call("search_open_plan_values", """{"query":"/cart/42","scopeNodePath":"Plan / Shoppers"}""")
             .path("matches").single()

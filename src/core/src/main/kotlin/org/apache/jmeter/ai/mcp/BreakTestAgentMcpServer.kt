@@ -214,17 +214,6 @@ public object BreakTestAgentMcpServer {
             )
             add(
                 tool(
-                    "refresh_open_plan_from_file",
-                    "Reload the currently open BreakTest GUI plan from its saved JMX file. Use this only after a file-backed active-JMX repair batch has saved valid XML and inspect_jmx confirms the same path parses cleanly. The GUI bridge allows one normal refresh per AI run to avoid very slow repeated reloads of large JMX files; pass force=true only when the user explicitly requests another live reload.",
-                    mapOf(
-                        "path" to "string",
-                        "force" to "boolean",
-                    ),
-                    emptyList(),
-                )
-            )
-            add(
-                tool(
                     "restore_open_plan_from_backup",
                     "Restore the running BreakTest GUI plan from the exact AI pre-run backup created for this session. Use this only after a live-edit integrity failure; the bridge validates the backup before loading it, restores the original plan filename/dirty state, and refuses arbitrary files.",
                     mapOf("path" to "string"),
@@ -1041,7 +1030,6 @@ public object BreakTestAgentMcpServer {
                 "select_instance" -> selectInstance(arguments)
                 "open_plan_headless" -> openPlanHeadless(arguments)
                 "gui_status" -> callGuiTool("status", arguments)
-                "refresh_open_plan_from_file" -> callGuiTool("refresh_open_plan_from_file", arguments)
                 "restore_open_plan_from_backup" -> callGuiTool("restore_open_plan_from_backup", arguments)
                 "inspect_open_plan" -> callGuiTool("inspect_open_plan", arguments)
                 "validate_open_plan" -> callGuiTool("validate_open_plan", arguments)
@@ -1134,7 +1122,6 @@ public object BreakTestAgentMcpServer {
     private fun String.shouldMirrorActivity(): Boolean =
         this !in setOf(
             "gui_status",
-            "refresh_open_plan_from_file",
             "restore_open_plan_from_backup",
             "inspect_open_plan",
             "validate_open_plan",

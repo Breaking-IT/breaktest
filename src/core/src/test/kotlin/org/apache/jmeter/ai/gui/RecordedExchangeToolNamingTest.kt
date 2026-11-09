@@ -83,7 +83,6 @@ class RecordedExchangeToolNamingTest {
             template in listOf(
                 "ai-prompt-live-gui-repair.txt",
                 "ai-prompt-specific-request.txt",
-                "ai-prompt-file-backed-repair.txt",
                 "ai-prompt-user-instructions.txt",
                 "ai-prompt-run-options.txt",
                 "ai-prompt-fragments.properties",

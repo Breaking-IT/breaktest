@@ -40,7 +40,6 @@ import org.apache.jmeter.ai.edit.TestPlanEditor
 import org.apache.jmeter.control.Controller
 import org.apache.jmeter.control.TransactionController
 import org.apache.jmeter.gui.GuiPackage
-import org.apache.jmeter.gui.action.ActionNames
 import org.apache.jmeter.gui.action.Copy
 import org.apache.jmeter.gui.action.Load
 import org.apache.jmeter.gui.tree.JMeterTreeNode
@@ -99,8 +98,10 @@ public object BreakTestAgentGuiService {
     private const val MAX_REPAIR_ACTION_ROLLBACK_UNDOS = 25
     /** Above this many changed nodes a scoped replacement stays a single summary row. */
     private const val MAX_ITEMISED_REPLACEMENT_NODES = 3
-    private const val MAX_ACTIVE_FILE_REFRESHES_PER_RUN = 1
     private const val TEST_PLAN_USER_DEFINED_VARIABLES = "TestPlan.user_defined_variables"
+
+    /** On a kept copy: the id of the thread group it is a copy of. */
+    private const val REPAIR_COPY_OF = "BreakTest.aiRepairCopyOf"
     private val backupTimeFormat = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 
     private val log = LoggerFactory.getLogger(BreakTestAgentGuiService::class.java)
@@ -158,7 +159,6 @@ public object BreakTestAgentGuiService {
     private var token: String? = null
     private val backedUpPlanKeys = mutableSetOf<String>()
     private var latestOpenPlanBackup: OpenPlanBackup? = null
-    private var activeFileRefreshesThisRun = 0
     private val repairActionSnapshots = object : LinkedHashMap<String, Map<String, Map<String, Any?>>>() {
         override fun removeEldestEntry(
             eldest: MutableMap.MutableEntry<String, Map<String, Map<String, Any?>>>?,
@@ -385,7 +385,6 @@ public object BreakTestAgentGuiService {
                     "selectedNode" to gui.treeListener.currentNode?.name,
                 )
             }
-            "refresh_open_plan_from_file" -> refreshOpenPlanFromFile(arguments)
             "restore_open_plan_from_backup" -> restoreOpenPlanFromBackup(arguments)
             "inspect_open_plan" -> BreakTestAgent().inspect(
                 currentPlanTree(),
@@ -469,7 +468,6 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             gui.updateCurrentNode()
-            activeFileRefreshesThisRun = 0
             val backupFile = backupFileFor(gui.testPlanFile)
             backupFile.parentFile?.mkdirs()
             backupFile.outputStream().use { SaveService.saveTree(convertTree(gui.treeModel.testPlan), it) }
@@ -485,147 +483,6 @@ public object BreakTestAgentGuiService {
                 details = backupFile.path,
             )
             backupFile.path
-        }
-
-    /** Reloads the active JMX after file-backed AI repair has finished. */
-    @JvmStatic
-    public fun reloadOpenPlanAfterFileRepair(path: String): Map<String, Any?> {
-        val arguments = mapper.createObjectNode()
-            .put("path", path)
-            .put("force", true)
-        return refreshOpenPlanFromFile(arguments)
-    }
-
-    @JvmStatic
-    public fun createRepairCloneForOpenPlan(): String? =
-        guiCall {
-            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            gui.updateCurrentNode()
-            val cloneFile = repairCloneFileFor(gui.testPlanFile)
-            cloneFile.parentFile?.mkdirs()
-            cloneFile.outputStream().use { SaveService.saveTree(convertTree(gui.treeModel.testPlan), it) }
-            postActivity(
-                "info",
-                "Created AI repair clone from current open GUI state",
-                details = "${cloneFile.path} (includes current in-memory edits)",
-            )
-            cloneFile.path
-        }
-
-    @JvmStatic
-    public fun mergeRepairCloneIntoOpenPlan(repairTargetPath: String, threadGroupPath: String): Map<String, Any?> =
-        guiCall {
-            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val repairFile = File(repairTargetPath)
-            require(repairFile.isFile) {
-                "Repair target does not exist: ${repairFile.path}"
-            }
-            gui.updateCurrentNode()
-            ensureBackupForOpenPlan(gui)
-
-            val repairedTree = SaveService.loadTree(repairFile)
-            val repairedThreadGroup = findThreadGroupInTree(repairedTree, threadGroupPath)
-            val repairedSubTree = repairedTree.findSubTree(repairedThreadGroup)
-                ?: throw IllegalStateException("Could not locate repaired Thread Group subtree for '$threadGroupPath'")
-            val activeThreadGroup = selectThreadGroup(gui, threadGroupPath)
-            val parent = activeThreadGroup.parent as? JMeterTreeNode
-                ?: throw IllegalStateException("Selected Thread Group has no parent")
-
-            gui.beginUndoTransaction()
-            try {
-                val generatedName = uniqueGeneratedThreadGroupName(gui, repairedThreadGroup.name.orEmpty())
-                repairedThreadGroup.name = generatedName
-                mergeUserDefinedVariables(gui, repairedTree)
-                // Insert the subtree without JMeterTreeModel.addSubTree: that path runs
-                // every element through the shared per-class GUI panels and flushes them
-                // into the currently selected node, which renamed the user's original
-                // (still selected) Thread Group to the *_AI_Generated name.
-                val generatedNode = insertDetachedNode(gui, parent, repairedThreadGroup)
-                insertDetachedSubTree(gui, generatedNode, repairedSubTree)
-                gui.treeModel.nodeStructureChanged(parent)
-                markEdited(gui, parent, generatedNode)
-                postActivity(
-                    "info",
-                    "Merged AI generated Thread Group",
-                    details = "${repairFile.path} -> ${nodePath(generatedNode)}",
-                )
-                recordChange(
-                    "Merged repair",
-                    generatedNode,
-                    "Added AI generated Thread Group",
-                    "Source: ${repairFile.path}",
-                )
-                mapOf(
-                    "merged" to true,
-                    "sourcePath" to repairFile.path,
-                    "threadGroupName" to generatedName,
-                    "threadGroupNodePath" to nodePath(generatedNode),
-                )
-            } finally {
-                gui.endUndoTransaction()
-            }
-        }
-
-    private fun refreshOpenPlanFromFile(arguments: JsonNode): Map<String, Any?> =
-        guiCall {
-            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val current = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before it can be refreshed")
-            val requested = arguments.path("path").optionalText()?.takeIf { it.isNotBlank() } ?: current
-            val currentFile = File(current).canonicalFile
-            val requestedFile = File(requested).canonicalFile
-            require(currentFile == requestedFile) {
-                "Refusing to refresh a different JMX. Current open plan is ${currentFile.path}, requested ${requestedFile.path}"
-            }
-            require(requestedFile.isFile) {
-                "Cannot refresh open plan because file does not exist: ${requestedFile.path}"
-            }
-            val force = arguments.path("force").asBoolean(false)
-            if (!force && activeFileRefreshesThisRun >= MAX_ACTIVE_FILE_REFRESHES_PER_RUN) {
-                postActivity(
-                    "warn",
-                    "Skipped active JMX refresh because this AI run already refreshed the GUI once",
-                    details = "Continuing against the saved active JMX file without another expensive GUI reload: ${requestedFile.path}.",
-                )
-                return@guiCall mapOf(
-                    "refreshed" to false,
-                    "skipped" to true,
-                    "reason" to "refresh_budget_exhausted",
-                    "path" to requestedFile.path,
-                    "refreshesThisRun" to activeFileRefreshesThisRun,
-                )
-            }
-            gui.updateCurrentNode()
-            if (gui.isDirty) {
-                postActivity(
-                    "warn",
-                    "Skipped active JMX refresh because the GUI has unsaved changes",
-                    details = "Save or discard the current GUI edits before refreshing from ${requestedFile.path}.",
-                )
-                return@guiCall mapOf(
-                    "refreshed" to false,
-                    "skipped" to true,
-                    "reason" to "gui_dirty",
-                    "path" to requestedFile.path,
-                )
-            }
-            Load.loadProjectFile(
-                ActionEvent(BreakTestAgentGuiService::class.java, ActionEvent.ACTION_PERFORMED, ActionNames.OPEN),
-                requestedFile,
-                false,
-            )
-            activeFileRefreshesThisRun++
-            gui.setDirty(false)
-            postActivity(
-                "info",
-                "Refreshed open plan from active JMX file",
-                details = "${requestedFile.path} (refresh $activeFileRefreshesThisRun/$MAX_ACTIVE_FILE_REFRESHES_PER_RUN)",
-            )
-            mapOf(
-                "refreshed" to true,
-                "path" to requestedFile.path,
-                "refreshesThisRun" to activeFileRefreshesThisRun,
-            )
         }
 
     private fun restoreOpenPlanFromBackup(arguments: JsonNode): Map<String, Any?> =
@@ -646,17 +503,16 @@ public object BreakTestAgentGuiService {
         }
         // Parse before touching the live GUI so a corrupt or incomplete backup
         // can never replace the current in-memory plan.
-        SaveService.loadTree(backup.file)
-        Load.loadProjectFile(
-            ActionEvent(BreakTestAgentGuiService::class.java, ActionEvent.ACTION_PERFORMED, ActionNames.OPEN),
-            backup.file,
-            false,
-        )
+        val restoredTree = SaveService.loadTree(backup.file)
+        require(!JMeterUtils.isTestRunning()) { "A test is running; stop it before restoring the plan" }
+        // Insert the tree directly instead of opening the backup as a file: opening it loads in
+        // the background and then names the backup as the plan's file, so the next Save would
+        // have overwritten the backup instead of the plan.
+        Load.insertLoadedTree(ActionEvent.ACTION_PERFORMED, restoredTree)
         val restoredGui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready after backup restore")
         restoredGui.setTestPlanFile(backup.originalPlanPath)
         restoredGui.setDirty(backup.wasDirty)
         NodeIds.clear()
-        activeFileRefreshesThisRun = 0
         postActivity(
             "warn",
             "Restored open plan from AI pre-run backup",
@@ -3168,6 +3024,60 @@ public object BreakTestAgentGuiService {
             }
         }
 
+    /**
+     * Adds a disabled copy of the thread group as it is now, directly after it, and returns the
+     * copy's name. The repair then works on the original, which keeps its name and id, so
+     * scenarios and references still point at the repaired version. A copy kept by an earlier run
+     * of the same thread group is replaced. Deliberately not listed as an agent change.
+     */
+    @JvmStatic
+    public fun keepThreadGroupCopy(threadGroupPath: String): String =
+        guiCall {
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            gui.updateCurrentNode()
+            val source = selectNodeByPath(gui.treeModel.testPlan, threadGroupPath, "thread group")
+            val group = source.testElement as? AbstractThreadGroup
+                ?: throw IllegalArgumentException("'${source.testElement.name}' is not a thread group")
+            val parent = source.parent as? JMeterTreeNode ?: error("The thread group has no parent")
+            val originalId = group.orCreateThreadGroupId
+            (0 until parent.childCount).map { parent.getChildAt(it) as JMeterTreeNode }
+                .filter { it.testElement.getPropertyAsString(REPAIR_COPY_OF) == originalId }
+                .forEach { removeTreeNode(gui, it) }
+            val copy = Copy.cloneTreeNode(source)
+            RecordedHarExchangeResolver.carryInheritedRecordingSource(source, copy.testElement)
+            resolveCopyConflicts(gui, copy)
+            copy.testElement.name = "${group.name} (before AI repair)"
+            // The copy must not share the original's id, or scenario workloads would match both.
+            val usedIds = allTreeNodes(gui.treeModel.testPlan)
+                .mapNotNull { (it.testElement as? AbstractThreadGroup)?.threadGroupId }.filter { it.isNotEmpty() }.toSet()
+            (copy.testElement as AbstractThreadGroup).threadGroupId =
+                AbstractThreadGroup.uniqueReadableId(copy.testElement.name, usedIds)
+            copy.testElement.setProperty(REPAIR_COPY_OF, originalId)
+            copy.isEnabled = false
+            gui.treeModel.insertNodeInto(copy, parent, parent.getIndex(source) + 1)
+            RecordedHarExchangeResolver.dropRedundantRecordingSource(copy)
+            gui.setDirty(true)
+            copy.testElement.name.orEmpty()
+        }
+
+    /**
+     * Puts the open plan back as it was when the last AI run started: the thread group, the copy
+     * that run kept and anything else it changed. Refuses when another plan has been opened since.
+     */
+    @JvmStatic
+    public fun revertLastRun(): Map<String, Any?> =
+        guiCall {
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            val backup = latestOpenPlanBackup ?: error("There is no AI run to revert in this session")
+            require(gui.testPlanFile?.takeIf { it.isNotBlank() } == backup.originalPlanPath) {
+                "A different plan is open than the one the last AI run changed"
+            }
+            restoreLatestOpenPlanBackup(null, "Reverted by the user").also {
+                // The file on disk may hold the repaired plan by now, so offer to save the reverted one.
+                gui.setDirty(true)
+            }
+        }
+
     private fun cloneNodeOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val position = arguments.path("position").asText("after").lowercase()
@@ -4072,16 +3982,6 @@ public object BreakTestAgentGuiService {
         val baseName = source?.nameWithoutExtension?.takeIf { it.isNotBlank() } ?: "untitled"
         val timestamp = LocalDateTime.now().format(backupTimeFormat)
         return File(directory, "$baseName.ai-backup-$timestamp.jmx")
-    }
-
-    private fun repairCloneFileFor(testPlanFile: String?): File {
-        val source = testPlanFile?.takeIf { it.isNotBlank() }?.let { File(it).absoluteFile }
-        val directory = source?.parentFile?.takeIf { it.isDirectory }
-            ?: JMeterUtils.getJMeterHome()?.let(::File)?.takeIf { it.isDirectory }
-            ?: File(System.getProperty("java.io.tmpdir"))
-        val baseName = source?.nameWithoutExtension?.takeIf { it.isNotBlank() } ?: "untitled"
-        val timestamp = LocalDateTime.now().format(backupTimeFormat)
-        return File(directory, "$baseName.ai-repaired-$timestamp.jmx")
     }
 
     private fun backupKey(testPlanFile: String?): String =
@@ -5688,48 +5588,6 @@ public object BreakTestAgentGuiService {
         } else {
             path
         }
-
-    private fun mergeUserDefinedVariables(gui: GuiPackage, repairedTree: HashTree): Int {
-        val repairedTestPlan = firstTestPlan(repairedTree)
-            ?: return 0
-        val variables = repairedTestPlan.userDefinedVariables
-        if (variables.isEmpty()) {
-            return 0
-        }
-        var node = testPlanNode(gui)
-        var merged = 0
-        for ((name, value) in variables) {
-            if (name.isBlank()) {
-                continue
-            }
-            node = storeUserDefinedVariable(gui, name, value)
-            merged++
-        }
-        if (merged > 0) {
-            gui.treeModel.nodeStructureChanged(node)
-            recordChange(
-                "Updated variables",
-                node,
-                "Merged User Defined Variables from AI repaired clone",
-                "Variables merged: $merged",
-            )
-        }
-        return merged
-    }
-
-    private fun firstTestPlan(tree: HashTree): TestPlan? {
-        for (node in tree.list()) {
-            val element = node as? TestElement
-            if (element is TestPlan) {
-                return element
-            }
-            val nested = firstTestPlan(tree.getTree(node))
-            if (nested != null) {
-                return nested
-            }
-        }
-        return null
-    }
 
     private fun uniqueGeneratedThreadGroupName(gui: GuiPackage, originalName: String): String {
         val base = "${originalName.ifBlank { "Thread Group" }}_AI_Generated"

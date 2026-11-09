@@ -34,12 +34,10 @@ import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertSame
-import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.lang.reflect.Field
-import java.lang.reflect.InvocationTargetException
 import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
@@ -322,19 +320,6 @@ class BreakTestAgentGuiServiceTest {
         assertEquals(listOf("Earlier successful AI edit"), restoredNames)
         assertEquals(originalPlanPath, gui.testPlanFile)
         assertTrue(gui.isDirty)
-    }
-
-    @Test
-    fun `refresh with a lost plan filename reports a useful error instead of null pointer`() {
-        val model = JMeterTreeModel(TestPlan("Root"))
-        val listener = JMeterTreeListener(model).apply { setJTree(JTree(model)) }
-        GuiPackage.initInstance(listener, model)
-
-        val failure = assertThrows(InvocationTargetException::class.java) {
-            invokePrivateResult("refreshOpenPlanFromFile", ObjectMapper().createObjectNode())
-        }
-
-        assertEquals("The open plan must be saved before it can be refreshed", failure.cause?.message)
     }
 
     @Test

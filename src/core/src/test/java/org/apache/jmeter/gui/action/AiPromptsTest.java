@@ -42,12 +42,8 @@ class AiPromptsTest {
             Map.entry("TEST_PLAN_FILE", "/plans/shop.jmx"),
             Map.entry("BACKUP_PATH", "/plans/shop.jmx.bak"),
             Map.entry("USER_INSTRUCTIONS", "- user instructions"),
-            Map.entry("TASK_SCOPE", "task scope"),
-            Map.entry("REPAIR_TARGET", "/plans/shop.repair.jmx"),
-            Map.entry("REPAIR_SUMMARY_PATH", "/plans/shop.repair.jmx.ai-summary.json"),
             Map.entry("TOOL", "Copilot CLI"),
             Map.entry("MODE", "Full script repair"),
-            Map.entry("EDIT_SURFACE", "Live GUI"),
             Map.entry("ADD_ASSERTIONS", "yes"),
             Map.entry("MAX_RUNTIME_SECONDS", "900"),
             Map.entry("MAX_SIMILAR_RETRIES", "3"),
@@ -58,7 +54,6 @@ class AiPromptsTest {
     @ValueSource(strings = {
         AiPrompts.LIVE_GUI_REPAIR,
         AiPrompts.SPECIFIC_REQUEST,
-        AiPrompts.FILE_BACKED_REPAIR,
         AiPrompts.USER_INSTRUCTIONS,
         AiPrompts.RUN_OPTIONS,
     })
@@ -84,7 +79,6 @@ class AiPromptsTest {
     @Test
     void allFragmentsResolve() {
         for (String key : new String[] {
-            "taskScope.fullRepair", "taskScope.specificRequest",
             "assertions.enabled", "assertions.disabled",
         }) {
             assertFalse(AiPrompts.fragment(key).isBlank(), "missing fragment " + key);
