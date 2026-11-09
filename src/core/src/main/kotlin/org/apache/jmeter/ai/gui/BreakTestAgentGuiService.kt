@@ -5739,6 +5739,9 @@ public object BreakTestAgentGuiService {
     @Volatile
     private var lastValidation: LastValidationSnapshot? = null
 
+    /** Samples of the most recent validation run, top level only; sub-results hang below them. */
+    internal fun lastValidationSamples(): List<AgentSampleSummary>? = lastValidation?.samples
+
     private fun validateOpenPlan(arguments: JsonNode): Any {
         val (tree, scopePath) = validationTreeWithScope(arguments)
         val report = BreakTestAgent().inspectAndValidate(

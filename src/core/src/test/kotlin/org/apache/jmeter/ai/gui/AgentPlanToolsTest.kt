@@ -263,6 +263,39 @@ class AgentPlanToolsTest : JMeterTestCase() {
     }
 
     @Test
+    fun `full request and response of run samples can be listed and read in windows`() {
+        org.apache.jmeter.ai.AgentRunStats.reset()
+        val body = "x".repeat(500) + """{"token":"abc123"}""" + "y".repeat(30_000)
+        for ((label, success) in listOf("login" to true, "login" to true, "search" to false)) {
+            val result = org.apache.jmeter.samplers.SampleResult(1000L, 20L)
+            result.sampleLabel = label
+            result.isSuccessful = success
+            result.responseCode = if (success) "200" else "503"
+            result.samplerData = "POST https://shop.example/$label\n\nPOST data:\nuser=jo"
+            result.requestHeaders = "Content-Type: application/x-www-form-urlencoded\n"
+            result.responseHeaders = "HTTP/1.1 ${result.responseCode}\nSet-Cookie: sid=9\n"
+            result.setResponseData(body, "UTF-8")
+            result.dataType = org.apache.jmeter.samplers.SampleResult.TEXT
+            org.apache.jmeter.ai.AgentRunStats.record(result, false)
+        }
+        val rows = call("list_samples", """{"source":"run"}""").path("rows").asText().lines()
+        assertEquals(2, rows.size, "one passing login and the failed search; the second login is not copied")
+        assertTrue(rows[1].startsWith("1 | search | FAILED | 503"), rows[1])
+
+        val login = call("get_sample", """{"source":"run","label":"login","find":"\"token\""}""")
+        assertTrue(login.path("request").asText().startsWith("POST https://shop.example/login"))
+        assertTrue(login.path("requestHeaders").asText().contains("Content-Type"))
+        assertTrue(login.path("responseHeaders").asText().contains("Set-Cookie: sid=9"))
+        assertTrue(login.path("responseBody").asText().contains("""{"token":"abc123"}"""))
+        assertEquals(301, login.path("window").path("offset").asInt(), "200 characters before the match at 501")
+        assertEquals(20_301, login.path("window").path("nextOffset").asInt())
+
+        val headersOnly = call("get_sample", """{"source":"run","index":1,"parts":["responseHeaders"]}""")
+        assertFalse(headersOnly.has("responseBody"))
+        assertFalse(headersOnly.path("success").asBoolean())
+    }
+
+    @Test
     fun `scoped search reports node names rooted at the plan`() {
         val match = call("search_open_plan_values", """{"query":"/cart/42","scopeNodePath":"Plan / Shoppers"}""")
             .path("matches").single()

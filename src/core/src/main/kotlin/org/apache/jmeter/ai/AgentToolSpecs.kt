@@ -124,6 +124,29 @@ public object AgentToolSpecs {
             mapOf("maxLabels" to "number", "errorSamples" to "number"),
         ),
         Spec(
+            "list_samples",
+            "List the samples whose full request and response can be read with get_sample, one row " +
+                "each. source=validation (default) is the last validate_open_plan run; source=run is " +
+                "the current or last real run, which keeps the first passing sample and the first " +
+                "failures of every request. onlyFailed and labelContains filter the rows.",
+            mapOf("source" to "string", "onlyFailed" to "boolean", "labelContains" to "string", "maxRows" to "number"),
+        ),
+        Spec(
+            "get_sample",
+            "Read what was actually sent and received for one sample: request line and body, request " +
+                "headers, response headers and response body, plus failed assertions. Select by index " +
+                "(from list_samples) or by label with occurrence; subIndex opens a redirect or embedded " +
+                "sub-sample. parts limits the output to any of requestHeaders, requestBody, " +
+                "responseHeaders, responseBody. A long body is returned in windows: offset and limit, " +
+                "or find to start the window at a text. Use this to choose extractor patterns and " +
+                "assertion markers from real responses.",
+            mapOf(
+                "source" to "string", "index" to "number", "label" to "string", "occurrence" to "number",
+                "subIndex" to "number", "parts" to "array[string]", "offset" to "number", "limit" to "number",
+                "find" to "string",
+            ),
+        ),
+        Spec(
             "get_log",
             "Tail of the BreakTest log. level=warn or error keeps only those lines; contains filters by text.",
             mapOf("lines" to "number", "level" to "string", "contains" to "string"),
@@ -257,6 +280,8 @@ public object AgentToolSpecs {
      */
     public val coreToolNames: Set<String> = guiTools.mapTo(LinkedHashSet()) { it.name } + setOf(
         "test_results",
+        "list_samples",
+        "get_sample",
         "add_http_request",
         "export_subtree",
         "import_subtree",
@@ -287,7 +312,8 @@ public object AgentToolSpecs {
             "and are undoable. Workflow: get_plan_outline to see the plan and node ids; " +
             "get_element_open_plan to read a node; describe_element before setting properties on a " +
             "new element type; batch_open_plan to apply all edits of a task in one call; " +
-            "validate_open_plan (scoped with threadGroupName) to prove the script works; " +
+            "validate_open_plan (scoped with threadGroupName) to prove the script works, then " +
+            "list_samples and get_sample to read the real requests and responses; " +
             "save_open_plan when asked. Address nodes by nodeId. A result with " +
             "planChangedSinceLastCall=true means the user edited the plan: re-read the outline. " +
             "start_test sends real load: only on explicit request, then test_results. More " +

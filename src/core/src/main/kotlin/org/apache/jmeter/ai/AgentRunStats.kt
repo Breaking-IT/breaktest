@@ -38,6 +38,9 @@ public object AgentRunStats {
     private const val MAX_ERROR_KINDS = 200
     private const val MAX_ERROR_SAMPLES = 20
     private const val RESPONSE_HEAD_CHARS = 600
+    private const val MAX_CAPTURED = 200
+    private const val ERRORS_CAPTURED_PER_LABEL = 2
+    private val CAPTURE_LIMITS = AgentRunOptions(responseBodyLimit = 256 * 1024, requestBodyLimit = 64 * 1024)
 
     private class Label(val transaction: Boolean, val order: Long) {
         val count = LongAdder()
@@ -46,6 +49,8 @@ public object AgentRunStats {
         val min = AtomicLong(Long.MAX_VALUE)
         val max = AtomicLong(0)
         val buckets = AtomicLongArray(BUCKETS)
+        val capturedSuccess = java.util.concurrent.atomic.AtomicBoolean()
+        val capturedErrors = java.util.concurrent.atomic.AtomicInteger()
     }
 
     @Volatile
@@ -63,6 +68,7 @@ public object AgentRunStats {
     private val labels = ConcurrentHashMap<String, Label>()
     private val errorKinds = ConcurrentHashMap<String, LongAdder>()
     private val errorSamples = ArrayDeque<Map<String, Any?>>()
+    private val captured = java.util.concurrent.CopyOnWriteArrayList<AgentSampleSummary>()
 
     @JvmStatic
     public fun isEnabled(): Boolean = enabled
@@ -77,6 +83,7 @@ public object AgentRunStats {
         labels.clear()
         errorKinds.clear()
         synchronized(errorSamples) { errorSamples.clear() }
+        captured.clear()
         order.set(0)
         firstSample = 0
         lastSample = 0
@@ -110,6 +117,9 @@ public object AgentRunStats {
         label.min.accumulateAndGet(elapsed, ::minOf)
         label.max.accumulateAndGet(elapsed, ::maxOf)
         label.buckets.incrementAndGet(bucket(elapsed))
+        if (!transaction) {
+            capture(label, result)
+        }
         if (!result.isSuccessful) {
             label.errors.increment()
             if (!transaction) {
@@ -117,6 +127,27 @@ public object AgentRunStats {
             }
         }
     }
+
+    /**
+     * Keeps the full request and response of the first passing sample and the first failures of
+     * each label, so an agent can read real traffic of a run without every sample being copied.
+     */
+    private fun capture(label: Label, result: SampleResult) {
+        val wanted = if (result.isSuccessful) {
+            !label.capturedSuccess.get() && label.capturedSuccess.compareAndSet(false, true)
+        } else {
+            label.capturedErrors.get() < ERRORS_CAPTURED_PER_LABEL &&
+                label.capturedErrors.incrementAndGet() <= ERRORS_CAPTURED_PER_LABEL
+        }
+        if (wanted && captured.size < MAX_CAPTURED) {
+            runCatching { captured += AgentSampleSummary.from(captured.size, result, CAPTURE_LIMITS) }
+        }
+    }
+
+    /** Full samples kept from the current or last run, in the order they were captured. */
+    @JvmStatic
+    public fun capturedSamples(): List<AgentSampleSummary> =
+        captured.mapIndexed { index, sample -> if (sample.index == index) sample else sample.copy(index = index) }
 
     private fun recordError(name: String, result: SampleResult) {
         val kind = "$name | ${result.responseCode} ${result.responseMessage.orEmpty().take(120)}".trim()

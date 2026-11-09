@@ -20,6 +20,7 @@ package org.apache.jmeter.ai.gui
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import org.apache.jmeter.ai.AgentRunStats
+import org.apache.jmeter.ai.AgentSampleSummary
 import org.apache.jmeter.config.Arguments
 import org.apache.jmeter.engine.util.CompoundVariable
 import org.apache.jmeter.gui.GuiPackage
@@ -54,6 +55,10 @@ internal object AgentWorkbenchTools {
     private const val HTTP_SAMPLER_GUI = "org.apache.jmeter.protocol.http.control.gui.HttpTestSampleGui"
     private const val DEFAULT_EXPORT_CHARS = 60_000
     private const val LOG_TAIL_BYTES = 512 * 1024L
+    private const val DEFAULT_BODY_WINDOW = 20_000
+    private const val MAX_BODY_WINDOW = 400_000
+    private const val FIND_LEAD_CHARS = 200
+    private val SAMPLE_PARTS = setOf("requestHeaders", "requestBody", "responseHeaders", "responseBody")
     private const val LOAD_WAIT_MILLIS = 30_000L
     private val URL_PARTS = Regex("""^(?:(https?)://([^/:?#]+)(?::(\d+))?)?([^?#]*)(?:\?([^#]*))?(?:#.*)?$""", RegexOption.IGNORE_CASE)
     private val VARIABLE_GETTERS = listOf("getRefName", "getRefNames", "getVariableNames", "getVarName")
@@ -65,6 +70,8 @@ internal object AgentWorkbenchTools {
     fun handle(tool: String, arguments: JsonNode): Any? = when (tool) {
         "test_results" -> testResults(arguments)
         "get_log" -> log(arguments)
+        "list_samples" -> listSamples(arguments)
+        "get_sample" -> getSample(arguments)
         "add_http_request" -> addHttpRequest(arguments)
         "export_subtree" -> exportSubtree(arguments)
         "import_subtree" -> importSubtree(arguments)
@@ -97,6 +104,92 @@ internal object AgentWorkbenchTools {
             arguments.path("maxLabels").present()?.asInt()?.coerceIn(1, 500) ?: 60,
             arguments.path("errorSamples").present()?.asInt()?.coerceIn(0, 20) ?: 3,
         )
+
+    private fun samples(arguments: JsonNode): List<AgentSampleSummary> =
+        when (val source = arguments.path("source").text()?.lowercase() ?: "validation") {
+            "validation" -> service.lastValidationSamples()
+                ?: error("No validation run yet; call validate_open_plan first, or pass source=run for a real run")
+            "run" -> AgentRunStats.capturedSamples()
+                .ifEmpty { error("No samples kept from a real run yet; start one with start_test") }
+            else -> throw IllegalArgumentException("source must be validation or run, not '$source'")
+        }
+
+    private fun listSamples(arguments: JsonNode): Map<String, Any?> {
+        val onlyFailed = arguments.path("onlyFailed").asBoolean(false)
+        val labelContains = arguments.path("labelContains").text()
+        val maxRows = arguments.path("maxRows").present()?.asInt()?.coerceIn(1, 1000) ?: 200
+        val all = samples(arguments)
+        val matching = all.filter { sample ->
+            (!onlyFailed || !sample.success) && (labelContains == null || sample.label.contains(labelContains, ignoreCase = true))
+        }
+        return mapOf(
+            "columns" to "index | label | status | responseCode | ms | responseBytes | subSamples",
+            "rows" to matching.take(maxRows).joinToString("\n") { sample ->
+                listOf(
+                    sample.index, sample.label, if (sample.success) "ok" else "FAILED", sample.responseCode,
+                    sample.elapsedTimeMillis, sample.responseByteLength, sample.subResults.size,
+                ).joinToString(" | ")
+            },
+            "total" to all.size,
+            "rowsOmitted" to (matching.size - maxRows).takeIf { it > 0 },
+        ).filterValues { it != null }
+    }
+
+    private fun getSample(arguments: JsonNode): Map<String, Any?> {
+        val all = samples(arguments)
+        val index = arguments.path("index").present()?.asInt()
+        val label = arguments.path("label").text()
+        var sample = when {
+            index != null -> all.firstOrNull { it.index == index } ?: all.getOrNull(index)
+                ?: throw IllegalArgumentException("No sample with index $index; see list_samples")
+            label != null -> {
+                val matches = all.filter { it.label == label }.ifEmpty { all.filter { it.label.contains(label, ignoreCase = true) } }
+                matches.getOrNull(arguments.path("occurrence").asInt(0))
+                    ?: throw IllegalArgumentException("No sample labelled '$label' at that occurrence (${matches.size} found)")
+            }
+            else -> throw IllegalArgumentException("Pass index or label; list_samples shows what is available")
+        }
+        arguments.path("subIndex").present()?.asInt()?.let { sub ->
+            sample = sample.subResults.getOrNull(sub)
+                ?: throw IllegalArgumentException("Sample '${sample.label}' has ${sample.subResults.size} sub-samples")
+        }
+        val parts = arguments.path("parts").takeIf { it.isArray && it.size() > 0 }?.map { it.asText() }?.toSet() ?: SAMPLE_PARTS
+        require(SAMPLE_PARTS.containsAll(parts)) { "parts must be any of ${SAMPLE_PARTS.joinToString()}" }
+        val result = linkedMapOf<String, Any?>(
+            "index" to sample.index,
+            "label" to sample.label,
+            "success" to sample.success,
+            "responseCode" to sample.responseCode,
+            "responseMessage" to sample.responseMessage.takeIf { it.isNotBlank() },
+            "elapsedMillis" to sample.elapsedTimeMillis,
+            "failedAssertions" to sample.assertions.filter { it.failure || it.error }.map { "${it.name}: ${it.message}" }.takeIf { it.isNotEmpty() },
+            "subSamples" to sample.subResults.mapIndexed { sub, it -> "$sub ${it.label} ${it.responseCode}" }.takeIf { it.isNotEmpty() },
+        )
+        if ("requestBody" in parts) result["request"] = sample.requestBody
+        if ("requestHeaders" in parts) result["requestHeaders"] = sample.requestHeaders
+        if ("responseHeaders" in parts) result["responseHeaders"] = sample.responseHeaders
+        if ("responseBody" in parts) {
+            val body = sample.responseBody
+            val limit = arguments.path("limit").present()?.asInt()?.coerceIn(100, MAX_BODY_WINDOW) ?: DEFAULT_BODY_WINDOW
+            val find = arguments.path("find").present()?.asText()?.takeIf { it.isNotEmpty() }
+            val found = find?.let { body.indexOf(it, ignoreCase = true) }
+            require(found == null || found >= 0) { "'$find' does not occur in the kept response body of '${sample.label}'" }
+            val offset = (found?.let { it - FIND_LEAD_CHARS } ?: arguments.path("offset").asInt(0)).coerceIn(0, body.length)
+            val end = minOf(body.length, offset + limit)
+            result["responseBody"] = body.substring(offset, end)
+            result["responseBodyEncoding"] = sample.responseBodyEncoding.takeIf { it != "text" }
+            result["responseBodyChars"] = body.length
+            result["responseBytes"] = sample.responseByteLength
+            if (offset > 0 || end < body.length) {
+                result["window"] = mapOf("offset" to offset, "end" to end, "nextOffset" to end.takeIf { it < body.length })
+            }
+            if (sample.responseBodyTruncated) {
+                result["bodyCutWhenKept"] = "Only the first ${body.length} characters were kept; " +
+                    "run validate_open_plan with a larger responseBodyLimit (-1 for no limit) to keep all of it"
+            }
+        }
+        return result.filterValues { it != null }
+    }
 
     private fun log(arguments: JsonNode): Map<String, Any?> {
         val file = File(System.getProperty("jmeter.logfile") ?: "breaktest.log").absoluteFile
