@@ -99,6 +99,7 @@ import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
 import org.apache.hc.client5.http.ssl.HostnameVerificationPolicy;
 import org.apache.hc.client5.http.ssl.NoopHostnameVerifier;
 import org.apache.hc.core5.concurrent.BasicFuture;
+import org.apache.hc.core5.concurrent.DefaultThreadFactory;
 import org.apache.hc.core5.concurrent.FutureCallback;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.ConnectionClosedException;
@@ -608,7 +609,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         // Virtual reactor threads avoid one platform reactor thread per virtual user; each user
         // keeps its own client, connection manager and TLS state. A shared reactor keeps its
         // platform threads, one per core.
-        if (!sharedReactor && useVirtualReactorThreads(Runtime.version().feature())) {
+        if (sharedReactor) {
+            // Named apart from per-user reactors ("httpclient-..."): these outlive any one user.
+            builder.setThreadFactory(new DefaultThreadFactory("breaktest-http-reactor", true));
+        } else if (useVirtualReactorThreads(Runtime.version().feature())) {
             builder.setThreadFactory(VIRTUAL_REACTOR_THREAD_FACTORY);
         }
         if (DEBUG_CONNECTION_CLOSURE) {

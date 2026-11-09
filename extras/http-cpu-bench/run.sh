@@ -1,4 +1,21 @@
 #!/usr/bin/env bash
+#
+# Licensed to the Apache Software Foundation (ASF) under one or more
+# contributor license agreements.  See the NOTICE file distributed with
+# this work for additional information regarding copyright ownership.
+# The ASF licenses this file to you under the Apache License, Version 2.0
+# (the "License"); you may not use this file except in compliance with
+# the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
 # CPU-per-request benchmark: BreakTest vs other load tools and lean baseline clients, against the same Rust stub.
 #
 # For every protocol x scenario x rate x tool it starts the load generator, waits WARMUP
@@ -184,7 +201,7 @@ start_tool() {
             # The HTTP client behaviour from before this benchmark work: no shared reactor, and
             # negotiated cleartext requests on the async client.
             [ "$tool" = breaktest-before ] && before=(-Jhttpsampler.hc5.h2.shared_reactor=false
-                -Jhttpsampler.cleartext.http11_impl=false -Jhttpsampler.tls.http11_impl_after_alpn=false)
+                -Jhttpsampler.cleartext.http11_impl=false)
             # bin/breaktest registers the JVM as a macOS app (-Xdock), which App Nap may throttle.
             # shellcheck disable=SC2206 # HEAP and JVM_ARGS are flat flag strings
             [ "$tool" = breaktest-headless ] && launcher=(java $HEAP $JVM_ARGS -Djava.awt.headless=true -jar "$ROOT/bin/breaktest.jar")

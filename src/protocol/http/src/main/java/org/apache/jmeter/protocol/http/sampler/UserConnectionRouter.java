@@ -48,7 +48,10 @@ final class UserConnectionRouter implements AsyncClientConnectionManager {
         if (!(state instanceof AsyncClientConnectionManager user)) {
             throw new IllegalStateException("Shared HTTP client request without a user connection pool");
         }
-        return user.lease(id, route, state, requestTimeout, new FutureCallback<>() {
+        // The token only selects the pool. Inside it every lease belongs to the same user, and
+        // a state would stop one of the user's pools borrowing another's connection (HTTP/2
+        // connection coalescing), so the pool sees none, as without a shared client.
+        return user.lease(id, route, null, requestTimeout, new FutureCallback<>() {
             @Override
             public void completed(AsyncConnectionEndpoint endpoint) {
                 owners.put(endpoint, user);
@@ -85,7 +88,7 @@ final class UserConnectionRouter implements AsyncClientConnectionManager {
     public void release(AsyncConnectionEndpoint endpoint, Object state, TimeValue keepAlive) {
         AsyncClientConnectionManager owner = owners.remove(endpoint);
         if (owner != null) {
-            owner.release(endpoint, state, keepAlive);
+            owner.release(endpoint, null, keepAlive);
         }
     }
 

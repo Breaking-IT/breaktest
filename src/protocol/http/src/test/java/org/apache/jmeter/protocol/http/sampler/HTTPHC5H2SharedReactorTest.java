@@ -55,6 +55,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /**
  * Users share an async client and its I/O reactor, but never a connection: each keeps its
@@ -62,6 +63,8 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
  */
 @Timeout(30)
 @Execution(ExecutionMode.SAME_THREAD)
+// Classes that set the shared-reactor property must not overlap: JMeter properties are global.
+@ResourceLock(HTTPHC5H2Impl.SHARED_REACTOR)
 class HTTPHC5H2SharedReactorTest extends JMeterTestCase {
 
     @AfterEach
