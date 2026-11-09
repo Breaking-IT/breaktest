@@ -48,6 +48,11 @@ public object BreakTestAgentToolCli {
         val result = BreakTestAgentMcpServer.callToolForCli(invocation.tool, mapper.readTree(invocation.argumentsJson))
         print(result)
         println()
+        if (org.apache.jmeter.ai.gui.AgentHeadlessPlan.isOpen()) {
+            // The Swing event thread started for the plan would keep the process alive.
+            System.out.flush()
+            kotlin.system.exitProcess(0)
+        }
     }
 
     internal fun parseInvocation(args: Array<String>): Invocation {

@@ -263,7 +263,11 @@ internal object AgentWorkbenchTools {
         if (possible) {
             if (undo) gui.undo() else gui.redo()
         }
-        mapOf("done" to possible, "canUndo" to gui.canUndo(), "canRedo" to gui.canRedo())
+        mapOf(
+            "done" to possible, "canUndo" to gui.canUndo(), "canRedo" to gui.canRedo(),
+            // Undo and redo rebuild the tree, so earlier node ids no longer resolve.
+            "nodeIdsReset" to possible.takeIf { it },
+        ).filterValues { it != null }
     }
 
     private fun selectNode(arguments: JsonNode): Map<String, Any?> = service.guiCall {
@@ -282,6 +286,7 @@ internal object AgentWorkbenchTools {
 
     /** What the Close action does once the user agreed to drop the plan; that action itself asks in a dialog. */
     private fun closeWithoutAsking(gui: GuiPackage, discardChanges: Boolean) {
+        require(!AgentHeadlessPlan.isOpen()) { "No BreakTest window: use open_plan_headless to switch plans" }
         require(!JMeterUtils.isTestRunning()) { "A test is running; stop it first" }
         ActionRouter.getInstance().doActionNow(event(ActionNames.CHECK_DIRTY))
         require(!gui.isDirty || discardChanges) {

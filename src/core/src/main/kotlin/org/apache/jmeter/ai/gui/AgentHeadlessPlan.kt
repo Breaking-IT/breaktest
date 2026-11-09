@@ -46,17 +46,30 @@ public object AgentHeadlessPlan {
         val plan = tree.array.firstOrNull() as? TestPlan
             ?: throw IllegalArgumentException("${file.path} is not a complete test plan")
         var count = 0
-        SwingUtilities.invokeAndWait {
+        onEventThread {
             val model = JMeterTreeModel(TestPlan())
             GuiPackage.initInstance(JMeterTreeListener(model).apply { setJTree(JTree(model)) }, model)
             val gui = GuiPackage.getInstance()
             gui.clearTestPlan(plan as TestElement)
             model.addSubTree(tree, model.root as JMeterTreeNode, false)
-            gui.setTestPlanFile(file.path)
+            setPlanFile(gui, file.path)
             gui.setDirty(false)
             count = BreakTestAgentGuiService.allTreeNodes(model.testPlan).size
         }
         open = true
         return count
+    }
+
+    /** The regular setter also updates the window title, and there is no window here. */
+    internal fun setPlanFile(gui: GuiPackage, path: String) {
+        GuiPackage::class.java.getDeclaredField("testPlanFile").apply { isAccessible = true }.set(gui, path)
+    }
+
+    private fun onEventThread(action: () -> Unit) {
+        try {
+            SwingUtilities.invokeAndWait(action)
+        } catch (e: java.lang.reflect.InvocationTargetException) {
+            throw e.cause ?: e
+        }
     }
 }

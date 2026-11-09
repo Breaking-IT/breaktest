@@ -428,7 +428,7 @@ internal object AgentPlanTools {
                 require(file.name.endsWith(".jmx", ignoreCase = true)) { "path must end in .jmx" }
                 require(file.parentFile?.isDirectory == true) { "Folder does not exist: ${file.parent}" }
                 require(overwrite || !file.exists()) { "${file.path} already exists; pass overwrite=true to replace it" }
-                gui.setTestPlanFile(file.path)
+                if (AgentHeadlessPlan.isOpen()) AgentHeadlessPlan.setPlanFile(gui, file.path) else gui.setTestPlanFile(file.path)
             }
             if (AgentHeadlessPlan.isOpen()) {
                 // No window, so no Save action: write the tree the way a backup is written.
@@ -459,6 +459,7 @@ internal object AgentPlanTools {
                 null
             }
             require(!JMeterUtils.isTestRunning()) { "A test is already running; see test_status" }
+            require(!AgentHeadlessPlan.isOpen()) { "A plan opened without a BreakTest window cannot be started; use validate_open_plan" }
             // BreakTest reports these two in dialogs, which would leave this call waiting on the user.
             require(gui.testPlanFile != null) { "Save the plan first with save_open_plan; a run needs a saved plan" }
             gui.updateCurrentNode()

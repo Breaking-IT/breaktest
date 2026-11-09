@@ -61,6 +61,10 @@ public object BreakTestAgentMcpServer {
         initializeBreakTestHome(args.firstOrNull())
         val server = StdioJsonRpcServer(::handleRequest)
         server.run()
+        // A plan opened without a window starts the Swing event thread, which would keep
+        // this process alive after the client has closed the connection.
+        System.out.flush()
+        kotlin.system.exitProcess(0)
     }
 
     @JvmStatic
