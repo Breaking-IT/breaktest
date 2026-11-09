@@ -17,6 +17,12 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import java.net.URL;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+import org.apache.jmeter.protocol.http.util.HTTPConstants;
+import org.apache.jmeter.threads.JMeterContextService;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
 
@@ -86,6 +92,111 @@ public final class HTTPSamplerFactory {
      */
     private static final boolean PREFER_HTTP3_FOR_DEFAULT =
             JMeterUtils.getPropDefault("httpsampler.http3.prefer_for_default", false); //$NON-NLS-1$
+
+    /**
+     * JMeter property, default true: cleartext ({@code http://}) requests whose HTTP version is
+     * left to negotiation use the HTTP/1.1 implementation instead of the negotiating one. See
+     * {@link #usesHttp11ForCleartext(String, HTTPSamplerBase, URL)}.
+     */
+    static final String CLEARTEXT_HTTP11_IMPL = "httpsampler.cleartext.http11_impl"; //$NON-NLS-1$
+
+    /**
+     * Whether a request to {@code url} should use {@link HTTPHC5Impl} although the sampler
+     * leaves the HTTP version to negotiation. HttpClient5 negotiates HTTP/2 only through TLS
+     * ALPN, so a negotiated cleartext request always speaks HTTP/1.1. The classic HTTP/1.1
+     * client sends it with far fewer thread hand-offs than the async negotiating client, which
+     * runs an I/O reactor per virtual user.
+     *
+     * @param impl the configured implementation name
+     * @param base the sampler
+     * @param url  the URL about to be sampled; redirects and embedded resources may differ
+     *             from the sampler's own protocol
+     * @return true when the HTTP/1.1 implementation should send this request
+     */
+    public static boolean usesHttp11ForCleartext(String impl, HTTPSamplerBase base, URL url) {
+        return usesHttp11ForCleartext(impl, base, url,
+                JMeterUtils.getPropDefault(CLEARTEXT_HTTP11_IMPL, true), PREFER_HTTP3_FOR_DEFAULT);
+    }
+
+    // package-private so tests can exercise the opt-out and HTTP/3 preference paths
+    static boolean usesHttp11ForCleartext(String impl, HTTPSamplerBase base, URL url,
+            boolean enabled, boolean preferHttp3ForDefault) {
+        return enabled
+                && !preferHttp3ForDefault
+                && HTTPConstants.PROTOCOL_HTTP.equalsIgnoreCase(url.getProtocol())
+                && StringUtilities.isBlank(base.getHttpProtocol())
+                && (StringUtilities.isBlank(impl) || isKnownImplementation(impl));
+    }
+
+    /**
+     * JMeter property, default true: once TLS negotiation (ALPN) with a host has settled on
+     * HTTP/1.1, later requests to that host that leave the HTTP version to negotiation use the
+     * HTTP/1.1 implementation. The wire protocol stays the same; the classic client just sends it
+     * with less CPU than the HTTP/2-capable async client. Forgotten at the start of each test run.
+     */
+    static final String TLS_HTTP11_IMPL = "httpsampler.tls.http11_impl_after_alpn"; //$NON-NLS-1$
+
+    private static final ConcurrentMap<String, Boolean> HTTP11_ONLY_ORIGINS = new ConcurrentHashMap<>();
+    private static volatile long http11OriginsTestStart = Long.MIN_VALUE;
+
+    private static ConcurrentMap<String, Boolean> http11OnlyOrigins() {
+        long testStart = JMeterContextService.getTestStartTime();
+        if (testStart != http11OriginsTestStart) {
+            synchronized (HTTP11_ONLY_ORIGINS) {
+                if (testStart != http11OriginsTestStart) {
+                    // A server may have gained HTTP/2 since the previous run.
+                    HTTP11_ONLY_ORIGINS.clear();
+                    http11OriginsTestStart = testStart;
+                }
+            }
+        }
+        return HTTP11_ONLY_ORIGINS;
+    }
+
+    private static boolean negotiatesOverTls(String impl, HTTPSamplerBase base, URL url) {
+        return !PREFER_HTTP3_FOR_DEFAULT
+                && HTTPConstants.PROTOCOL_HTTPS.equalsIgnoreCase(url.getProtocol())
+                && StringUtilities.isBlank(base.getHttpProtocol())
+                && (StringUtilities.isBlank(impl) || isKnownImplementation(impl))
+                && JMeterUtils.getPropDefault(TLS_HTTP11_IMPL, true);
+    }
+
+    /**
+     * Remembers what a negotiated TLS request to {@code url} ended up speaking, so that later
+     * requests to an HTTP/1.1-only host can skip the negotiating client.
+     *
+     * @param impl            the configured implementation name
+     * @param base            the sampler
+     * @param url             the URL that was sampled
+     * @param protocolVersion the protocol the response used, as reported on the sample result
+     */
+    static void recordNegotiatedProtocol(String impl, HTTPSamplerBase base, URL url, String protocolVersion) {
+        if (protocolVersion != null && protocolVersion.startsWith("HTTP/1.") //$NON-NLS-1$
+                && negotiatesOverTls(impl, base, url)) {
+            http11OnlyOrigins().put(url.getAuthority(), Boolean.TRUE);
+        }
+    }
+
+    // VisibleForTesting
+    static void forgetNegotiatedProtocols() {
+        HTTP11_ONLY_ORIGINS.clear();
+    }
+
+    /**
+     * Whether the HTTP/1.1 implementation should send a request to {@code url} although the
+     * sampler leaves the HTTP version to negotiation: always for cleartext (see
+     * {@link #usesHttp11ForCleartext(String, HTTPSamplerBase, URL)}), and for TLS once the host
+     * is known to speak only HTTP/1.1.
+     *
+     * @param impl the configured implementation name
+     * @param base the sampler
+     * @param url  the URL about to be sampled
+     * @return true when the HTTP/1.1 implementation should send this request
+     */
+    public static boolean usesHttp11Impl(String impl, HTTPSamplerBase base, URL url) {
+        return usesHttp11ForCleartext(impl, base, url)
+                || (negotiatesOverTls(impl, base, url) && http11OnlyOrigins().containsKey(url.getAuthority()));
+    }
 
     public static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base){
         return getImplementation(impl, base, Http3RuntimeSupport.isHttp3Supported(), PREFER_HTTP3_FOR_DEFAULT);

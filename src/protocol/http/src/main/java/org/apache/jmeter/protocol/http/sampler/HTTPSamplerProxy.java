@@ -102,6 +102,8 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
     public Object clone() {
         HTTPSamplerProxy copy = (HTTPSamplerProxy) super.clone();
         copy.impl = null;
+        copy.http11Impl = null;
+        copy.streamImpl = null;
         copy.sseReader = null;
         copy.activeSse = null;
         copy.sseMatches = new java.util.ArrayList<>(sseMatches);
@@ -120,12 +122,21 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
 
     /** Releases reader-local resources without closing the virtual user's HTTP/2 pool. */
     public void sseReaderFinished() {
-        if (impl != null) {
-            impl.streamFinished();
+        HTTPAbstractImpl stream = streamImpl;
+        if (stream != null) {
+            stream.streamFinished();
         }
     }
 
     private transient HTTPAbstractImpl impl;
+    /**
+     * Sends requests whose HTTP version is left to negotiation but can only be HTTP/1.1:
+     * cleartext, and TLS hosts known to speak only HTTP/1.1. Kept apart from {@link #impl} so
+     * an http-to-https redirect does not close the user's connections.
+     */
+    private transient HTTPAbstractImpl http11Impl;
+    /** The implementation that served this sampler's latest SSE stream. */
+    private transient volatile HTTPAbstractImpl streamImpl;
     private transient String implHttpProtocol;
     private transient String implConfiguredImplementation;
 
@@ -199,6 +210,12 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
         // so SSL context is to be reused
         String httpProtocol = getHttpProtocol();
         String implementation = getImplementation();
+        if (HTTPSamplerFactory.usesHttp11Impl(implementation, this, u)) {
+            if (http11Impl == null) {
+                http11Impl = new HTTPHC5Impl(this);
+            }
+            return sampleWith(http11Impl, u, method, areFollowingRedirect, depth);
+        }
         if (impl != null && (!Objects.equals(implHttpProtocol, httpProtocol)
                 || !Objects.equals(implConfiguredImplementation, implementation))) {
             // Variables and defaults can change between iterations. A cached HTTP/1.1
@@ -215,7 +232,19 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
                 return errorResult(ex, new HTTPSampleResult());
             }
         }
-        return impl.sample(u, method, areFollowingRedirect, depth);
+        HTTPSampleResult result = sampleWith(impl, u, method, areFollowingRedirect, depth);
+        if (impl instanceof HTTPHC5H2Impl && result != null) {
+            HTTPSamplerFactory.recordNegotiatedProtocol(implementation, this, u, result.getProtocolVersion());
+        }
+        return result;
+    }
+
+    private HTTPSampleResult sampleWith(HTTPAbstractImpl transport, URL u, String method,
+            boolean areFollowingRedirect, int depth) {
+        if (isSseEnabled()) {
+            streamImpl = transport;
+        }
+        return transport.sample(u, method, areFollowingRedirect, depth);
     }
 
     // N.B. It's not possible to forward threadStarted() to the implementation class.
@@ -230,6 +259,9 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
         if (impl != null){
             impl.threadFinished(); // Forward to sampler
         }
+        if (http11Impl != null) {
+            http11Impl.threadFinished();
+        }
     }
 
     @Override
@@ -238,16 +270,17 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
             activeSse.close();
             return true;
         }
-        if (impl != null) {
-            return impl.interrupt(); // Forward to sampler
-        }
-        return false;
+        boolean interrupted = impl != null && impl.interrupt(); // Forward to sampler
+        return (http11Impl != null && http11Impl.interrupt()) || interrupted;
     }
 
     @Override
     public void testIterationStart(LoopIterationEvent event) {
         if (impl != null) {
             impl.notifyFirstSampleAfterLoopRestart();
+        }
+        if (http11Impl != null) {
+            http11Impl.notifyFirstSampleAfterLoopRestart();
         }
     }
 }

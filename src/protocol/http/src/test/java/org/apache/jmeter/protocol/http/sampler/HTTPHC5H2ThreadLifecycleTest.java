@@ -76,6 +76,7 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.wiremock.WireMockExtension;
 import org.apache.jorphan.collections.HashTree;
 import org.apache.jorphan.collections.ListedHashTree;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -97,6 +98,14 @@ class HTTPHC5H2ThreadLifecycleTest {
             JMeterUtils.loadJMeterProperties(properties.toString());
             Files.deleteIfExists(properties);
         }
+        // These tests cover the negotiating client over cleartext WireMock, which would
+        // otherwise be sent through the HTTP/1.1 implementation.
+        JMeterUtils.setProperty(HTTPSamplerFactory.CLEARTEXT_HTTP11_IMPL, "false");
+    }
+
+    @AfterAll
+    static void restoreJMeterProperties() {
+        JMeterUtils.getJMeterProperties().remove(HTTPSamplerFactory.CLEARTEXT_HTTP11_IMPL);
     }
 
     @AfterEach

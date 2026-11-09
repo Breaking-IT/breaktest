@@ -312,10 +312,35 @@ public abstract class SSLManager {
      */
     public static synchronized SSLManager getInstance() {
         if (null == SSLManager.manager) {
-            SSLManager.manager = new JsseSSLManager(null);
+            SSLManager.manager = new JsseSSLManager(tlsProvider());
         }
 
         return SSLManager.manager;
+    }
+
+    /**
+     * Experimental: {@code https.tls_provider=conscrypt} runs TLS on Conscrypt (BoringSSL) when its
+     * jar is on the class path and its native library loads on this platform; anything else,
+     * including the default {@code jdk}, uses the JDK's own TLS.
+     */
+    private static Provider tlsProvider() {
+        String name = JMeterUtils.getPropDefault("https.tls_provider", "jdk"); // $NON-NLS-1$
+        if (!"conscrypt".equalsIgnoreCase(name)) {
+            return null;
+        }
+        try {
+            Class<?> conscrypt = Class.forName("org.conscrypt.Conscrypt"); // $NON-NLS-1$
+            if (!(Boolean) conscrypt.getMethod("isAvailable").invoke(null)) { // $NON-NLS-1$
+                log.warn("Conscrypt has no native library for this platform; using the JDK's TLS");
+                return null;
+            }
+            Provider provider = (Provider) conscrypt.getMethod("newProvider").invoke(null); // $NON-NLS-1$
+            log.info("Using Conscrypt for TLS: {}", provider.getInfo());
+            return provider;
+        } catch (ReflectiveOperationException | LinkageError e) {
+            log.warn("Conscrypt is not on the class path; using the JDK's TLS", e);
+            return null;
+        }
     }
 
     /**

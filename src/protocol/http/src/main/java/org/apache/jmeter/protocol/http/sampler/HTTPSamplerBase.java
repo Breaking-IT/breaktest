@@ -1474,7 +1474,7 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                 String message = formatConnectionTimeout(responseTimeout, res);
                 return normalizedErrorResult(res, "Connect timeout", message, message);
             }
-            String message = formatResponseTimeout(responseTimeout, res);
+            String message = formatResponseTimeout(responseTimeout, res, getResponseTimeout());
             return normalizedErrorResult(res, "Response timeout", message, message);
         }
         // The JDK java.net.http client (HTTP/3 sampling) reports timeouts through its own
@@ -1621,8 +1621,15 @@ public abstract class HTTPSamplerBase extends AbstractSampler
                 + " for " + formatHostAndDestination(res);
     }
 
-    private static String formatResponseTimeout(InterruptedIOException e, HTTPSampleResult res) {
-        return "Response timeout after " + formatTimeout(e.getMessage())
+    private static String formatResponseTimeout(InterruptedIOException e, HTTPSampleResult res,
+            int configuredResponseTimeout) {
+        String timeout = formatTimeout(e.getMessage());
+        // A blocking socket read reports only "Read timed out"; the timeout it hit is the
+        // configured response timeout.
+        if ("unknown".equals(timeout) && e instanceof SocketTimeoutException && configuredResponseTimeout > 0) {
+            timeout = configuredResponseTimeout + " ms";
+        }
+        return "Response timeout after " + timeout
                 + " waiting for response: " + formatNetworkPath(res);
     }
 

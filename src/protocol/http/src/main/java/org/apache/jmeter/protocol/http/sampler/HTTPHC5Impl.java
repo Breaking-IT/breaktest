@@ -21,6 +21,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
@@ -105,6 +106,7 @@ import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
 import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.classic.RequestFailedException;
 import org.apache.hc.client5.http.impl.cookie.IgnoreCookieSpecFactory;
 import org.apache.hc.client5.http.impl.io.DefaultHttpClientConnectionOperator;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
@@ -1000,7 +1002,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
             res.setRequestHeaders(getAllHeadersExceptCookie(clientContext.getRequest()));
             recordNetworkEndpointsIfNeeded(localContext, false);
-            errorResult(e, res);
+            errorResult(abortedAsInterrupted(e), res);
             return res;
         } catch (RuntimeException e) {
             if (HTTPSamplerBase.isExpectedTimeout(e)) {
@@ -2238,6 +2240,20 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
             clients.clear();
         }
+    }
+
+    /**
+     * The classic client reports a request aborted by {@link #interrupt()} as a
+     * {@link RequestFailedException}; report it as the plain {@link InterruptedIOException} the
+     * negotiating implementation gives, so a stopped test labels in-flight samples the same way.
+     */
+    private static IOException abortedAsInterrupted(IOException e) {
+        if (e instanceof RequestFailedException) {
+            InterruptedIOException interrupted = new InterruptedIOException(e.getMessage());
+            interrupted.initCause(e);
+            return interrupted;
+        }
+        return e;
     }
 
     @Override
