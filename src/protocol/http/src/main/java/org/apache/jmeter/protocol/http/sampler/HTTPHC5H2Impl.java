@@ -222,6 +222,14 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
      */
     static final String SHARED_REACTOR = "httpsampler.hc5.h2.shared_reactor";
 
+    /**
+     * I/O threads of a shared client, default one per core. A reactor thread also runs the TLS
+     * handshakes of its connections (about 1,400 per second with the JDK's TLS), so a small
+     * number caps the rate of new connections: with 2 threads a test of 3,000 new TLS users per
+     * second ran out of memory. Fewer threads use less CPU on kept-alive traffic (HTTP/2 at
+     * 5,000 requests/s: about 116 us per request with 1 thread against 145-174 with 14), so
+     * lower it only for tests that open few connections.
+     */
     private static final int SHARED_REACTOR_THREADS = Math.max(1, JMeterUtils.getPropDefault(
             "httpsampler.hc5.h2.shared_reactor_threads", Runtime.getRuntime().availableProcessors()));
 
