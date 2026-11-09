@@ -57,7 +57,16 @@ class AgentPlanToolsTest : JMeterTestCase() {
         val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
         group = add(ThreadGroup().apply { name = "Shoppers" }, plan)
         variables = add(Arguments().apply { name = "Variables"; addArgument("host", "shop.example") }, group)
-        request = add(ConfigTestElement().apply { name = "Open cart"; setProperty("endpoint", "/cart/42") }, group)
+        request = add(
+            ConfigTestElement().apply {
+                name = "Open cart"
+                setProperty("endpoint", "/cart/42")
+                // Saved plans name the editor and class of every element.
+                setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.config.gui.SimpleConfigGui")
+                setProperty(TestElement.TEST_CLASS, ConfigTestElement::class.java.name)
+            },
+            group,
+        )
     }
 
     @AfterEach
@@ -152,6 +161,105 @@ class AgentPlanToolsTest : JMeterTestCase() {
 
         call("set_scenario_workload", """{"threadGroupName":"Shoppers","remove":true}""")
         assertTrue(scenario.workloads.isEmpty())
+    }
+
+    @Test
+    fun `export and import round trip replaces a node from edited text`() {
+        val exported = call("export_subtree", """{"targetNodePath":"Plan / Shoppers / Open cart"}""").path("xml").asText()
+        assertTrue(exported.contains("/cart/42"), exported)
+        val edited = json.createObjectNode()
+            .put("xml", exported.replace("/cart/42", "/cart/99").replace("Open cart", "Open other cart"))
+            .put("replaceNodeId", call("find_open_plan_nodes", """{"name":"Open cart"}""").path("matches")[0].path("nodeId").asText())
+        val imported = json.valueToTree<JsonNode>(BreakTestAgentGuiService.handleTool("import_subtree", edited))
+        assertTrue(imported.path("replaced").asBoolean())
+        assertEquals(2, group.childCount)
+        val replacement = group.getChildAt(1) as JMeterTreeNode
+        assertEquals("Open other cart", replacement.testElement.name)
+        assertEquals("/cart/99", replacement.testElement.getPropertyAsString("endpoint"))
+    }
+
+    @Test
+    fun `raw property paths reach nested elements and raw read shows them`() {
+        (group.testElement as ThreadGroup).setSamplerController(org.apache.jmeter.control.LoopController().apply { loops = 1 })
+        call(
+            "configure_element_open_plan",
+            """{"targetNodePath":"Plan / Shoppers","rawProperties":{"ThreadGroup.main_controller/LoopController.loops":"7"}}""",
+        )
+        val raw = call("get_element_open_plan", """{"targetNodePath":"Plan / Shoppers","raw":true}""").path("rawProperties")
+        assertEquals("7", raw.path("ThreadGroup.main_controller").path("LoopController.loops").asText())
+        call(
+            "configure_element_open_plan",
+            """{"targetNodePath":"Plan / Shoppers / Variables","rawProperties":{"Arguments.arguments/0/Argument.value":"other.example"}}""",
+        )
+        assertEquals("other.example", (variables.testElement as Arguments).getArgument(0).value)
+    }
+
+    @Test
+    fun `batch returns brief edit results unless full detail is asked`() {
+        val steps = """[{"tool":"set_enabled_open_plan","arguments":{"targetNodePath":"Plan / Shoppers / Open cart","enabled":false}},
+            {"tool":"get_plan_outline"}]"""
+        val brief = call("batch_open_plan", """{"steps":$steps}""").path("results")
+        assertEquals(setOf("nodeId", "nodePath"), brief[0].path("result").fieldNames().asSequence().toSet())
+        assertTrue(brief[1].path("result").has("outline"), "read steps keep their result")
+        val full = call("batch_open_plan", """{"detail":"full","steps":$steps}""").path("results")
+        assertTrue(full[0].path("result").has("changed"))
+    }
+
+    @Test
+    fun `permission setting blocks edits and runs but not reads`() {
+        org.apache.jmeter.util.JMeterUtils.setProperty("breaktest.agent.permissions", "read")
+        try {
+            BreakTestAgentGuiService.handleToolInProcess("get_plan_outline", json.createObjectNode())
+            val edit = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+                BreakTestAgentGuiService.handleToolInProcess(
+                    "set_enabled_open_plan", json.readTree("""{"targetNodePath":"Plan / Shoppers","enabled":false}"""),
+                )
+            }
+            assertTrue(edit.message!!.contains("needs 'edit'"), edit.message)
+            val batch = json.valueToTree<JsonNode>(
+                BreakTestAgentGuiService.handleToolInProcess(
+                    "batch_open_plan",
+                    json.readTree("""{"steps":[{"tool":"set_enabled_open_plan","arguments":{"targetNodePath":"Plan / Shoppers","enabled":false}}]}"""),
+                ),
+            )
+            assertEquals(1, batch.path("failed").asInt())
+            assertTrue(group.isEnabled)
+            org.apache.jmeter.util.JMeterUtils.setProperty("breaktest.agent.permissions", "edit")
+            org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+                BreakTestAgentGuiService.handleToolInProcess("start_test", json.createObjectNode())
+            }
+        } finally {
+            org.apache.jmeter.util.JMeterUtils.getJMeterProperties().remove("breaktest.agent.permissions")
+        }
+    }
+
+    @Test
+    fun `scenario can be added enabled and variables are listed with their node`() {
+        val added = call("add_scenario", """{"name":"Peak","enable":true}""")
+        assertTrue(added.path("enabled").asBoolean())
+        val listed = call("list_variables").path("variables").asText()
+        assertTrue(Regex("""host <- n\d+ Arguments Variables""").containsMatchIn(listed), listed)
+    }
+
+    @Test
+    fun `run statistics report counts errors and percentiles per label`() {
+        org.apache.jmeter.ai.AgentRunStats.reset()
+        repeat(100) { index ->
+            val result = org.apache.jmeter.samplers.SampleResult(1000L + index, (index + 1).toLong())
+            result.sampleLabel = "home"
+            result.isSuccessful = index % 10 != 0
+            result.responseCode = if (result.isSuccessful) "200" else "500"
+            org.apache.jmeter.ai.AgentRunStats.record(result, false)
+        }
+        val report = json.valueToTree<JsonNode>(org.apache.jmeter.ai.AgentRunStats.snapshot(10, 2))
+        assertEquals(100, report.path("samples").asInt())
+        assertEquals(10, report.path("errors").asInt())
+        val cells = report.path("rows").asText().split(" | ")
+        assertEquals(listOf("R", "home", "100", "10"), cells.take(4))
+        assertTrue(cells[5].toLong() in 85..100, "p90 of 1..100 ms, was ${cells[5]}")
+        assertEquals("100", cells[7])
+        assertEquals(2, report.path("errorSamples").size())
+        assertTrue(report.path("errorKinds")[0].asText().startsWith("10 x home | 500"))
     }
 
     @Test

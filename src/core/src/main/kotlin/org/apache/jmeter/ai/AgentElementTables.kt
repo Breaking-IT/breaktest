@@ -36,7 +36,8 @@ internal object AgentElementTables {
 
     private fun rowTypes(element: TestElement): Map<String, String> = when {
         isType(element, WS_CONNECT) || isType(element, HEADER_MANAGER) -> mapOf("headers" to HEADER)
-        isType(element, HTTP_SAMPLER) -> mapOf("arguments" to HTTP_ARGUMENT)
+        // A request owns its headers; they are not a child Header Manager.
+        isType(element, HTTP_SAMPLER) -> mapOf("arguments" to HTTP_ARGUMENT, "headers" to HEADER)
         element is Arguments -> mapOf("arguments" to Argument::class.java.name)
         else -> emptyMap()
     }
@@ -51,10 +52,14 @@ internal object AgentElementTables {
     }
 
     /** Current rows of each supported table, reduced to the fields that carry a value. */
-    fun read(element: TestElement): Map<String, List<Map<String, Any?>>> = rowTypes(element).keys.associateWith { rows(element) }
+    fun read(element: TestElement): Map<String, List<Map<String, Any?>>> = rowTypes(element).keys.associateWith { rows(element, it) }
 
-    private fun rows(element: TestElement): List<Map<String, Any?>> {
-        val getter = if (isType(element, WS_CONNECT) || isType(element, HEADER_MANAGER)) "getHeaders" else "getArguments"
+    private fun rows(element: TestElement, table: String): List<Map<String, Any?>> {
+        val getter = when {
+            table == "headers" && isType(element, HTTP_SAMPLER) -> "getNativeHeaders"
+            table == "headers" -> "getHeaders"
+            else -> "getArguments"
+        }
         val container = if (element is Arguments) element else runCatching { element.javaClass.getMethod(getter).invoke(element) }.getOrNull()
         val items: List<Any?> = when (container) {
             is Arguments -> container.iterator().asSequence().map { it.objectValue }.toList()
@@ -80,6 +85,8 @@ internal object AgentElementTables {
             require(values.isArray) { "$name must be an array of row objects" }
             val rows = values.map { AgentElementCatalog.configured(newRow(type), it) }
             when {
+                name == "headers" && isType(element, HTTP_SAMPLER) ->
+                    element.javaClass.getMethod("setNativeHeaders", List::class.java).invoke(element, rows)
                 isType(element, WS_CONNECT) -> element.javaClass.getMethod("setHeaders", List::class.java).invoke(element, rows)
                 isType(element, HEADER_MANAGER) -> {
                     val headers = element.javaClass.getMethod("getHeaders").invoke(element) as CollectionProperty

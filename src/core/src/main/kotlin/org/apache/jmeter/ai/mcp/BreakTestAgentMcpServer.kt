@@ -47,6 +47,7 @@ import java.time.Duration
  */
 public object BreakTestAgentMcpServer {
     private const val DEFAULT_DSL_CHARACTER_LIMIT = 80_000
+    private const val CORE_DESCRIPTION_CHARS = 420
 
     // Compact JSON everywhere: tool results are consumed by a model (and echoed
     // verbatim into transcripts by CLI agents such as OpenCode), so pretty-printing
@@ -144,7 +145,19 @@ public object BreakTestAgentMcpServer {
             return all
         }
         return mapper.createObjectNode().apply {
-            putArray("tools").addAll(all.path("tools").filter { it.path("name").asText() in AgentToolSpecs.coreToolNames })
+            putArray("tools").addAll(
+                all.path("tools").filter { it.path("name").asText() in AgentToolSpecs.coreToolNames }.map { tool ->
+                    // The long guidance of the older tools is tuned for scripted repair runs; a
+                    // general client gets the gist and can ask describe_tools for the rest.
+                    val description = tool.path("description").asText()
+                    if (description.length > CORE_DESCRIPTION_CHARS) {
+                        val cut = description.lastIndexOf(". ", CORE_DESCRIPTION_CHARS).takeIf { it > 80 } ?: CORE_DESCRIPTION_CHARS
+                        (tool.deepCopy() as ObjectNode).put("description", description.take(cut + 1) + " (More: describe_tools.)")
+                    } else {
+                        tool
+                    }
+                },
+            )
         }
     }
 
@@ -175,7 +188,7 @@ public object BreakTestAgentMcpServer {
 
     private fun toolsListResult(): ObjectNode = mapper.createObjectNode().apply {
         putArray("tools").apply {
-            for (spec in AgentToolSpecs.guiTools) {
+            for (spec in AgentToolSpecs.allGuiTools + AgentToolSpecs.serverTools) {
                 add(tool(spec.name, spec.description, spec.properties, spec.required))
             }
             add(
@@ -751,13 +764,13 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "add_element_open_plan", "Create a native element with GUI defaults and typed properties. targetNodeId/targetNodePath identifies its parent; omit only to add at the Test Plan root (e.g. the first Thread Group). Uses normal GUI parent rules, backup, undo and change tracking. Returns compact confirmation by default without echoing payloads or scripts; compact=false returns the full element schema. Returned nodeId can parent the next element. Build hierarchy before validation; do not run placeholders.",
-                    mapOf("elementId" to "string", "name" to "string", "targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "rawProperties" to "object", "compact" to "boolean"), listOf("elementId")
+                    mapOf("elementId" to "string", "name" to "string", "targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "rawProperties" to "object", "rawLists" to "object", "compact" to "boolean"), listOf("elementId")
                 )
             )
             add(
                 tool(
-                    "configure_element_open_plan", "Configure an existing element using the property and table schemas from describe_element. All setters are validated on a clone before applying; supports enums, text, booleans, integers and expressions when a string setter exists. Includes undo/change tracking. rawProperties sets stored property keys (as shown by get_element_open_plan raw=true) for settings the schema does not expose. Returns compact confirmation by default; compact=false returns the full element schema.",
-                    mapOf("targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "rawProperties" to "object", "compact" to "boolean"), emptyList()
+                    "configure_element_open_plan", "Configure an existing element using the property and table schemas from describe_element. All setters are validated on a clone before applying; supports enums, text, booleans, integers and expressions when a string setter exists. Includes undo/change tracking. rawProperties sets stored property keys (as shown by get_element_open_plan raw=true) for settings the schema does not expose; a/b reaches into a nested element and list/0/key into a row. rawLists replaces the rows of a stored list: text rows, or objects of stored keys with testclass naming the row class. Returns compact confirmation by default; compact=false returns the full element schema.",
+                    mapOf("targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "rawProperties" to "object", "rawLists" to "object", "compact" to "boolean"), emptyList()
                 )
             )
             add(
@@ -1020,6 +1033,9 @@ public object BreakTestAgentMcpServer {
             when (name) {
                 in AgentToolSpecs.guiToolNames -> callGuiTool(name, arguments)
                 "describe_tools" -> describeTools(arguments)
+                "list_instances" -> listInstances()
+                "select_instance" -> selectInstance(arguments)
+                "open_plan_headless" -> openPlanHeadless(arguments)
                 "gui_status" -> callGuiTool("status", arguments)
                 "refresh_open_plan_from_file" -> callGuiTool("refresh_open_plan_from_file", arguments)
                 "restore_open_plan_from_backup" -> callGuiTool("restore_open_plan_from_backup", arguments)
@@ -1163,6 +1179,9 @@ public object BreakTestAgentMcpServer {
             "add_websocket_match_open_plan",
             "update_websocket_open_plan",
             "describe_tools",
+            "list_instances",
+            "select_instance",
+            "open_plan_headless",
         ) && this !in AgentToolSpecs.guiToolNames
 
     /**
@@ -1291,8 +1310,57 @@ public object BreakTestAgentMcpServer {
         return left to right
     }
 
+    /** The BreakTest window chosen with select_instance; otherwise the most recently active one. */
+    @Volatile
+    private var selectedDescriptor: File? = null
+
+    private fun instanceDescriptors(): List<File> =
+        BreakTestAgentGuiService.instanceDescriptorDirectory()
+            .listFiles { file -> file.name.startsWith(BreakTestAgentGuiService.instanceDescriptorPrefix()) && file.name.endsWith(".json") }
+            .orEmpty()
+            .filter { file ->
+                val pid = runCatching { mapper.readTree(file).path("pid").asLong() }.getOrDefault(0)
+                // A window that crashed leaves its descriptor behind.
+                (pid > 0 && ProcessHandle.of(pid).isPresent).also { alive -> if (!alive) file.delete() }
+            }
+
+    private fun listInstances(): Any = mapOf(
+        "instances" to instanceDescriptors().map { file ->
+            val status = runCatching { callGuiTool("status", mapper.createObjectNode(), file) as JsonNode }.getOrNull()
+            mapOf(
+                "pid" to mapper.readTree(file).path("pid").asLong(),
+                "testPlanFile" to status?.path("testPlanFile")?.takeIf { !it.isNull }?.asText(),
+                "dirty" to status?.path("dirty")?.asBoolean(),
+                "selected" to (file == selectedDescriptor),
+                "reachable" to (status != null),
+            )
+        },
+        "guidance" to "Without select_instance, calls go to the window that most recently started or used its AI action.",
+    )
+
+    private fun selectInstance(arguments: JsonNode): Any {
+        val pid = arguments.path("pid").asLong()
+        val file = instanceDescriptors().firstOrNull { mapper.readTree(it).path("pid").asLong() == pid }
+            ?: throw IllegalArgumentException("No running BreakTest window with process id $pid; see list_instances")
+        selectedDescriptor = file
+        return mapOf("selected" to pid, "status" to callGuiTool("status", mapper.createObjectNode(), file))
+    }
+
+    private fun openPlanHeadless(arguments: JsonNode): Any {
+        val file = File(arguments.requiredText("path")).absoluteFile
+        require(file.isFile) { "No such file: ${file.path}" }
+        val nodeCount = org.apache.jmeter.ai.gui.AgentHeadlessPlan.open(file)
+        return mapOf("opened" to true, "path" to file.path, "nodeCount" to nodeCount, "mode" to "headless")
+    }
+
     private fun callGuiTool(name: String, arguments: JsonNode): Any {
-        val descriptor = BreakTestAgentGuiService.descriptorFile()
+        if (org.apache.jmeter.ai.gui.AgentHeadlessPlan.isOpen()) {
+            return mapper.valueToTree<JsonNode>(BreakTestAgentGuiService.handleToolInProcess(name, arguments))
+        }
+        return callGuiTool(name, arguments, selectedDescriptor ?: BreakTestAgentGuiService.descriptorFile())
+    }
+
+    private fun callGuiTool(name: String, arguments: JsonNode, descriptor: File): Any {
         require(descriptor.isFile) {
             "BreakTest GUI agent is not running. Start BreakTest GUI from this build first, or check that breaktest.agent.enabled was not set to false."
         }
@@ -1316,7 +1384,11 @@ public object BreakTestAgentMcpServer {
         if (!node.path("ok").asBoolean(false)) {
             throw IllegalStateException(node.path("error").asText("BreakTest GUI agent request failed"))
         }
-        return node.path("result")
+        val result = node.path("result")
+        if (node.path("planChangedOutside").asBoolean(false) && result is ObjectNode) {
+            result.put("planChangedSinceLastCall", true)
+        }
+        return result
     }
 
     private fun callGuiAgent(

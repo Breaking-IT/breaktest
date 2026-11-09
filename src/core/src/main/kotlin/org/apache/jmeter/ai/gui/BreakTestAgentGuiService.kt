@@ -25,7 +25,9 @@ import org.apache.jmeter.ai.AgentLiteralIndex
 import org.apache.jmeter.ai.AgentRegexSupport
 import org.apache.jmeter.ai.AgentReportCompactor
 import org.apache.jmeter.ai.AgentRunOptions
+import org.apache.jmeter.ai.AgentRunStats
 import org.apache.jmeter.ai.AgentSampleSummary
+import org.apache.jmeter.ai.AgentToolSpecs
 import org.apache.jmeter.ai.AgentWebSocketSupport
 import org.apache.jmeter.ai.BreakTestAgent
 import org.apache.jmeter.ai.edit.BoundaryCorrelationRequest
@@ -197,6 +199,7 @@ public object BreakTestAgentGuiService {
             return
         }
         closeListeners()
+        AgentRunStats.setEnabled(true)
         val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
         val unixServer = openUnixServer()
         val serviceToken = UUID.randomUUID().toString()
@@ -292,7 +295,9 @@ public object BreakTestAgentGuiService {
                 postActivity("started", "MCP tool `$tool` started", details = "args#$argumentDigest")
             }
             val argumentBytes = jsonByteSize(arguments)
-            val result = handleTool(tool, arguments)
+            val changedOutside = planChangedSinceLastCall()
+            val result = handleToolInProcess(tool, arguments)
+            rememberPlanRevision()
             val resultBytes = jsonByteSize(result)
             if (tool != "agent_activity") {
                 val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
@@ -303,8 +308,9 @@ public object BreakTestAgentGuiService {
                         "result=${resultBytes.toHumanBytes()}",
                 )
             }
-            mapOf("ok" to true, "result" to result)
+            mapOf("ok" to true, "result" to result, "planChangedOutside" to changedOutside)
         } catch (e: Exception) {
+            rememberPlanRevision()
             log.warn("BreakTest Agent GUI tool '{}' failed", tool, e)
             if (tool != "unknown" && tool != "agent_activity") {
                 postActivity("failed", "MCP tool `$tool` failed: ${e.message ?: e}")
@@ -312,6 +318,59 @@ public object BreakTestAgentGuiService {
             mapOf("ok" to false, "error" to (e.message ?: e.toString()))
         }
         return mapper.writeValueAsString(response)
+    }
+
+    /** What an agent may do: `read`, `edit` (also validation runs) or `run` (also real test runs, the default). */
+    private fun permittedTier(): Int =
+        when (JMeterUtils.getPropDefault("breaktest.agent.permissions", "run").trim().lowercase()) {
+            "read" -> AgentToolSpecs.TIER_READ
+            "edit" -> AgentToolSpecs.TIER_EDIT
+            else -> AgentToolSpecs.TIER_RUN
+        }
+
+    internal fun requirePermitted(tool: String) {
+        val needed = AgentToolSpecs.tier(tool)
+        require(needed <= permittedTier()) {
+            "Tool '$tool' is not allowed: BreakTest is set to breaktest.agent.permissions=" +
+                JMeterUtils.getPropDefault("breaktest.agent.permissions", "run") +
+                ", and this tool needs '${AgentToolSpecs.tierName(needed)}'"
+        }
+    }
+
+    /** Entry point for every tool call, also used when the plan is open without a GUI window. */
+    @JvmStatic
+    public fun handleToolInProcess(tool: String, arguments: JsonNode): Any {
+        requirePermitted(tool)
+        return handleTool(tool, arguments)
+    }
+
+    private val planRevision = java.util.concurrent.atomic.AtomicLong()
+    private var observedModel: org.apache.jmeter.gui.tree.JMeterTreeModel? = null
+    private var revisionAfterLastCall = -1L
+    private val revisionListener = object : javax.swing.event.TreeModelListener {
+        override fun treeNodesChanged(e: javax.swing.event.TreeModelEvent?) { planRevision.incrementAndGet() }
+        override fun treeNodesInserted(e: javax.swing.event.TreeModelEvent?) { planRevision.incrementAndGet() }
+        override fun treeNodesRemoved(e: javax.swing.event.TreeModelEvent?) { planRevision.incrementAndGet() }
+        override fun treeStructureChanged(e: javax.swing.event.TreeModelEvent?) { planRevision.incrementAndGet() }
+    }
+
+    @Synchronized
+    private fun currentPlanRevision(): Long {
+        val model = GuiPackage.getInstance()?.treeModel
+        if (model != null && model !== observedModel) {
+            observedModel?.removeTreeModelListener(revisionListener)
+            model.addTreeModelListener(revisionListener)
+            observedModel = model
+        }
+        return planRevision.get()
+    }
+
+    /** True when the tree changed between two agent calls, so the agent's picture of the plan is stale. */
+    private fun planChangedSinceLastCall(): Boolean =
+        currentPlanRevision().let { revisionAfterLastCall != -1L && it != revisionAfterLastCall }
+
+    private fun rememberPlanRevision() {
+        revisionAfterLastCall = currentPlanRevision()
     }
 
     // Tests reach these by their plain JVM names.
@@ -2811,18 +2870,74 @@ public object BreakTestAgentGuiService {
      * Escape hatch for settings the typed schema does not expose: writes stored property keys
      * directly. Only scalar values, so nested element and collection properties stay intact.
      */
+    /**
+     * Replaces the rows of a stored list the table tools do not know. Text rows make a list of
+     * strings; object rows become elements of the class named by `testclass` (or of the class of
+     * the list's first existing row), with the other keys as their stored properties.
+     */
+    private fun applyRawLists(element: TestElement, arguments: JsonNode) {
+        val lists = arguments.path("rawLists").takeIfPresent() ?: return
+        require(lists.isObject) { "rawLists must be an object of list key to array of rows" }
+        for ((key, rows) in lists.properties()) {
+            require(rows.isArray) { "rawLists.$key must be an array" }
+            val existing = element.getProperty(key) as? org.apache.jmeter.testelement.property.CollectionProperty
+            val rowClass = existing?.takeIf { it.size() > 0 }?.get(0)?.objectValue?.javaClass
+            val values: List<Any> = rows.map { row ->
+                if (!row.isObject) {
+                    require(row.isValueNode && !row.isNull) { "rawLists.$key rows must be text or objects" }
+                    return@map row.asText()
+                }
+                val type = row.path("testclass").optionalText()?.let { Class.forName(it) } ?: rowClass
+                    ?: throw IllegalArgumentException("rawLists.$key: the list is empty, so each row needs testclass (the row's element class)")
+                require(TestElement::class.java.isAssignableFrom(type)) { "rawLists.$key: ${type.name} is not a test element" }
+                (type.getDeclaredConstructor().newInstance() as TestElement).also { item ->
+                    for ((name, value) in row.properties()) {
+                        if (name == "testclass") continue
+                        require(value.isValueNode && !value.isNull) { "rawLists.$key.$name must be text, a number or a boolean" }
+                        if (value.isBoolean) item.setProperty(name, value.asBoolean()) else item.setProperty(name, value.asText())
+                    }
+                }
+            }
+            element.setProperty(org.apache.jmeter.testelement.property.CollectionProperty(key, values))
+        }
+    }
+
     private fun applyRawProperties(element: TestElement, arguments: JsonNode) {
+        applyRawLists(element, arguments)
         val raw = arguments.path("rawProperties").takeIfPresent() ?: return
         require(raw.isObject) { "rawProperties must be an object of property key to scalar value" }
-        for ((key, value) in raw.properties()) {
-            require(value.isValueNode && !value.isNull) { "rawProperties.$key must be text, a number or a boolean" }
-            val existing = element.getProperty(key)
+        for ((path, value) in raw.properties()) {
+            require(value.isValueNode && !value.isNull) { "rawProperties.$path must be text, a number or a boolean" }
+            // "outer/inner" walks into a nested element; a number picks a row of a collection.
+            val segments = path.split('/').filter { it.isNotEmpty() }
+            var owner: TestElement = element
+            var index = 0
+            while (index < segments.size - 1) {
+                val nested = owner.getProperty(segments[index])
+                owner = when {
+                    nested is TestElementProperty && nested.objectValue is TestElement -> nested.objectValue as TestElement
+                    nested is org.apache.jmeter.testelement.property.CollectionProperty -> {
+                        val row = segments.getOrNull(index + 1)?.toIntOrNull()
+                            ?: throw IllegalArgumentException("rawProperties.$path: '${segments[index]}' is a list; follow it with a row number")
+                        require(row in 0 until nested.size() && index + 2 < segments.size) {
+                            "rawProperties.$path: '${segments[index]}' has ${nested.size()} rows and needs a property after the row number"
+                        }
+                        index++
+                        nested.get(row).objectValue as? TestElement
+                            ?: throw IllegalArgumentException("rawProperties.$path: row $row is not an element")
+                    }
+                    else -> throw IllegalArgumentException("rawProperties.$path: '${segments[index]}' is not a nested element")
+                }
+                index++
+            }
+            val key = segments.last()
+            val existing = owner.getProperty(key)
             require(existing !is MultiProperty && existing !is TestElementProperty && existing !is ObjectProperty) {
-                "rawProperties.$key is a nested property; use properties, tables or a dedicated tool"
+                "rawProperties.$path is a nested property; address a property inside it, e.g. $path/<key>"
             }
             when {
-                value.isBoolean -> element.setProperty(key, value.asBoolean())
-                else -> element.setProperty(key, value.asText())
+                value.isBoolean -> owner.setProperty(key, value.asBoolean())
+                else -> owner.setProperty(key, value.asText())
             }
         }
     }
@@ -3339,7 +3454,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun insertDetachedSubTree(gui: GuiPackage, parent: JMeterTreeNode, tree: HashTree) {
+    internal fun insertDetachedSubTree(gui: GuiPackage, parent: JMeterTreeNode, tree: HashTree) {
         for (element in tree.list()) {
             if (element !is TestElement) {
                 continue
@@ -3456,7 +3571,8 @@ public object BreakTestAgentGuiService {
         transaction.setFixedDelay(delay.fixed)
     }
 
-    private fun removeTreeNode(gui: GuiPackage, node: JMeterTreeNode) {
+    @JvmName("removeTreeNode")
+    internal fun removeTreeNode(gui: GuiPackage, node: JMeterTreeNode) {
         val nodes = mutableListOf<JMeterTreeNode>()
         val elements = mutableListOf<TestElement>()
         fun collect(current: JMeterTreeNode) {
@@ -5454,7 +5570,7 @@ public object BreakTestAgentGuiService {
             convertTree(gui.treeModel.testPlan)
         }
 
-    private fun convertTree(tree: HashTree): HashTree {
+    internal fun convertTree(tree: HashTree): HashTree {
         val converted = ListedHashTree()
         for (node in tree.list()) {
             val key = if (node is JMeterTreeNode) node.testElement else node
@@ -5719,16 +5835,31 @@ public object BreakTestAgentGuiService {
         val descriptor = descriptorFile()
         descriptor.parentFile.mkdirs()
         writeDescriptorTo(descriptor, port, socketFile, serviceToken)
+        runCatching {
+            val own = File(instanceDescriptorDirectory(), instanceDescriptorPrefix() + ProcessHandle.current().pid() + ".json")
+            writeDescriptorTo(own, port, socketFile, serviceToken)
+            own.deleteOnExit()
+        }
     }
 
     private fun writeDescriptorTo(descriptor: File, port: Int, socketFile: File?, serviceToken: String) {
         descriptor.writeText(
             mapper.writeValueAsString(
-                mapOf("host" to "127.0.0.1", "port" to port, "socketPath" to socketFile?.path, "token" to serviceToken)
+                mapOf(
+                    "host" to "127.0.0.1", "port" to port, "socketPath" to socketFile?.path, "token" to serviceToken,
+                    "pid" to ProcessHandle.current().pid(),
+                )
             ),
             Charsets.UTF_8,
         )
     }
+
+    /** One descriptor per running GUI, so a client can list the instances and pick one. */
+    @JvmStatic
+    public fun instanceDescriptorDirectory(): File = File(System.getProperty("java.io.tmpdir"))
+
+    @JvmStatic
+    public fun instanceDescriptorPrefix(): String = "breaktest-agent-${System.getProperty("user.name")}-instance-"
 
     /** Pin a launched agent to this GUI even when another GUI republishes the shared descriptor. */
     @JvmStatic

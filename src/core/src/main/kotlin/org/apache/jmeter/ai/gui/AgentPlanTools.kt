@@ -25,17 +25,22 @@ import org.apache.jmeter.JMeter
 import org.apache.jmeter.ai.AgentElementCatalog
 import org.apache.jmeter.ai.AgentElementTables
 import org.apache.jmeter.ai.AgentStaticAssetClassifier
+import org.apache.jmeter.ai.AgentToolSpecs
 import org.apache.jmeter.gui.GuiPackage
 import org.apache.jmeter.gui.action.ActionNames
 import org.apache.jmeter.gui.action.ActionRouter
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.samplers.Sampler
+import org.apache.jmeter.save.SaveService
 import org.apache.jmeter.scenario.Scenario
 import org.apache.jmeter.scenario.ScenarioException
 import org.apache.jmeter.scenario.ScenarioResolver
 import org.apache.jmeter.scenario.ScenarioWorkload
 import org.apache.jmeter.scenario.gui.ScenarioGui
 import org.apache.jmeter.testelement.TestElement
+import org.apache.jmeter.testelement.property.CollectionProperty
+import org.apache.jmeter.testelement.property.JMeterProperty
+import org.apache.jmeter.testelement.property.TestElementProperty
 import org.apache.jmeter.threads.AbstractThreadGroup
 import org.apache.jmeter.threads.JMeterContextService
 import org.apache.jmeter.util.JMeterUtils
@@ -56,6 +61,7 @@ internal object AgentPlanTools {
     private const val MAX_BATCH_STEPS = 100
     private const val MAX_PROPERTY_CHARS = 4000
     private const val MAX_RAW_PROPERTY_CHARS = 2000
+    private const val MAX_RAW_DEPTH = 4
     private const val SAVE_WAIT_MILLIS = 15_000L
     private const val START_WAIT_MILLIS = 3_000L
     private val REFERENCE = Regex("""^@([A-Za-z_][A-Za-z0-9_]*)((?:\.[A-Za-z0-9_]+)*)$""")
@@ -73,10 +79,10 @@ internal object AgentPlanTools {
         "set_scenario_workload" -> setScenarioWorkload(arguments)
         "batch_open_plan" -> batch(arguments)
         "save_open_plan" -> save(arguments)
-        "start_test" -> startTest()
+        "start_test" -> startTest(arguments)
         "stop_test" -> stopTest(arguments)
         "test_status" -> testStatus()
-        else -> null
+        else -> AgentWorkbenchTools.handle(tool, arguments)
     }
 
     private fun gui(): GuiPackage = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
@@ -188,11 +194,23 @@ internal object AgentPlanTools {
         (element as? Scenario)?.let { result["workloads"] = workloadRows(gui, it) }
         children(node).takeIf { it.isNotEmpty() }?.let { kids -> result["children"] = kids.map(::summaryLine) }
         if (arguments.path("raw").asBoolean(false)) {
-            result["rawProperties"] = element.propertyIterator().asSequence().associate { property ->
-                property.name to property.stringValue.let { if (it.length > MAX_RAW_PROPERTY_CHARS) it.take(MAX_RAW_PROPERTY_CHARS) + "..." else it }
-            }
+            result["rawProperties"] = rawProperties(element, 0)
         }
         result
+    }
+
+    /** Stored properties as they are saved; nested elements and lists keep their shape so paths can address them. */
+    private fun rawProperties(element: TestElement, depth: Int): Map<String, Any?> =
+        element.propertyIterator().asSequence().associate { it.name to rawValue(it, depth) }
+
+    private fun rawValue(property: JMeterProperty, depth: Int): Any? = when {
+        depth >= MAX_RAW_DEPTH -> "..."
+        property is TestElementProperty && property.objectValue is TestElement ->
+            rawProperties(property.objectValue as TestElement, depth + 1)
+        property is CollectionProperty -> property.iterator().asSequence().map { row ->
+            (row.objectValue as? TestElement)?.let { rawProperties(it, depth + 1) } ?: rawValue(row, depth + 1)
+        }.toList()
+        else -> property.stringValue.let { if (it.length > MAX_RAW_PROPERTY_CHARS) it.take(MAX_RAW_PROPERTY_CHARS) + "..." else it }
     }
 
     private fun describedValues(element: TestElement): Map<String, Any?> =
@@ -238,6 +256,15 @@ internal object AgentPlanTools {
                 "rampUpSeconds" to workload.rampUp,
                 "durationSeconds" to workload.duration,
                 "loops" to workload.loops,
+                "delaySeconds" to workload.delay.takeIf { workload.isDelayedStart },
+                "schedule" to (if (workload.model == "Open") workload.openSchedule else workload.closedSchedule),
+                "pacing" to when (workload.pacingMode) {
+                    AbstractThreadGroup.PACING_FIXED -> "${workload.fixedPacing} ms"
+                    AbstractThreadGroup.PACING_RANDOM, AbstractThreadGroup.PACING_GAUSSIAN_RANDOM ->
+                        "${workload.pacingMin}-${workload.pacingMax} ms"
+                    else -> null
+                },
+                "profile" to workload.profile,
             ).filterValues { it != null && it != "" }
         }
     }
@@ -279,6 +306,23 @@ internal object AgentPlanTools {
                 arguments.path("durationSeconds").present()?.let { workload.setDuration(it.asText()) }
                 arguments.path("loops").text()?.let(workload::setLoops)
                 arguments.path("enabled").present()?.let { workload.isEnabled = it.asBoolean() }
+                arguments.path("model").text()?.let { workload.model = if (it.equals("open", ignoreCase = true)) "Open" else "Closed" }
+                arguments.path("delaySeconds").present()?.let {
+                    workload.delay = it.asText()
+                    workload.isDelayedStart = it.asText().isNotBlank() && it.asText() != "0"
+                }
+                arguments.path("closedSchedule").present()?.let { workload.closedSchedule = it.asText() }
+                arguments.path("openSchedule").present()?.let { workload.openSchedule = it.asText() }
+                arguments.path("openMaxThreads").text()?.let(workload::setOpenMaxThreads)
+                arguments.path("profile").present()?.let { workload.profile = it.asText() }
+                val pacingMin = arguments.path("pacingMinMillis").text()
+                val pacingMax = arguments.path("pacingMaxMillis").text()
+                val pacing = arguments.path("pacingMillis").text()
+                when {
+                    pacingMin != null && pacingMax != null -> workload.setRandomPacing(pacingMin, pacingMax, false)
+                    pacing == "0" -> workload.disablePacing()
+                    pacing != null -> workload.setFixedPacing(pacing)
+                }
             }
             scenario.setWorkloads(workloads)
             service.markEdited(gui, scenarioNode)
@@ -298,6 +342,7 @@ internal object AgentPlanTools {
         require(steps.isArray && steps.size() > 0) { "steps must be a non-empty array of {tool, arguments, as}" }
         require(steps.size() <= MAX_BATCH_STEPS) { "A batch takes at most $MAX_BATCH_STEPS steps" }
         val stopOnError = arguments.path("stopOnError").asBoolean(true)
+        val brief = !arguments.path("detail").asText("brief").equals("full", ignoreCase = true)
         val references = HashMap<String, JsonNode>()
         val results = mutableListOf<Map<String, Any?>>()
         var failed = 0
@@ -308,14 +353,13 @@ internal object AgentPlanTools {
                 require(requested.isNotBlank()) { "Step $index has no tool" }
                 require(requested != "batch_open_plan") { "A batch cannot contain another batch" }
                 val stepArguments = resolve(step.path("arguments").present() ?: mapper.createObjectNode(), references)
-                val result = mapper.valueToTree<JsonNode>(
-                    service.handleTool(BATCH_ALIASES[requested] ?: requested, stepArguments),
-                )
+                val tool = BATCH_ALIASES[requested] ?: requested
+                val result = mapper.valueToTree<JsonNode>(service.handleToolInProcess(tool, stepArguments))
                 step.path("as").text()?.let { name ->
                     references[name] = result
                     entry["as"] = name
                 }
-                entry["result"] = result
+                entry["result"] = if (brief && AgentToolSpecs.tier(tool) != AgentToolSpecs.TIER_READ) briefResult(result) else result
             } catch (e: Exception) {
                 failed++
                 entry["error"] = e.message ?: e.toString()
@@ -332,6 +376,16 @@ internal object AgentPlanTools {
             "stoppedEarly" to (results.size < steps.size()),
             "results" to results,
         )
+    }
+
+    /** An edit's confirmation reduced to where it landed; the full result stays available to later steps. */
+    private fun briefResult(result: JsonNode): JsonNode {
+        val id = NODE_ID_FIELDS.firstNotNullOfOrNull { result.path(it).present() } ?: return result
+        val path = listOf("nodePath", "clonedPath", "extractorNodePath").firstNotNullOfOrNull { result.path(it).present() }
+        return mapper.createObjectNode().also { brief ->
+            brief.set<JsonNode>("nodeId", id)
+            path?.let { brief.set<JsonNode>("nodePath", it) }
+        }
     }
 
     /** Replaces whole-string `@name` / `@name.field` values that name an earlier step's result. */
@@ -376,7 +430,13 @@ internal object AgentPlanTools {
                 require(overwrite || !file.exists()) { "${file.path} already exists; pass overwrite=true to replace it" }
                 gui.setTestPlanFile(file.path)
             }
-            ActionRouter.getInstance().doActionNow(ActionEvent(this, ActionEvent.ACTION_PERFORMED, ActionNames.SAVE))
+            if (AgentHeadlessPlan.isOpen()) {
+                // No window, so no Save action: write the tree the way a backup is written.
+                file.outputStream().use { SaveService.saveTree(service.convertTree(gui.treeModel.testPlan), it) }
+                gui.setDirty(false)
+            } else {
+                ActionRouter.getInstance().doActionNow(ActionEvent(this, ActionEvent.ACTION_PERFORMED, ActionNames.SAVE))
+            }
             file
         }
         // A save from the GUI thread finishes in the background.
@@ -389,15 +449,22 @@ internal object AgentPlanTools {
         return mapOf("saved" to (target.exists() && !dirty), "path" to target.path, "dirty" to dirty)
     }
 
-    private fun startTest(): Map<String, Any?> {
+    private fun startTest(arguments: JsonNode): Map<String, Any?> {
         service.guiCall {
             val gui = gui()
+            val scenarioNode = if (arguments.path("scenarioNodeId").text() != null || arguments.path("scenarioNodePath").text() != null) {
+                service.selectNodeReference(gui, arguments, "scenario", "scenario")
+                    .also { require(it.testElement is Scenario) { "'${it.testElement.name}' is not a scenario" } }
+            } else {
+                null
+            }
             require(!JMeterUtils.isTestRunning()) { "A test is already running; see test_status" }
             // BreakTest reports these two in dialogs, which would leave this call waiting on the user.
             require(gui.testPlanFile != null) { "Save the plan first with save_open_plan; a run needs a saved plan" }
             gui.updateCurrentNode()
             try {
-                ScenarioResolver.resolve(JMeter.convertSubTree(gui.treeModel.testPlan, false))
+                val plan = JMeter.convertSubTree(gui.treeModel.testPlan, false)
+                if (scenarioNode != null) ScenarioResolver.resolve(plan, scenarioNode.testElement as Scenario) else ScenarioResolver.resolve(plan)
             } catch (e: ScenarioException) {
                 throw IllegalStateException("The test cannot start: ${e.message}", e)
             }
@@ -413,7 +480,12 @@ internal object AgentPlanTools {
                 )
                 require(answer == JOptionPane.YES_OPTION) { "The user declined to start the test" }
             }
-            ActionRouter.getInstance().doActionNow(ActionEvent(this, ActionEvent.ACTION_PERFORMED, ActionNames.ACTION_START))
+            if (scenarioNode != null) {
+                // "Run scenario" acts on the selected node.
+                gui.treeListener.setSelectionPathWithoutEdit(javax.swing.tree.TreePath(scenarioNode.path))
+            }
+            val command = if (scenarioNode != null) ActionNames.RUN_SCENARIO else ActionNames.ACTION_START
+            ActionRouter.getInstance().doActionNow(ActionEvent(this, ActionEvent.ACTION_PERFORMED, command))
         }
         val deadline = System.currentTimeMillis() + START_WAIT_MILLIS
         while (!JMeterUtils.isTestRunning() && System.currentTimeMillis() < deadline) {

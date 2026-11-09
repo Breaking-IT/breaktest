@@ -63,12 +63,17 @@ public object AgentToolSpecs {
             "Add or change the load a scenario gives one Thread Group: threads (virtual users), " +
                 "rampUpSeconds, durationSeconds (empty text removes the time limit) and loops. A real " +
                 "run only includes Thread Groups that have a workload in the enabled scenario. " +
+                "model is Closed or Open (openSchedule, openMaxThreads); pacingMillis sets fixed pacing, " +
+                "pacingMinMillis with pacingMaxMillis random pacing, pacingMillis=0 none. " +
                 "remove=true takes the Thread Group out. Without scenarioNodeId the single enabled " +
                 "scenario is used. get_element_open_plan on a scenario lists its workloads.",
             mapOf(
                 "scenarioNodeId" to "string", "scenarioNodePath" to "string", "threadGroupName" to "string",
                 "threads" to "string", "rampUpSeconds" to "string", "durationSeconds" to "string",
                 "loops" to "string", "enabled" to "boolean", "remove" to "boolean",
+                "model" to "string", "delaySeconds" to "string", "closedSchedule" to "string",
+                "openSchedule" to "string", "openMaxThreads" to "string", "pacingMillis" to "string",
+                "pacingMinMillis" to "string", "pacingMaxMillis" to "string", "profile" to "string",
             ),
             listOf("threadGroupName"),
         ),
@@ -78,8 +83,9 @@ public object AgentToolSpecs {
                 "A later step can use an earlier result: the whole string \"@name\" becomes that step's " +
                 "node id and \"@name.field\" a field of its result. Stops at the first failing step " +
                 "unless stopOnError=false; steps already applied stay applied and remain undoable. " +
-                "Use this for every multi-step edit instead of one call per node.",
-            mapOf("steps" to "array[object]", "stopOnError" to "boolean"),
+                "Edit steps return only their node id and path (detail=full returns everything); read " +
+                "steps return their full result. Use this for every multi-step edit instead of one call per node.",
+            mapOf("steps" to "array[object]", "stopOnError" to "boolean", "detail" to "string"),
             listOf("steps"),
         ),
         Spec(
@@ -92,7 +98,9 @@ public object AgentToolSpecs {
             "start_test",
             "Start the open plan as a real test run with its configured load. The user is asked to " +
                 "confirm in the GUI unless confirmation is switched off there. Use validate_open_plan " +
-                "to check a script; use this only when asked to run the test.",
+                "to check a script; use this only when asked to run the test. scenarioNodeId runs that " +
+                "scenario instead of the enabled one. Follow the run with test_results.",
+            mapOf("scenarioNodeId" to "string", "scenarioNodePath" to "string"),
         ),
         Spec(
             "stop_test",
@@ -107,14 +115,153 @@ public object AgentToolSpecs {
         ),
     )
 
-    /** Names of [guiTools]. */
-    public val guiToolNames: Set<String> = guiTools.mapTo(LinkedHashSet()) { it.name }
+    private val moreGuiTools: List<Spec> = listOf(
+        Spec(
+            "test_results",
+            "Results of the current or last run: totals, one row per request and transaction (count, " +
+                "errors, average, p90, p95, max, rate), the most frequent error kinds and the first " +
+                "failing samples with response head. Percentiles are approximate.",
+            mapOf("maxLabels" to "number", "errorSamples" to "number"),
+        ),
+        Spec(
+            "get_log",
+            "Tail of the BreakTest log. level=warn or error keeps only those lines; contains filters by text.",
+            mapOf("lines" to "number", "level" to "string", "contains" to "string"),
+        ),
+        Spec(
+            "add_http_request",
+            "Add an HTTP request from a URL in one step: protocol, host, port, path and query parameters " +
+                "are split out. A URL starting with / or useDefaults=true leaves host and protocol to HTTP " +
+                "Request Defaults. body sets a raw request body; headers sets the request's own headers. " +
+                "targetNodeId/targetNodePath is the parent.",
+            target + mapOf(
+                "url" to "string", "method" to "string", "name" to "string", "body" to "string",
+                "headers" to "object", "useDefaults" to "boolean",
+            ),
+            listOf("url"),
+        ),
+        Spec(
+            "export_subtree",
+            "Return a node and everything under it as JMX XML text, for edits that are easier as text " +
+                "than as many tool calls. Change the text and pass it to import_subtree.",
+            target + mapOf("maxChars" to "number"),
+        ),
+        Spec(
+            "import_subtree",
+            "Insert JMX XML text (from export_subtree, edited or written by hand) into the open plan. " +
+                "replaceNodeId swaps an existing node for it in place; otherwise it is added under " +
+                "targetNodeId/targetNodePath at position first_child or last_child. Undoable.",
+            target + mapOf("xml" to "string", "replaceNodeId" to "string", "position" to "string"),
+            listOf("xml"),
+        ),
+        Spec("undo", "Undo the last change to the open plan. Returns whether more can be undone."),
+        Spec("redo", "Redo the last undone change."),
+        Spec(
+            "select_node",
+            "Select a node in the BreakTest window and scroll to it, to show the user where something is.",
+            target,
+        ),
+        Spec(
+            "open_plan",
+            "Open a .jmx plan in the BreakTest window, replacing the open one. Unsaved changes block " +
+                "this unless discardChanges=true.",
+            mapOf("path" to "string", "discardChanges" to "boolean"),
+            listOf("path"),
+        ),
+        Spec(
+            "new_plan",
+            "Start an empty plan. Unsaved changes block this unless discardChanges=true.",
+            mapOf("discardChanges" to "boolean"),
+        ),
+        Spec(
+            "add_scenario",
+            "Add a scenario. enable=true makes it the enabled scenario and disables the others. Give it " +
+                "load with set_scenario_workload.",
+            mapOf("name" to "string", "enable" to "boolean"),
+            listOf("name"),
+        ),
+        Spec(
+            "add_profile",
+            "Add a profile (a named set of configuration that scenarios and workloads can select). " +
+                "makeDefault=true makes it the default profile.",
+            mapOf("name" to "string", "makeDefault" to "boolean"),
+            listOf("name"),
+        ),
+        Spec(
+            "list_functions",
+            "List the built-in functions usable in any field as \${__name(args)}, with their arguments. " +
+                "query filters by name.",
+            mapOf("query" to "string"),
+        ),
+        Spec(
+            "list_variables",
+            "List the variables the open plan defines (user defined variables, extractors, CSV data, " +
+                "counters) with the node that defines each.",
+        ),
+    )
+
+    /** Tools that the MCP server answers itself, without a running GUI. */
+    public val serverTools: List<Spec> = listOf(
+        Spec(
+            "list_instances",
+            "List the running BreakTest windows with their process id, open plan and unsaved state.",
+        ),
+        Spec(
+            "select_instance",
+            "Send all following calls to the BreakTest window with this process id (from list_instances).",
+            mapOf("pid" to "number"),
+            listOf("pid"),
+        ),
+        Spec(
+            "open_plan_headless",
+            "Open a .jmx plan inside this server, with no BreakTest window, so the plan tools work on a " +
+                "file (for CI or a machine without a display). Following calls act on that plan; " +
+                "save_open_plan writes it back. Real test runs and window actions are not available.",
+            mapOf("path" to "string"),
+            listOf("path"),
+        ),
+    )
+
+    /** Every tool the running GUI executes. */
+    public val allGuiTools: List<Spec> = guiTools + moreGuiTools
+
+    public const val TIER_READ: Int = 0
+    public const val TIER_EDIT: Int = 1
+    public const val TIER_RUN: Int = 2
+    private val readTools = setOf(
+        "status", "gui_status", "test_status", "test_results", "agent_activity", "select_node",
+        "export_subtree", "batch_open_plan", "describe_tools", "describe_element", "select_instance",
+    )
+    private val readPrefixes = listOf("get_", "list_", "find_", "search_", "inspect_", "audit_")
+    private val runTools = setOf("start_test", "stop_test")
+
+    /** The permission a tool needs: reading, editing (including validation runs) or running real load. */
+    public fun tier(tool: String): Int = when {
+        tool in runTools -> TIER_RUN
+        tool in readTools || readPrefixes.any(tool::startsWith) -> TIER_READ
+        else -> TIER_EDIT
+    }
+
+    public fun tierName(tier: Int): String = when (tier) {
+        TIER_READ -> "read"
+        TIER_EDIT -> "edit"
+        else -> "run"
+    }
+
+    /** Names of [allGuiTools]. */
+    public val guiToolNames: Set<String> = allGuiTools.mapTo(LinkedHashSet()) { it.name }
 
     /**
      * The general-purpose set advertised when the MCP server runs with the `core` toolset. Every
      * other tool stays callable and discoverable through `describe_tools`.
      */
-    public val coreToolNames: Set<String> = guiToolNames + setOf(
+    public val coreToolNames: Set<String> = guiTools.mapTo(LinkedHashSet()) { it.name } + setOf(
+        "test_results",
+        "add_http_request",
+        "export_subtree",
+        "import_subtree",
+        "undo",
+        "open_plan",
         "gui_status",
         "describe_tools",
         "find_open_plan_nodes",
@@ -141,6 +288,8 @@ public object AgentToolSpecs {
             "get_element_open_plan to read a node; describe_element before setting properties on a " +
             "new element type; batch_open_plan to apply all edits of a task in one call; " +
             "validate_open_plan (scoped with threadGroupName) to prove the script works; " +
-            "save_open_plan when asked. Address nodes by nodeId. start_test sends real load: only " +
-            "on explicit request. More specialised tools are listed by describe_tools."
+            "save_open_plan when asked. Address nodes by nodeId. A result with " +
+            "planChangedSinceLastCall=true means the user edited the plan: re-read the outline. " +
+            "start_test sends real load: only on explicit request, then test_results. More " +
+            "specialised tools are listed by describe_tools."
 }
