@@ -84,7 +84,10 @@ public object BreakTestAgentMcpServer {
     public fun toolsListForCli(names: List<String>): String {
         require(names.isNotEmpty()) { "Supply at least one tool name" }
         val all = toolsListResult().path("tools").associateBy { it.path("name").asText() }
-        require(names.all { it in all }) { "Unknown tool name in schema request" }
+        val unknown = names.filter { it !in all }
+        require(unknown.isEmpty()) {
+            "Unknown tool name(s) in schema request: ${unknown.joinToString()}. Call tools with no names for the list."
+        }
         return mapper.writeValueAsString(mapOf("tools" to names.distinct().map { all.getValue(it) }))
     }
 

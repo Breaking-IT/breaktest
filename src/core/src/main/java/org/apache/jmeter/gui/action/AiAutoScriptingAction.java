@@ -251,7 +251,9 @@ public class AiAutoScriptingAction extends AbstractAction {
                     postActivity("Initial correlation analysis ready in " + (System.nanoTime() - analysisStarted) / 1_000_000
                             + "ms: " + payloadSize(request.analysisPacket) + ". Sending evidence to the repair agent.");
                 } catch (Exception ex) {
-                    postActivity("Initial correlation analysis unavailable; agent will inspect the selected scope.");
+                    log.warn("Initial correlation analysis failed for {}", request.threadGroupPath(), ex);
+                    postActivity("Initial correlation analysis unavailable (" + ex.getMessage()
+                            + "); agent will inspect the selected scope.");
                 }
             }
             File workingDirectory = aiWorkingDirectory(request.tool());

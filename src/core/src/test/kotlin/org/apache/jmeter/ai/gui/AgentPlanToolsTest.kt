@@ -354,6 +354,19 @@ class AgentPlanToolsTest : JMeterTestCase() {
     }
 
     @Test
+    fun `thread group is found by name visible path and the dialog's full tree path`() {
+        val select = BreakTestAgentGuiService::class.java
+            .getDeclaredMethod("selectThreadGroup", GuiPackage::class.java, String::class.java)
+            .apply { isAccessible = true }
+        // The dialog joins every tree node name, including the hidden root above the plan.
+        val dialogPath = group.path.joinToString(" / ") { (it as JMeterTreeNode).name }
+        assertEquals("Plan / Plan / Shoppers", dialogPath)
+        for (reference in listOf("Shoppers", "Plan / Shoppers", dialogPath)) {
+            assertEquals(group, select.invoke(BreakTestAgentGuiService, GuiPackage.getInstance(), reference), reference)
+        }
+    }
+
+    @Test
     fun `scoped search reports node names rooted at the plan`() {
         val match = call("search_open_plan_values", """{"query":"/cart/42","scopeNodePath":"Plan / Shoppers"}""")
             .path("matches").single()

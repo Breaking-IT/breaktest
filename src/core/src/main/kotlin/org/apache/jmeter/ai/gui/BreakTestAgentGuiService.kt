@@ -5441,12 +5441,19 @@ public object BreakTestAgentGuiService {
 
     private fun selectThreadGroup(gui: GuiPackage, threadGroupName: String?): JMeterTreeNode {
         val matches = mutableListOf<JMeterTreeNode>()
+        // The start dialog names the thread group by its full tree path, hidden root included
+        // ("Test Plan / Test Plan / ..."), which is not the visible path compared below. Without
+        // this the launcher's initial analysis failed and every run began with a blind inspection.
+        val byPath = threadGroupName?.takeIf { " / " in it }
+            ?.let { runCatching { matchingNodesByPath(gui.treeModel.testPlan, it) }.getOrDefault(emptyList()) }
+            .orEmpty()
         fun visit(tree: HashTree) {
             for (node in tree.list()) {
                 if (node is JMeterTreeNode && node.testElement is AbstractThreadGroup && node.isEnabled) {
                     if (threadGroupName.isNullOrBlank() ||
                         node.testElement.name == threadGroupName ||
-                        nodePath(node) == threadGroupName
+                        nodePath(node) == threadGroupName ||
+                        byPath.any { it === node }
                     ) {
                         matches += node
                     }
