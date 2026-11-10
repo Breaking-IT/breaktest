@@ -17,6 +17,9 @@
 
 package org.apache.jmeter.protocol.http.sampler;
 
+import java.net.URL;
+
+import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
 
@@ -80,6 +83,39 @@ public final class HTTPSamplerFactory {
     /** Compatibility preference used only when the script has no saved upgrade choice. */
     private static final boolean PREFER_HTTP3_FOR_DEFAULT =
             JMeterUtils.getPropDefault("httpsampler.http3.prefer_for_default", true); //$NON-NLS-1$
+
+    /**
+     * JMeter property, default true: cleartext ({@code http://}) requests whose HTTP version is
+     * left to negotiation use the HTTP/1.1 implementation instead of the negotiating one. See
+     * {@link #usesHttp11ForCleartext(String, HTTPSamplerBase, URL)}.
+     */
+    static final String CLEARTEXT_HTTP11_IMPL = "httpsampler.cleartext.http11_impl"; //$NON-NLS-1$
+
+    /**
+     * Whether a request to {@code url} should use {@link HTTPHC5Impl} although the sampler
+     * leaves the HTTP version to negotiation. HttpClient5 negotiates HTTP/2 only through TLS
+     * ALPN, so a negotiated cleartext request always speaks HTTP/1.1. The classic HTTP/1.1
+     * client sends it with far fewer thread hand-offs than the async negotiating client, which
+     * runs an I/O reactor per virtual user.
+     *
+     * @param impl the configured implementation name
+     * @param base the sampler
+     * @param url  the URL about to be sampled; redirects and embedded resources may differ
+     *             from the sampler's own protocol
+     * @return true when the HTTP/1.1 implementation should send this request
+     */
+    public static boolean usesHttp11ForCleartext(String impl, HTTPSamplerBase base, URL url) {
+        return usesHttp11ForCleartext(impl, base, url, JMeterUtils.getPropDefault(CLEARTEXT_HTTP11_IMPL, true));
+    }
+
+    // package-private so tests can exercise the opt-out path. The HTTP/3 upgrade preference does
+    // not matter here: HTTP/3 is only reached from an https origin's Alt-Svc advertisement.
+    static boolean usesHttp11ForCleartext(String impl, HTTPSamplerBase base, URL url, boolean enabled) {
+        return enabled
+                && HTTPConstants.PROTOCOL_HTTP.equalsIgnoreCase(url.getProtocol())
+                && StringUtilities.isBlank(base.getHttpProtocol())
+                && (StringUtilities.isBlank(impl) || isKnownImplementation(impl));
+    }
 
     public static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base){
         return getImplementation(impl, base, Http3RuntimeSupport.isHttp3Supported(), PREFER_HTTP3_FOR_DEFAULT);

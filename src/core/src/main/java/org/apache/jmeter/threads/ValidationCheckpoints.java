@@ -45,6 +45,7 @@ import org.apache.jorphan.collections.HashTree;
 
 /** In-memory checkpoints belonging to the most recent GUI validation. Never saved in a JMX. */
 public final class ValidationCheckpoints {
+    private static final String INTERNAL_VARIABLE_PREFIX = "__jmeter."; // $NON-NLS-1$
     private static final String SOURCE_ID = "__breaktest_validation_source_id";
     /** Source sampler id to the latest execution id per thread group source id. */
     private static final Map<String, Map<String, String>> LATEST = new HashMap<>();
@@ -302,7 +303,10 @@ public final class ValidationCheckpoints {
             validateTree(tree, samplerId);
             Map<String, Object> variables = new LinkedHashMap<>();
             for (var entry : context.getVariables().entrySet()) {
-                if (entry.getKey().equals(JMeterThread.PACKAGE_OBJECT)) {
+                // "__jmeter." variables are transport bookkeeping, such as the HTTP/1.1 client's
+                // connection user token: not script state, and rebuilt by the next request.
+                if (entry.getKey().equals(JMeterThread.PACKAGE_OBJECT)
+                        || entry.getKey().startsWith(INTERNAL_VARIABLE_PREFIX)) {
                     continue;
                 }
                 Object value = entry.getValue();

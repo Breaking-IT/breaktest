@@ -341,6 +341,11 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
     }
 
     private static boolean hasHttp3Alternative(URL url) {
+        // Most users never see an advertisement: answer without creating their maps.
+        ConcurrentMap<String, Long> known = ALT_SVC_PER_USER.get(getJMeterThreadCacheKey());
+        if (known == null || known.isEmpty()) {
+            return false;
+        }
         String origin = trustedOrigin(url);
         long now = System.currentTimeMillis();
         // A parallel response can publish an advertisement after failure removed it.
@@ -349,7 +354,7 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         if (broken != null && broken > now) {
             return false;
         }
-        Long expiry = alternatives().get(origin);
+        Long expiry = known.get(origin);
         return expiry != null && expiry > now;
     }
 
@@ -358,10 +363,15 @@ final class HTTPJavaHttp3Impl extends HTTPHCAbstractImpl {
         if (url == null || !"https".equalsIgnoreCase(url.getProtocol())) {
             return;
         }
-        Long expiry = Http3Alternative.expiry(url, result.getResponseHeaders(), System.currentTimeMillis());
-        Long broken = brokenAlternatives().get(trustedOrigin(url));
-        if (expiry != null && (broken == null || broken <= System.currentTimeMillis())) {
-            alternatives().put(trustedOrigin(url), expiry);
+        // Reading the headers as text renders deferred headers; only do so for an advertisement.
+        Long expiry = result.mayHaveResponseHeader(Http3Alternative.HEADER)
+                ? Http3Alternative.expiry(url, result.getResponseHeaders(), System.currentTimeMillis()) : null;
+        if (expiry != null) {
+            String origin = trustedOrigin(url);
+            Long broken = brokenAlternatives().get(origin);
+            if (broken == null || broken <= System.currentTimeMillis()) {
+                alternatives().put(origin, expiry);
+            }
         }
         for (var child : result.getSubResults()) {
             if (child instanceof HTTPSampleResult http) {

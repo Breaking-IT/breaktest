@@ -21,9 +21,11 @@ import org.apache.jmeter.util.JMeterUtils;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.parallel.Isolated;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 /** Run the same ownership, parallel-branch and cleanup checks with virtual reactors on every runtime. */
 @Isolated("Changes the HTTP/2 reactor thread setting")
+@ResourceLock(HTTPHC5H2Impl.SHARED_REACTOR)
 class HTTPHC5H2VirtualReactorLifecycleTest extends HTTPHC5H2ThreadLifecycleTest {
     private static final String PROPERTY = "httpsampler.http2.virtual_reactor_threads";
     private static Object previous;

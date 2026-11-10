@@ -100,8 +100,10 @@ final class H2ConnectionCoalescing {
             return null;
         }
         // Prefer a dedicated connection once one exists (notably after a 421).
-        if (connections.entrySet().stream().anyMatch(e -> e.getKey().isOpen() && e.getValue().equals(route))) {
-            return null;
+        for (var entry : connections.entrySet()) {
+            if (entry.getValue().equals(route) && entry.getKey().isOpen()) {
+                return null;
+            }
         }
         InetAddress[] addresses;
         try {

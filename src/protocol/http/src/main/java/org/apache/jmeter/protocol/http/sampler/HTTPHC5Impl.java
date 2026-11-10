@@ -21,6 +21,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
@@ -106,6 +107,7 @@ import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpResponse;
 import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.client5.http.impl.classic.RequestFailedException;
 import org.apache.hc.client5.http.impl.cookie.IgnoreCookieSpecFactory;
 import org.apache.hc.client5.http.impl.io.DefaultHttpClientConnectionOperator;
 import org.apache.hc.client5.http.impl.io.ManagedHttpClientConnectionFactory;
@@ -641,7 +643,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     // HttpCore's default writer uses its configured version rather than the request version.
     // Honor explicit HTTP/1.0 per request so pooled HTTP/1.1 clients remain unaffected.
     private static final ManagedHttpClientConnectionFactory CONNECTION_FACTORY =
-            ManagedHttpClientConnectionFactory.builder().requestWriterFactory(() -> new DefaultHttpRequestWriter() {
+            ManagedHttpClientConnectionFactory.builder().http1Config(HttpClientTuning.HTTP1_CONFIG)
+                    .requestWriterFactory(() -> new DefaultHttpRequestWriter() {
                 @Override
                 protected HttpVersion protocolVersion(HttpRequest request) {
                     return HttpVersion.HTTP_1_0.equals(request.getVersion())
@@ -738,6 +741,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         JMeterThread owner = JMeterContextService.getContext().getThread();
         if (owner == null) {
             return HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
+        }
+        Map<HttpClientKey, HttpClientState> existing = HTTPCLIENTS_CACHE_PER_USER.get(owner);
+        if (existing != null) {
+            return existing;
         }
         return HTTPCLIENTS_CACHE_PER_USER.computeIfAbsent(owner, ignored -> {
             Runnable cleanup = () -> {
@@ -868,7 +875,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             HttpClientKey key = createHttpClientKey(url, localContext);
             clientState = setupClient(key, jMeterVariables, clientContext);
             httpClient = clientState.getClient();
-            URI uri = url.toURI();
+            URI uri = toUri(url);
             httpRequest = createHttpRequest(uri, method, areFollowingRedirect);
             setupRequest(url, httpRequest, res); // can throw IOException
             setupPreemptiveBasicAuth(url, httpRequest);
@@ -1041,7 +1048,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
             res.setRequestHeaders(getAllHeadersExceptCookie(clientContext.getRequest()));
             recordNetworkEndpointsIfNeeded(localContext, false);
-            errorResult(e, res);
+            errorResult(abortedAsInterrupted(e), res);
             return res;
         } catch (RuntimeException e) {
             if (HTTPSamplerBase.isExpectedTimeout(e)) {
@@ -1591,6 +1598,26 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     protected AuthenticationStrategy getProxyAuthStrategy() {
         return DefaultAuthenticationStrategy.INSTANCE;
+    }
+
+    private record UrlAsUri(URL url, URI uri) {
+    }
+
+    private UrlAsUri lastUri;
+
+    /**
+     * {@link URL#toURI()} parses the URL text again. A sampler usually requests the same URL
+     * object every iteration (see {@code HTTPSamplerBase.getUrl()}), so the last result is kept.
+     */
+    @SuppressWarnings("ReferenceEquality") // URL.equals resolves host names; identity is the cheap, exact test
+    final URI toUri(URL url) throws URISyntaxException {
+        UrlAsUri cached = lastUri;
+        if (cached != null && cached.url == url) {
+            return cached.uri;
+        }
+        URI uri = url.toURI();
+        lastUri = new UrlAsUri(url, uri);
+        return uri;
     }
 
     private HttpClientKey createHttpClientKey(URL url, HttpContext context) throws GeneralSecurityException {
@@ -2319,6 +2346,20 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             }
             clients.clear();
         }
+    }
+
+    /**
+     * The classic client reports a request aborted by {@link #interrupt()} as a
+     * {@link RequestFailedException}; report it as the plain {@link InterruptedIOException} the
+     * negotiating implementation gives, so a stopped test labels in-flight samples the same way.
+     */
+    private static IOException abortedAsInterrupted(IOException e) {
+        if (e instanceof RequestFailedException) {
+            InterruptedIOException interrupted = new InterruptedIOException(e.getMessage());
+            interrupted.initCause(e);
+            return interrupted;
+        }
+        return e;
     }
 
     @Override

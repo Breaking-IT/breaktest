@@ -23,6 +23,8 @@ bin/report-template/**
 bin/testfiles/**
 build-local.properties
 extras/*.txt
+extras/http-cpu-bench/Cargo.lock
+extras/http-cpu-bench/README.md
 extras/*.json
 extras/Test.html
 extras/Test.jtl

@@ -1,0 +1,7 @@
+/target/
+/results/
+!/plans/*.jmx
+/gatling/target/
+/locust/__pycache__/
+!/plans/jmeter/
+!/plans/jmeter/*.jmx

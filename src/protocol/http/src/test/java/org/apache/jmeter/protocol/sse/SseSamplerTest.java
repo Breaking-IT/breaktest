@@ -310,12 +310,15 @@ class SseSamplerTest extends JMeterTestCase {
     }
 
     private static void awaitIdleConnection(String protocol, HttpServer server) throws Exception {
-        if (!protocol.isEmpty()) {
-            return; // The classic HTTP/1.1 client releases its lease synchronously.
+        // This server is cleartext, and cleartext requests (negotiated or HTTP/1.1) go through
+        // the classic HTTP/1.1 client, which releases its lease synchronously. Only when that
+        // routing is switched off does the async-to-classic adapter answer: it can return after
+        // body consumption but before the reactor releases the endpoint, so socket identity is
+        // only deterministic once the pool has an idle connection.
+        if (!protocol.isEmpty()
+                || JMeterUtils.getPropDefault("httpsampler.cleartext.http11_impl", true)) {
+            return;
         }
-        // The async-to-classic adapter can return after body consumption but before
-        // the reactor releases the endpoint. Socket identity is only deterministic
-        // once the pool has an idle connection, not merely once sample() returns.
         org.apache.jmeter.protocol.http.sampler.HttpClientPoolTestSupport.awaitIdleConnection(server.getAddress().getPort());
     }
 

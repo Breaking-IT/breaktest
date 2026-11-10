@@ -95,6 +95,26 @@ final class DeferredHttpHeaders {
         return count;
     }
 
+    /**
+     * Tells whether a header of this name may be present, without building the text.
+     * False is certain; true needs a look at {@link #text()}.
+     */
+    boolean mayContain(String name) {
+        String[] snapshot = fields;
+        if (snapshot == null) {
+            return true;
+        }
+        for (int i = 0; i < count * 2; i += 2) {
+            String field = snapshot[i];
+            // A buffered header keeps its whole line in the first slot.
+            if (snapshot[i + 1] != null ? field.equalsIgnoreCase(name)
+                    : field.regionMatches(true, 0, name, 0, name.length())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     boolean isMaterialized() {
         return text != null;
     }

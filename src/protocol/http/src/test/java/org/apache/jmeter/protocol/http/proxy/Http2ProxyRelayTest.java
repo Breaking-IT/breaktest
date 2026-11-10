@@ -22,14 +22,20 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.GZIPOutputStream;
 
@@ -38,8 +44,15 @@ import org.apache.hc.core5.http2.hpack.HPackEncoder;
 import org.apache.hc.core5.util.ByteArrayBuffer;
 import org.apache.jmeter.junit.JMeterTestCase;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
+// SEPARATE_THREAD: a test blocked in a socket call is not interruptible, so only a separate thread lets the
+// timeout fail the test instead of hanging the whole test JVM.
+@Timeout(value = 30, threadMode = Timeout.ThreadMode.SEPARATE_THREAD)
 class Http2ProxyRelayTest extends JMeterTestCase {
+    private static final int SOCKET_TIMEOUT_MS = 5000;
+    private static final InetAddress LOOPBACK = InetAddress.getLoopbackAddress();
+
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.CsvSource({"true,8,true", "true,0,true", "true,2,false", "false,8,false", "false,2,false"})
     void distinguishesBrowserSseCancellationFromProtocolOrServerErrors(boolean browserReset, int code, boolean clean) throws Exception {
@@ -61,20 +74,16 @@ class Http2ProxyRelayTest extends JMeterTestCase {
 
     @Test
     void browserConnectionCloseRetainsOpenSseWithoutFailure() throws Exception {
-        try (ServerSocket origin = new ServerSocket(0); ServerSocket listener = new ServerSocket(0);
-                var workers = Executors.newVirtualThreadPerTaskExecutor()) {
-            origin.setSoTimeout(5000);
-            listener.setSoTimeout(5000);
+        try (ServerSocket origin = loopbackServer(); ServerSocket listener = loopbackServer();
+                RelayWorkers workers = new RelayWorkers()) {
             var relay = workers.submit(() -> {
                 List<HttpProxyTransport.Capture> captures = new ArrayList<>();
-                try (Socket browser = listener.accept(); Socket server = new Socket("localhost", origin.getLocalPort())) {
+                try (Socket browser = listener.accept(); Socket server = connect(origin)) {
                     new Http2ProxyRelay(captures::add).relay(browser, browser.getInputStream(), server, server.getInputStream());
                 }
                 return captures;
             });
-            try (Socket browser = new Socket("localhost", listener.getLocalPort()); Socket server = acceptOrRelayFailure(origin, relay)) {
-                browser.setSoTimeout(5000);
-                server.setSoTimeout(5000);
+            try (Socket browser = connect(listener); Socket server = acceptOrRelayFailure(origin, relay)) {
                 byte[] request = concat(Http2ProxyRelay.PREFACE, frame(1, 5, 1, headers(
                         new HPackEncoder(4096, StandardCharsets.ISO_8859_1), ":method", "GET", ":scheme", "https",
                         ":authority", "example.test", ":path", "/events")));
@@ -95,15 +104,59 @@ class Http2ProxyRelayTest extends JMeterTestCase {
         }
     }
 
-    private static Socket acceptOrRelayFailure(ServerSocket origin, java.util.concurrent.Future<?> relay) throws Exception {
+    /**
+     * Bind to the loopback address explicitly and connect to that same address. A wildcard bind plus a
+     * {@code "localhost"} connect can resolve to a different address family than the listener, or reach a more
+     * specific binding of the same port held by another process.
+     */
+    private static ServerSocket loopbackServer() throws IOException {
+        ServerSocket server = new ServerSocket(0, 50, LOOPBACK);
+        server.setSoTimeout(SOCKET_TIMEOUT_MS);
+        return server;
+    }
+
+    private static Socket connect(ServerSocket server) throws IOException {
+        Socket socket = new Socket();
+        socket.connect(server.getLocalSocketAddress(), SOCKET_TIMEOUT_MS);
+        socket.setSoTimeout(SOCKET_TIMEOUT_MS);
+        return socket;
+    }
+
+    /**
+     * Runs the relay on a daemon platform thread rather than a virtual thread: a relay stuck on a virtual thread is
+     * missing from jstack thread dumps, which hid the cause of earlier hangs, and it cannot be starved by other tests
+     * pinning carrier threads. Closing does not wait for the relay, unlike {@link ExecutorService#close()}, so a
+     * stuck relay cannot keep a failed test from finishing.
+     */
+    private static final class RelayWorkers implements AutoCloseable {
+        private final ExecutorService executor = Executors.newSingleThreadExecutor(task -> {
+            Thread thread = new Thread(task, "Http2ProxyRelayTest-relay");
+            thread.setDaemon(true);
+            return thread;
+        });
+
+        <T> Future<T> submit(Callable<T> task) {
+            return executor.submit(task);
+        }
+
+        @Override
+        public void close() {
+            executor.shutdownNow();
+        }
+    }
+
+    private static Socket acceptOrRelayFailure(ServerSocket origin, Future<?> relay) throws Exception {
         try {
-            return origin.accept();
-        } catch (java.net.SocketTimeoutException e) {
+            Socket socket = origin.accept();
+            socket.setSoTimeout(SOCKET_TIMEOUT_MS);
+            return socket;
+        } catch (SocketTimeoutException e) {
             // Report why the relay never connected rather than only the accept timeout.
             if (relay.isDone()) {
                 relay.get();
             }
-            throw e;
+            throw new AssertionError("Relay did not connect to the origin within " + SOCKET_TIMEOUT_MS
+                    + " ms (relay done: " + relay.isDone() + ")", e);
         }
     }
 
@@ -278,15 +331,14 @@ class Http2ProxyRelayTest extends JMeterTestCase {
     private static List<HttpProxyTransport.Capture> exchange(byte[] requests, byte[] responses, RecordingDiagnostics diagnostics,
             java.util.function.Supplier<RecordingRequestSettings> settings, Runnable forwarded, boolean expectCapture, boolean stopped,
             byte[] afterResponse) throws Exception {
-        try (ServerSocket origin = new ServerSocket(0); ServerSocket listener = new ServerSocket(0);
-                var workers = Executors.newVirtualThreadPerTaskExecutor()) {
+        try (ServerSocket origin = loopbackServer(); ServerSocket listener = loopbackServer();
+                RelayWorkers workers = new RelayWorkers()) {
             var releaseRecorder = new java.util.concurrent.CountDownLatch(1);
             var enteredRecorder = new java.util.concurrent.CountDownLatch(1);
             var relay = workers.submit(() -> {
                 List<HttpProxyTransport.Capture> captures = new ArrayList<>();
-                try (Socket browser = listener.accept(); Socket server = new Socket("localhost", origin.getLocalPort())) {
-                    browser.setSoTimeout(5000);
-                    server.setSoTimeout(5000);
+                try (Socket browser = listener.accept(); Socket server = connect(origin)) {
+                    browser.setSoTimeout(SOCKET_TIMEOUT_MS);
                     new Http2ProxyRelay(capture -> {
                         captures.add(capture);
                         if (captures.size() == 1) {
@@ -302,9 +354,7 @@ class Http2ProxyRelayTest extends JMeterTestCase {
                 }
                 return captures;
             });
-            try (Socket browser = new Socket("localhost", listener.getLocalPort()); Socket server = origin.accept()) {
-                browser.setSoTimeout(5000);
-                server.setSoTimeout(5000);
+            try (Socket browser = connect(listener); Socket server = acceptOrRelayFailure(origin, relay)) {
                 browser.getOutputStream().write(requests);
                 assertArrayEquals(requests, server.getInputStream().readNBytes(requests.length));
                 server.getOutputStream().write(responses);

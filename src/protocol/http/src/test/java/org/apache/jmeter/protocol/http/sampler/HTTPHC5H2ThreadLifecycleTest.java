@@ -87,12 +87,15 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
 import org.apache.logging.log4j.core.Logger;
 import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -100,6 +103,8 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
 
 @Execution(ExecutionMode.SAME_THREAD)
+// Classes that set the shared-reactor property must not overlap: JMeter properties are global.
+@ResourceLock(HTTPHC5H2Impl.SHARED_REACTOR)
 class HTTPHC5H2ThreadLifecycleTest {
     private final Set<Object> cacheKeysToClean = ConcurrentHashMap.newKeySet();
 
@@ -110,6 +115,22 @@ class HTTPHC5H2ThreadLifecycleTest {
             JMeterUtils.loadJMeterProperties(properties.toString());
             Files.deleteIfExists(properties);
         }
+    }
+
+    // These tests cover the per-user async client and its reactors over cleartext WireMock: keep
+    // requests off the HTTP/1.1 implementation and off the shared reactor, which
+    // HTTPHC5H2SharedReactorTest covers. Set before every test because JMeter properties are
+    // global and another class may have cleared them.
+    @BeforeEach
+    void usePerUserAsyncClient() {
+        JMeterUtils.setProperty(HTTPSamplerFactory.CLEARTEXT_HTTP11_IMPL, "false");
+        JMeterUtils.setProperty(HTTPHC5H2Impl.SHARED_REACTOR, "false");
+    }
+
+    @AfterAll
+    static void restoreJMeterProperties() {
+        JMeterUtils.getJMeterProperties().remove(HTTPSamplerFactory.CLEARTEXT_HTTP11_IMPL);
+        JMeterUtils.getJMeterProperties().remove(HTTPHC5H2Impl.SHARED_REACTOR);
     }
 
     @AfterEach
