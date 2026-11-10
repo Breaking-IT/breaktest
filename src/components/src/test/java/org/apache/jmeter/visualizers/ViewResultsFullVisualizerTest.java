@@ -242,6 +242,48 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
     }
 
     @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void storesDistinctReplaysForSamplersSharingARecording(boolean storeBoth) throws Exception {
+        @SuppressWarnings("deprecation")
+        JMeterTreeModel treeModel = new JMeterTreeModel(new Object());
+        GuiPackage.initInstance(new JMeterTreeListener(treeModel), treeModel);
+        ThreadGroup group = new ThreadGroup();
+        group.setName("Thread Group");
+        JMeterTreeNode groupNode = new JMeterTreeNode(group, treeModel);
+        ((JMeterTreeNode) treeModel.getRoot()).add(groupNode);
+        var recording = RecordedExchangeStore.storeReplay("", Map.of(), "shared", replayResult("original"));
+        JmxArchiveEntryStore.registerBundle(recording.manifestEntryName(), recording.checksum(), recording.entries());
+        group.setProperty(RecordedExchangeStore.MANIFEST_PROPERTY, recording.manifestEntryName());
+        group.setProperty(RecordedExchangeStore.CHECKSUM_PROPERTY, recording.checksum());
+        Map<JMeterTreeNode, SampleResult> replays = new LinkedHashMap<>();
+        List<JMeterTreeNode> nodes = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            DebugSampler sampler = new DebugSampler();
+            sampler.setName("GET /api/users");
+            sampler.setProperty(RecordedExchangeStore.EXCHANGE_ID_PROPERTY, "shared");
+            JMeterTreeNode node = new JMeterTreeNode(sampler, treeModel);
+            groupNode.add(node);
+            nodes.add(node);
+            if (storeBoth || i == 1) {
+                SampleResult result = replayResult("response-" + i);
+                result.setSourceTestElementPath(List.of(
+                        new SampleResult.TestElementPathEntry(ThreadGroup.class.getName(), group.getName(), 0),
+                        new SampleResult.TestElementPathEntry(DebugSampler.class.getName(), sampler.getName(), i)));
+                ViewResultsFullVisualizer.collectReplayableSamples(result, replays);
+            }
+        }
+        assertEquals(storeBoth ? 2 : 1, replays.size());
+        ReplayRecordingStore.store(replays, RecordingStorageMode.ALL);
+
+        assertEquals(storeBoth ? "response-0" : "original",
+                RecordedHarExchangeResolver.resolveFor(nodes.get(0), null).exchange().orElseThrow().responseBody());
+        assertEquals("response-1",
+                RecordedHarExchangeResolver.resolveFor(nodes.get(1), null).exchange().orElseThrow().responseBody());
+        assertNotEquals(nodes.get(0).getTestElement().getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY),
+                nodes.get(1).getTestElement().getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY));
+    }
+
+    @ParameterizedTest
     @EnumSource(RecordingStorageMode.class)
     public void storesReplayWhenPreviousRecordingIsUnavailable(RecordingStorageMode mode) throws Exception {
         ThreadGroup threadGroup = new ThreadGroup();

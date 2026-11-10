@@ -128,11 +128,17 @@ final class ReplayRecordingStore {
                 if (entries.isEmpty()) {
                     manifestEntryName = ""; // $NON-NLS-1$
                 }
+                Map<String, Integer> referenceCounts = new LinkedHashMap<>();
+                countExchangeReferences(threadGroupSamples.getKey(), referenceCounts);
                 Map<JMeterTreeNode, String> exchangeIds = new LinkedHashMap<>();
                 Map<String, SampleResult> resultsByExchangeId = new LinkedHashMap<>();
                 for (Map.Entry<JMeterTreeNode, SampleResult> samplerResult : threadGroupSamples.getValue().entrySet()) {
                     TestElement sampler = samplerResult.getKey().getTestElement();
                     String exchangeId = sampler.getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY);
+                    // Copies can share recorded evidence, but must not overwrite each other on replay.
+                    if (referenceCounts.getOrDefault(exchangeId, 0) > 1) {
+                        exchangeId = ""; // $NON-NLS-1$
+                    }
                     boolean storeSample = storageMode != RecordingStorageMode.NONE
                             && (storageMode != RecordingStorageMode.OMIT_STATICS
                                     || !RecordedExchangeStore.isStaticResource(samplerResult.getValue()));
@@ -244,6 +250,23 @@ final class ReplayRecordingStore {
             }
         }
         return threadGroupNode;
+    }
+
+    private static void countExchangeReferences(JMeterTreeNode node, Map<String, Integer> counts) {
+        String exchangeId = node.getTestElement().getPropertyAsString(RecordedExchangeStore.EXCHANGE_ID_PROPERTY);
+        if (!exchangeId.isEmpty()) {
+            counts.merge(exchangeId, 1, Integer::sum);
+        }
+        Enumeration<?> children = node.children();
+        while (children.hasMoreElements()) {
+            JMeterTreeNode child = (JMeterTreeNode) children.nextElement();
+            TestElement element = child.getTestElement();
+            // A nested recording source owns its own exchanges.
+            if (element.getPropertyAsString(RecordedExchangeStore.MANIFEST_PROPERTY).isEmpty()
+                    && element.getPropertyAsString(RecordedHarExchangeResolver.HAR_FILENAME).isEmpty()) {
+                countExchangeReferences(child, counts);
+            }
+        }
     }
 
     private static boolean hasRecordingReferences(JMeterTreeNode node) {
