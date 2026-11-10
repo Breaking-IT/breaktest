@@ -360,7 +360,7 @@ public class TestTransactionController extends JMeterTestCase {
     }
 
     @Test
-    public void testPacingCompensatesForDrift() throws Exception {
+    public void testPacingUsesActualStartAfterSmallDelay() throws Exception {
         TransactionController controller = new TransactionController();
         controller.setPacingMode(TransactionController.DELAY_FIXED);
         controller.setFixedPacing("100");
@@ -368,7 +368,39 @@ public class TestTransactionController extends JMeterTestCase {
 
         recordTransactionStart(controller, 1103);
 
-        assertEquals(97, computeTransactionPacingDelay(controller, 1103));
+        assertEquals(100, computeTransactionPacingDelay(controller, 1103));
+    }
+
+    @Test
+    public void testPacingDoesNotCatchUpAfterLongTransaction() throws Exception {
+        TransactionController controller = new TransactionController();
+        controller.setPacingMode(TransactionController.DELAY_FIXED);
+        controller.setFixedPacing("500");
+
+        recordTransactionStart(controller, 1000);
+        assertEquals(400, computeTransactionPacingDelay(controller, 1100));
+        assertEquals(0, computeTransactionPacingDelay(controller, 11000));
+
+        recordTransactionStart(controller, 11000);
+        assertEquals(400, computeTransactionPacingDelay(controller, 11100));
+        assertEquals(0, computeTransactionPacingDelay(controller, 11500));
+
+        recordTransactionStart(controller, 11500);
+        assertEquals(400, computeTransactionPacingDelay(controller, 11600));
+    }
+
+    @Test
+    public void testRandomPacingDoesNotCatchUpAfterLongTransaction() throws Exception {
+        TransactionController controller = new TransactionController();
+        controller.setPacingMode(TransactionController.DELAY_RANDOM);
+        controller.setPacingMin("500");
+        controller.setPacingMax("500");
+
+        recordTransactionStart(controller, 1000);
+        assertEquals(0, computeTransactionPacingDelay(controller, 11000));
+
+        recordTransactionStart(controller, 11000);
+        assertEquals(400, computeTransactionPacingDelay(controller, 11100));
     }
 
     @Test

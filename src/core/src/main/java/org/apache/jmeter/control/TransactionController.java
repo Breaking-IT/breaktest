@@ -76,7 +76,7 @@ public class TransactionController extends GenericController implements Controll
     private transient RunningTransaction runningTransaction;
 
     /**
-     * Next scheduled transaction start time, used to calculate start-to-start pacing without drift.
+     * Earliest next transaction start time, based on the previous actual start.
      */
     private transient long nextPacingStartTime = -1;
 
@@ -451,10 +451,8 @@ public class TransactionController extends GenericController implements Controll
         long targetPacing = computePacingTarget();
         if (targetPacing <= 0) {
             nextPacingStartTime = actualStartTime;
-        } else if (nextPacingStartTime < 0) {
-            nextPacingStartTime = actualStartTime + targetPacing;
         } else {
-            nextPacingStartTime += targetPacing;
+            nextPacingStartTime = actualStartTime + targetPacing;
         }
     }
 
