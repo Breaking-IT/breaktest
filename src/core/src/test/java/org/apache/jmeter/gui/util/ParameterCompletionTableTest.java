@@ -21,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.awt.BorderLayout;
@@ -249,8 +250,26 @@ class ParameterCompletionTableTest {
             assertTrue(tableFocused.await(5, TimeUnit.SECONDS), "Table must own real focus before typing");
         }
 
-        void awaitEditorFocus() throws InterruptedException {
+        void awaitEditorFocus() throws Exception {
             assertTrue(editorFocused.await(5, TimeUnit.SECONDS), "Editor must receive real focus");
+            // A first focusGained is not settled ownership: under Xvfb the window can briefly lose
+            // and regain activation right after it. Wait until the editor actually owns focus.
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+            String[] owner = new String[1];
+            boolean[] owns = new boolean[1];
+            while (System.nanoTime() < deadline) {
+                SwingUtilities.invokeAndWait(() -> {
+                    owns[0] = editor.isFocusOwner();
+                    java.awt.Component current =
+                            java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+                    owner[0] = current == null ? "nothing" : current.getClass().getSimpleName();
+                });
+                if (owns[0]) {
+                    return;
+                }
+                Thread.sleep(20);
+            }
+            fail("Editor received focus but lost it to " + owner[0]);
         }
 
         void awaitCompletionPopup() throws InterruptedException {
