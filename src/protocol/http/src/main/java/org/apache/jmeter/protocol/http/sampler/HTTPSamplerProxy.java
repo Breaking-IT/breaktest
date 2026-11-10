@@ -210,7 +210,7 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
         // so SSL context is to be reused
         String httpProtocol = getHttpProtocol();
         String implementation = getImplementation();
-        if (HTTPSamplerFactory.usesHttp11Impl(implementation, this, u)) {
+        if (HTTPSamplerFactory.usesHttp11ForCleartext(implementation, this, u)) {
             if (http11Impl == null) {
                 http11Impl = new HTTPHC5Impl(this);
             }
@@ -232,11 +232,7 @@ public class HTTPSamplerProxy extends HTTPSamplerBase implements Interruptible, 
                 return errorResult(ex, new HTTPSampleResult());
             }
         }
-        HTTPSampleResult result = sampleWith(impl, u, method, areFollowingRedirect, depth);
-        if (result != null) {
-            HTTPSamplerFactory.recordNegotiatedProtocol(implementation, this, u, result);
-        }
-        return result;
+        return sampleWith(impl, u, method, areFollowingRedirect, depth);
     }
 
     private HTTPSampleResult sampleWith(HTTPAbstractImpl transport, URL u, String method,

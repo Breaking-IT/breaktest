@@ -18,13 +18,8 @@
 package org.apache.jmeter.protocol.http.sampler;
 
 import java.net.URL;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
-import org.apache.jmeter.threads.JMeterContextService;
-import org.apache.jmeter.threads.JMeterThread;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.util.StringUtilities;
 
@@ -120,120 +115,6 @@ public final class HTTPSamplerFactory {
                 && HTTPConstants.PROTOCOL_HTTP.equalsIgnoreCase(url.getProtocol())
                 && StringUtilities.isBlank(base.getHttpProtocol())
                 && (StringUtilities.isBlank(impl) || isKnownImplementation(impl));
-    }
-
-    /**
-     * JMeter property, default false: once TLS negotiation (ALPN) with a host has settled on
-     * HTTP/1.1, virtual users that first reach that host afterwards use the HTTP/1.1
-     * implementation for requests that leave the HTTP version to negotiation. The wire protocol
-     * stays the same and the classic client uses less CPU, but it keeps connections per thread
-     * instead of per virtual user, so parallel branches of one user no longer share them. Each
-     * user decides at its first request to the host; forgotten at the start of each test run.
-     */
-    static final String TLS_HTTP11_IMPL = "httpsampler.tls.http11_impl_after_alpn"; //$NON-NLS-1$
-
-    private static final ConcurrentMap<JMeterThread, Map<String, Boolean>> USER_HTTP11_ORIGINS =
-            new ConcurrentHashMap<>();
-
-    private static final ConcurrentMap<String, Boolean> HTTP11_ONLY_ORIGINS = new ConcurrentHashMap<>();
-    private static volatile long http11OriginsTestStart = Long.MIN_VALUE;
-
-    private static ConcurrentMap<String, Boolean> http11OnlyOrigins() {
-        long testStart = JMeterContextService.getTestStartTime();
-        if (testStart != http11OriginsTestStart) {
-            synchronized (HTTP11_ONLY_ORIGINS) {
-                if (testStart != http11OriginsTestStart) {
-                    // A server may have gained HTTP/2 since the previous run.
-                    HTTP11_ONLY_ORIGINS.clear();
-                    http11OriginsTestStart = testStart;
-                }
-            }
-        }
-        return HTTP11_ONLY_ORIGINS;
-    }
-
-    /**
-     * As {@link #recordNegotiatedProtocol(String, HTTPSamplerBase, URL, String, String)}, reading
-     * the response headers as text, which renders deferred headers, only when the answer can
-     * depend on them.
-     */
-    static void recordNegotiatedProtocol(String impl, HTTPSamplerBase base, URL url, HTTPSampleResult result) {
-        String protocolVersion = result.getProtocolVersion();
-        if (protocolVersion != null && protocolVersion.startsWith("HTTP/1.") //$NON-NLS-1$
-                && negotiatesOverTls(impl, base, url)) {
-            recordNegotiatedProtocol(impl, base, url, protocolVersion, result.getResponseHeaders());
-        }
-    }
-
-    private static boolean negotiatesOverTls(String impl, HTTPSamplerBase base, URL url) {
-        return HTTPConstants.PROTOCOL_HTTPS.equalsIgnoreCase(url.getProtocol())
-                && StringUtilities.isBlank(base.getHttpProtocol())
-                && (StringUtilities.isBlank(impl) || isKnownImplementation(impl))
-                && JMeterUtils.getPropDefault(TLS_HTTP11_IMPL, false);
-    }
-
-    /**
-     * Remembers what a negotiated TLS request to {@code url} ended up speaking, so that later
-     * requests to an HTTP/1.1-only host can skip the negotiating client.
-     *
-     * @param impl            the configured implementation name
-     * @param base            the sampler
-     * @param url             the URL that was sampled
-     * @param protocolVersion the protocol the response used, as reported on the sample result
-     * @param responseHeaders the response headers; a host that advertises an alternative service
-     *                        (HTTP/3 through Alt-Svc) must keep reaching the negotiating client
-     */
-    static void recordNegotiatedProtocol(String impl, HTTPSamplerBase base, URL url, String protocolVersion,
-            String responseHeaders) {
-        if (protocolVersion != null && protocolVersion.startsWith("HTTP/1.") //$NON-NLS-1$
-                && negotiatesOverTls(impl, base, url)
-                && (responseHeaders == null
-                        || !responseHeaders.toLowerCase(java.util.Locale.ROOT).contains("alt-svc:"))) { //$NON-NLS-1$
-            http11OnlyOrigins().put(url.getAuthority(), Boolean.TRUE);
-        }
-    }
-
-    // VisibleForTesting
-    static void forgetNegotiatedProtocols() {
-        HTTP11_ONLY_ORIGINS.clear();
-        USER_HTTP11_ORIGINS.clear();
-    }
-
-    /**
-     * Whether the HTTP/1.1 implementation should send a request to {@code url} although the
-     * sampler leaves the HTTP version to negotiation: always for cleartext (see
-     * {@link #usesHttp11ForCleartext(String, HTTPSamplerBase, URL)}), and for TLS once the host
-     * is known to speak only HTTP/1.1.
-     *
-     * @param impl the configured implementation name
-     * @param base the sampler
-     * @param url  the URL about to be sampled
-     * @return true when the HTTP/1.1 implementation should send this request
-     */
-    public static boolean usesHttp11Impl(String impl, HTTPSamplerBase base, URL url) {
-        return usesHttp11ForCleartext(impl, base, url)
-                || (negotiatesOverTls(impl, base, url) && userStartedOnHttp11(url.getAuthority()));
-    }
-
-    /**
-     * Decides once per virtual user and host, at the user's first request to it. A user that
-     * already negotiated a connection keeps using it, so the choice never costs a user a second
-     * connection; users that first reach the host after it is known to speak only HTTP/1.1
-     * start on the HTTP/1.1 implementation.
-     */
-    private static boolean userStartedOnHttp11(String authority) {
-        JMeterThread user = JMeterContextService.getContext().getThread();
-        if (user == null) {
-            // No virtual user to keep a choice for (embedded use): follow what is known now.
-            return http11OnlyOrigins().containsKey(authority);
-        }
-        Map<String, Boolean> choices = USER_HTTP11_ORIGINS.get(user);
-        if (choices == null) {
-            choices = USER_HTTP11_ORIGINS.computeIfAbsent(user, ignored -> new ConcurrentHashMap<>());
-            // A new user identity starts without connections, so it decides again.
-            user.registerUserCleanup(HTTPSamplerFactory.class, () -> USER_HTTP11_ORIGINS.remove(user));
-        }
-        return choices.computeIfAbsent(authority, host -> http11OnlyOrigins().containsKey(host));
     }
 
     public static HTTPAbstractImpl getImplementation(String impl, HTTPSamplerBase base){

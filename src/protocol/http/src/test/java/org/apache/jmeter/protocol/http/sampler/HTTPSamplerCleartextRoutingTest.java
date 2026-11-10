@@ -28,15 +28,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
-import org.apache.jmeter.control.LoopController;
 import org.apache.jmeter.protocol.http.util.HTTPConstants;
 import org.apache.jmeter.threads.JMeterContextService;
-import org.apache.jmeter.threads.JMeterThread;
-import org.apache.jmeter.threads.ListenerNotifier;
-import org.apache.jmeter.threads.ThreadGroup;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jmeter.wiremock.WireMockExtension;
-import org.apache.jorphan.collections.ListedHashTree;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -55,7 +50,6 @@ class HTTPSamplerCleartextRoutingTest {
 
     private static final URL HTTP_URL = url("http://localhost/path");
     private static final URL HTTPS_URL = url("https://localhost/path");
-    private static final String H11_RESPONSE = "HTTP/1.1 200 OK\nContent-Type: text/plain\n";
 
     @BeforeAll
     static void setupJMeterProperties() throws Exception {
@@ -69,20 +63,6 @@ class HTTPSamplerCleartextRoutingTest {
     @AfterEach
     void cleanUp() {
         JMeterContextService.getContext().clear();
-        HTTPSamplerFactory.forgetNegotiatedProtocols();
-        JMeterUtils.getJMeterProperties().remove(HTTPSamplerFactory.TLS_HTTP11_IMPL);
-    }
-
-    private static void newUser() {
-        LoopController loop = new LoopController();
-        loop.setLoops(0);
-        loop.setContinueForever(false);
-        ListedHashTree tree = new ListedHashTree();
-        tree.add(loop);
-        ThreadGroup group = new ThreadGroup();
-        JMeterThread user = new JMeterThread(tree, group, new ListenerNotifier());
-        user.setThreadGroup(group);
-        JMeterContextService.getContext().setThread(user);
     }
 
     private static URL url(String spec) {
@@ -137,63 +117,6 @@ class HTTPSamplerCleartextRoutingTest {
     @Test
     void unknownImplementationIsLeftToTheFactoryToReject() {
         assertFalse(HTTPSamplerFactory.usesHttp11ForCleartext("NoSuchClient", sampler(""), HTTP_URL, true));
-    }
-
-    @Test
-    void tlsHostUsesHttp11ImplementationOnlyAfterNegotiatingHttp11() {
-        JMeterUtils.setProperty(HTTPSamplerFactory.TLS_HTTP11_IMPL, "true");
-        newUser();
-        HTTPSamplerProxy negotiated = sampler("");
-        String impl = negotiated.getImplementation();
-        assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL),
-                "the first TLS request must negotiate");
-
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/1.1", H11_RESPONSE);
-
-        assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL),
-                "a user that already negotiated keeps its connection");
-        newUser();
-        assertTrue(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL),
-                "a user that first reaches a known HTTP/1.1 host starts on the HTTP/1.1 implementation");
-        assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, url("https://other.example/path")),
-                "what one host negotiated says nothing about another");
-        assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, sampler(HTTPSamplerBase.HTTP_PROTOCOL_HTTP_2), HTTPS_URL),
-                "an explicit HTTP/2 sampler keeps its implementation");
-    }
-
-    @Test
-    void tlsHostThatNegotiatedHttp2KeepsNegotiatingImplementation() {
-        JMeterUtils.setProperty(HTTPSamplerFactory.TLS_HTTP11_IMPL, "true");
-        HTTPSamplerProxy negotiated = sampler("");
-        String impl = negotiated.getImplementation();
-
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/2", "");
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "", null);
-
-        assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL));
-    }
-
-    @Test
-    void tlsHostAdvertisingAnAlternativeServiceKeepsNegotiatingImplementation() {
-        JMeterUtils.setProperty(HTTPSamplerFactory.TLS_HTTP11_IMPL, "true");
-        HTTPSamplerProxy negotiated = sampler("");
-        String impl = negotiated.getImplementation();
-
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/1.1",
-                "HTTP/1.1 200 OK\nAlt-Svc: h3=\":443\"; ma=86400\n");
-
-        assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL),
-                "the HTTP/3 upgrade needs later requests to reach the negotiating client");
-    }
-
-    @Test
-    void tlsRoutingAfterNegotiationIsOffByDefault() {
-        HTTPSamplerProxy negotiated = sampler("");
-        String impl = negotiated.getImplementation();
-
-        HTTPSamplerFactory.recordNegotiatedProtocol(impl, negotiated, HTTPS_URL, "HTTP/1.1", H11_RESPONSE);
-
-        assertFalse(HTTPSamplerFactory.usesHttp11Impl(impl, negotiated, HTTPS_URL));
     }
 
     @Test
