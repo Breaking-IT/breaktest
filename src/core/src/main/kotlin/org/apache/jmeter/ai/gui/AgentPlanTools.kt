@@ -59,6 +59,15 @@ internal object AgentPlanTools {
 
     private const val DEFAULT_OUTLINE_NODES = 400
     private const val MAX_BATCH_STEPS = 100
+    private const val DEFAULT_FOR_EACH = 500
+    private const val MAX_FOR_EACH = 5000
+    private const val MAX_FOR_EACH_ERRORS = 10
+    private const val MAX_FOR_EACH_RESULTS = 50
+    private val NODE_TEMPLATE = Regex("""\{\{node\.([A-Za-z0-9_]+)}}""")
+    private val TARGET_KEYS = listOf(
+        "targetNodeId", "targetNodePath", "targetSamplerIndex", "targetSamplerLabel", "sourceNodeId", "sourceNodePath",
+        "scopeNodePath", "threadGroupName",
+    )
     private const val MAX_PROPERTY_CHARS = 4000
     private const val MAX_RAW_PROPERTY_CHARS = 2000
     private const val MAX_RAW_DEPTH = 4
@@ -361,15 +370,29 @@ internal object AgentPlanTools {
                 require(requested != "batch_open_plan") { "A batch cannot contain another batch" }
                 val stepArguments = resolve(step.path("arguments").present() ?: mapper.createObjectNode(), references)
                 val tool = BATCH_ALIASES[requested] ?: requested
-                val result = mapper.valueToTree<JsonNode>(service.handleToolInProcess(tool, stepArguments))
+                val forEach = step.path("forEach").present()
+                val result = if (forEach != null) {
+                    mapper.valueToTree<JsonNode>(forEach(tool, stepArguments, forEach))
+                } else {
+                    mapper.valueToTree<JsonNode>(service.handleToolInProcess(tool, stepArguments))
+                }
                 step.path("as").text()?.let { name ->
                     references[name] = result
                     entry["as"] = name
                 }
-                entry["result"] = if (brief && AgentToolSpecs.tier(tool) != AgentToolSpecs.TIER_READ) briefResult(result) else result
+                entry["result"] = if (forEach == null && brief && AgentToolSpecs.tier(tool) != AgentToolSpecs.TIER_READ) {
+                    briefResult(result)
+                } else {
+                    result
+                }
+                if (forEach != null && result.path("failed").asInt() > 0) {
+                    entry["error"] = "${result.path("failed").asInt()} of ${result.path("matched").asInt()} nodes failed; see errors"
+                }
             } catch (e: Exception) {
-                failed++
                 entry["error"] = e.message ?: e.toString()
+            }
+            if ("error" in entry) {
+                failed++
             }
             results += entry
             if ("error" in entry && stopOnError) {
@@ -383,6 +406,132 @@ internal object AgentPlanTools {
             "stoppedEarly" to (results.size < steps.size()),
             "results" to results,
         )
+    }
+
+    /**
+     * Runs one tool once per node that matches [filter], as a single undo step. The matched node is
+     * the target unless the arguments name one, "@node" is its id and {{node.x}} templates in text
+     * arguments take its values: id, name, treePath, parentId, parentName or any setting such as
+     * path or domain. Nodes inside a disabled ancestor (such as a kept repair copy) are skipped
+     * unless includeDisabled is set.
+     */
+    private fun forEach(tool: String, arguments: JsonNode, filter: JsonNode): Map<String, Any?> {
+        require(filter.isObject) { "forEach must be an object of filters" }
+        val nodes = service.guiCall { matchingNodes(gui(), filter) }
+        val limit = filter.path("maxMatches").present()?.asInt()?.coerceIn(1, MAX_FOR_EACH) ?: DEFAULT_FOR_EACH
+        require(nodes.size <= limit) {
+            "forEach matched ${nodes.size} nodes, more than maxMatches=$limit; narrow the filter or raise maxMatches (at most $MAX_FOR_EACH)"
+        }
+        val stopOnError = filter.path("stopOnError").asBoolean(false)
+        val read = AgentToolSpecs.tier(tool) == AgentToolSpecs.TIER_READ
+        val errors = mutableListOf<Map<String, Any?>>()
+        val results = mutableListOf<Map<String, Any?>>()
+        var succeeded = 0
+        val gui = gui()
+        if (!read) service.guiCall { gui.beginUndoTransaction() }
+        try {
+            for (node in nodes) {
+                val values = service.guiCall { templateValues(node) }
+                try {
+                    val nodeArguments = withTarget(fillTemplates(arguments, values) as ObjectNode, values.getValue("id"))
+                    val result = service.handleToolInProcess(tool, nodeArguments)
+                    succeeded++
+                    if (read && results.size < MAX_FOR_EACH_RESULTS) {
+                        results += mapOf("nodeId" to values["id"], "result" to result)
+                    }
+                } catch (e: Exception) {
+                    if (errors.size < MAX_FOR_EACH_ERRORS) {
+                        errors += mapOf("nodePath" to values["treePath"], "error" to (e.message ?: e.toString()))
+                    }
+                    if (stopOnError) break
+                }
+            }
+        } finally {
+            if (!read) service.guiCall { gui.endUndoTransaction() }
+        }
+        return linkedMapOf<String, Any?>(
+            "forEach" to true,
+            "matched" to nodes.size,
+            "succeeded" to succeeded,
+            "failed" to if (stopOnError) errors.size else nodes.size - succeeded,
+            "nodeIds" to nodes.take(MAX_FOR_EACH_RESULTS).map { service.nodeId(it) },
+            "nodeIdsOmitted" to (nodes.size - MAX_FOR_EACH_RESULTS).takeIf { it > 0 },
+            "errors" to errors.takeIf { it.isNotEmpty() },
+            "results" to results.takeIf { read },
+        ).filterValues { it != null }
+    }
+
+    private fun matchingNodes(gui: GuiPackage, filter: JsonNode): List<JMeterTreeNode> {
+        val under = if (filter.path("underNodeId").text() != null || filter.path("underNodePath").text() != null) {
+            val reference = mapper.createObjectNode()
+            filter.path("underNodeId").text()?.let { reference.put("targetNodeId", it) }
+            filter.path("underNodePath").text()?.let { reference.put("targetNodePath", it) }
+            service.selectNodeReference(gui, reference, "target", "forEach scope")
+        } else {
+            null
+        }
+        val type = filter.path("type").text()?.lowercase()
+        val className = filter.path("className").text()
+        val classNameContains = filter.path("classNameContains").text()
+        val name = filter.path("name").text()
+        val nameContains = filter.path("nameContains").text()
+        val includeDisabled = filter.path("includeDisabled").asBoolean(false)
+        val staticAssets = filter.path("staticAssets").text()?.lowercase() ?: "include"
+        require(staticAssets in setOf("include", "exclude", "only")) { "staticAssets must be include, exclude or only" }
+        require(listOf(type, className, classNameContains, name, nameContains).any { it != null } || under != null) {
+            "forEach needs at least one filter: type, className, classNameContains, name, nameContains or underNodeId"
+        }
+        return with(service) {
+            allTreeNodes(gui.treeModel.testPlan).filter { node ->
+                val element = node.testElement
+                (under == null || node.isDescendantOf(under)) &&
+                    (type == null || node.matchesNodeType(type)) &&
+                    (className == null || element.javaClass.name == className || element.javaClass.simpleName == className) &&
+                    (classNameContains == null || element.javaClass.name.contains(classNameContains, ignoreCase = true)) &&
+                    (name == null || element.name == name) &&
+                    (nameContains == null || element.name.orEmpty().contains(nameContains, ignoreCase = true)) &&
+                    (includeDisabled || node.path.filterIsInstance<JMeterTreeNode>().all { it.isEnabled }) &&
+                    when (staticAssets) {
+                        "exclude" -> !(element is Sampler && AgentStaticAssetClassifier.isStaticAsset(element))
+                        "only" -> element is Sampler && AgentStaticAssetClassifier.isStaticAsset(element)
+                        else -> true
+                    }
+            }
+        }
+    }
+
+    private fun templateValues(node: JMeterTreeNode): Map<String, String> {
+        val parent = node.parent as? JMeterTreeNode
+        val settings = describedValues(node.testElement).mapNotNull { (key, value) -> value?.let { key to it.toString() } }.toMap()
+        return settings + mapOf(
+            "id" to service.nodeId(node),
+            "name" to node.testElement.name.orEmpty(),
+            "treePath" to service.nodePath(node),
+            "parentId" to (parent?.let { service.nodeId(it) } ?: ""),
+            "parentName" to (parent?.testElement?.name ?: ""),
+        )
+    }
+
+    private fun fillTemplates(node: JsonNode, values: Map<String, String>): JsonNode = when {
+        node.isObject -> mapper.createObjectNode().also { copy ->
+            node.properties().forEach { (key, value) -> copy.set<JsonNode>(key, fillTemplates(value, values)) }
+        }
+        node.isArray -> mapper.createArrayNode().also { copy -> node.forEach { copy.add(fillTemplates(it, values)) } }
+        node.isTextual && node.asText() == "@node" -> mapper.valueToTree(values.getValue("id"))
+        node.isTextual && "{{node." in node.asText() -> mapper.valueToTree(
+            NODE_TEMPLATE.replace(node.asText()) { match ->
+                values[match.groupValues[1]]
+                    ?: throw IllegalArgumentException("Unknown template {{node.${match.groupValues[1]}}} for this node")
+            },
+        )
+        else -> node
+    }
+
+    private fun withTarget(arguments: ObjectNode, nodeId: String): ObjectNode {
+        if (TARGET_KEYS.none { arguments.has(it) }) {
+            arguments.put("targetNodeId", nodeId)
+        }
+        return arguments
     }
 
     /** An edit's confirmation reduced to where it landed; the full result stays available to later steps. */

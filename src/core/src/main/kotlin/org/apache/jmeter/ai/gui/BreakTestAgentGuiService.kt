@@ -2792,6 +2792,7 @@ public object BreakTestAgentGuiService {
             AgentElementCatalog.create(arguments.requiredText("elementId")),
             arguments.path("properties").takeIf { !it.isMissingNode } ?: com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(),
             arguments.get("tables"),
+            arguments.path("tableMode").optionalText(),
         )
         applyRawProperties(element, arguments)
         arguments.path("name").optionalText()?.let { element.name = it }
@@ -2893,6 +2894,7 @@ public object BreakTestAgentGuiService {
             target.testElement,
             arguments.path("properties").takeIf { !it.isMissingNode } ?: com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(),
             arguments.get("tables"),
+            arguments.path("tableMode").optionalText(),
         )
         applyRawProperties(configured, arguments)
         ensureBackupForOpenPlan(gui)
@@ -4232,7 +4234,7 @@ public object BreakTestAgentGuiService {
         return result
     }
 
-    private fun JMeterTreeNode.matchesNodeType(type: String): Boolean {
+    internal fun JMeterTreeNode.matchesNodeType(type: String): Boolean {
         val className = testElement::class.java.name
         return when (type) {
             "sampler" -> testElement is Sampler
@@ -4372,7 +4374,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun JMeterTreeNode.isDescendantOf(ancestor: JMeterTreeNode): Boolean {
+    internal fun JMeterTreeNode.isDescendantOf(ancestor: JMeterTreeNode): Boolean {
         var current: javax.swing.tree.TreeNode? = this
         while (current is JMeterTreeNode) {
             if (current === ancestor) {

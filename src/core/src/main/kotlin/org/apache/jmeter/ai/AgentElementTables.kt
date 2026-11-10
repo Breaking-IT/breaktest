@@ -54,7 +54,17 @@ internal object AgentElementTables {
     /** Current rows of each supported table, reduced to the fields that carry a value. */
     fun read(element: TestElement): Map<String, List<Map<String, Any?>>> = rowTypes(element).keys.associateWith { rows(element, it) }
 
-    private fun rows(element: TestElement, table: String): List<Map<String, Any?>> {
+    private fun rows(element: TestElement, table: String): List<Map<String, Any?>> =
+        rowElements(element, table).map { row ->
+            fun call(method: String): Any? = runCatching { row.javaClass.getMethod(method).invoke(row) }.getOrNull()
+            mapOf(
+                "name" to call("getName"), "value" to call("getValue"),
+                "alwaysEncoded" to call("isAlwaysEncoded")?.takeIf { it == true },
+                "useEquals" to call("isUseEquals")?.takeIf { it == false },
+            ).filterValues { it != null }
+        }
+
+    private fun rowElements(element: TestElement, table: String): List<TestElement> {
         val getter = when {
             table == "headers" && isType(element, HTTP_SAMPLER) -> "getNativeHeaders"
             table == "headers" -> "getHeaders"
@@ -67,23 +77,58 @@ internal object AgentElementTables {
             is Iterable<*> -> container.toList()
             else -> emptyList()
         }
-        return items.filterNotNull().map { row ->
-            fun call(method: String): Any? = runCatching { row.javaClass.getMethod(method).invoke(row) }.getOrNull()
-            mapOf(
-                "name" to call("getName"), "value" to call("getValue"),
-                "alwaysEncoded" to call("isAlwaysEncoded")?.takeIf { it == true },
-                "useEquals" to call("isUseEquals")?.takeIf { it == false },
-            ).filterValues { it != null }
+        return items.filterIsInstance<TestElement>()
+    }
+
+    /** How supplied rows combine with the rows a table already has. */
+    enum class Mode {
+        /** The supplied rows become the table. */
+        REPLACE,
+
+        /** The supplied rows are added after the existing ones. */
+        APPEND,
+
+        /** A supplied row replaces the existing row of the same name; other supplied rows are added. */
+        UPSERT,
+
+        /** Existing rows with a supplied row's name are removed; only names are needed. */
+        REMOVE,
+        ;
+
+        companion object {
+            fun of(text: String?): Mode =
+                text?.takeIf { it.isNotBlank() }?.let { value -> values().firstOrNull { it.name.equals(value, ignoreCase = true) } }
+                    ?: if (text.isNullOrBlank()) REPLACE else throw IllegalArgumentException("tableMode must be replace, append, upsert or remove")
         }
     }
 
-    fun configure(element: TestElement, tables: JsonNode) {
+    private fun rowName(row: TestElement): String? =
+        runCatching { row.javaClass.getMethod("getName").invoke(row) as? String }.getOrNull()
+
+    fun configure(element: TestElement, tables: JsonNode, mode: Mode = Mode.REPLACE) {
         require(tables.isObject) { "tables must be an object" }
         val types = rowTypes(element)
         for ((name, values) in tables.properties()) {
             val type = types[name] ?: error("Unknown table '$name'; inspect the element schema first")
             require(values.isArray) { "$name must be an array of row objects" }
-            val rows = values.map { AgentElementCatalog.configured(newRow(type), it) }
+            val supplied = values.map { AgentElementCatalog.configured(newRow(type), it) }
+            // Header names are case-insensitive; parameter and variable names are not.
+            val sameName: (String?, String?) -> Boolean =
+                if (name == "headers") { a, b -> a.equals(b, ignoreCase = true) } else { a, b -> a == b }
+            val existing = if (mode == Mode.REPLACE) emptyList() else rowElements(element, name)
+            val rows = when (mode) {
+                Mode.REPLACE -> supplied
+                Mode.APPEND -> existing + supplied
+                Mode.UPSERT -> {
+                    val merged = existing.toMutableList()
+                    for (row in supplied) {
+                        val at = merged.indexOfFirst { sameName(rowName(it), rowName(row)) }
+                        if (at >= 0) merged[at] = row else merged += row
+                    }
+                    merged
+                }
+                Mode.REMOVE -> existing.filter { old -> supplied.none { sameName(rowName(it), rowName(old)) } }
+            }
             when {
                 name == "headers" && isType(element, HTTP_SAMPLER) ->
                     element.javaClass.getMethod("setNativeHeaders", List::class.java).invoke(element, rows)

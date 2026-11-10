@@ -65,7 +65,9 @@ class AiPromptsTest {
     void everyTemplateRendersWithoutUnresolvedTokens(String template) {
         String rendered = AiPrompts.render(template, ALL_TOKENS);
         assertFalse(rendered.isBlank(), template + " rendered empty");
-        assertFalse(rendered.contains("{{"), () -> template + " left an unresolved token: " + firstToken(rendered));
+        // {{node.x}} is batch template syntax the agent is told about, not a prompt placeholder.
+        assertFalse(rendered.replace("{{node.", "").contains("{{"),
+                () -> template + " left an unresolved token: " + firstToken(rendered));
         // The templates are no longer String.format inputs; stray specifiers would be a bad port.
         assertFalse(rendered.contains("%s") || rendered.contains("%d"),
                 template + " still contains a format specifier");

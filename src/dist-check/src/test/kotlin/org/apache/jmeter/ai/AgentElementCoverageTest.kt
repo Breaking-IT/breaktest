@@ -89,6 +89,18 @@ class AgentElementCoverageTest : JMeterTestCase() {
                 assertEquals("\${slug}", read.path("tables").path("arguments")[0].path("value").asText())
                 assertEquals("application/json", read.path("tables").path("headers")[0].path("value").asText())
 
+                // Adding a header to every request keeps the headers each request already has.
+                call("add_http_request", """{"url":"https://shop.example/api/cart","targetNodeId":"$group"}""")
+                val batch = call(
+                    "batch_open_plan",
+                    """{"steps":[{"tool":"configure_element_open_plan","forEach":{"type":"sampler","underNodeId":"$group"},
+                       "arguments":{"tableMode":"upsert","tables":{"headers":[{"name":"X-Tenant","value":"{{node.name}}"}]}}}]}""",
+                ).path("results")[0].path("result")
+                assertEquals(2, batch.path("succeeded").asInt(), batch.toString())
+                val first = call("get_element_open_plan", """{"targetNodeId":"${request.path("nodeId").asText()}"}""")
+                    .path("tables").path("headers").map { it.path("name").asText() to it.path("value").asText() }
+                assertEquals(listOf("Accept" to "application/json", "X-Tenant" to "/api/products"), first)
+
                 val auth = call(
                     "add_element_open_plan",
                     """{"elementId":"org.apache.jmeter.protocol.http.gui.AuthPanel","targetNodeId":"$group","rawLists":{"AuthManager.auth_list":[

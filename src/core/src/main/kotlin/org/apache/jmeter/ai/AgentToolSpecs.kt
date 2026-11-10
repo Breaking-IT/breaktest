@@ -84,7 +84,13 @@ public object AgentToolSpecs {
                 "node id and \"@name.field\" a field of its result. Stops at the first failing step " +
                 "unless stopOnError=false; steps already applied stay applied and remain undoable. " +
                 "Edit steps return only their node id and path (detail=full returns everything); read " +
-                "steps return their full result. Use this for every multi-step edit instead of one call per node.",
+                "steps return their full result. A step with forEach (a filter: type, className, " +
+                "classNameContains, name, nameContains, underNodeId or underNodePath, plus staticAssets " +
+                "include|exclude|only, includeDisabled, maxMatches) runs its tool once for every matching " +
+                "node as one undo step: the node is the target unless the arguments name one, \"@node\" is " +
+                "its id, and {{node.name}}, {{node.treePath}}, {{node.parentId}} or {{node.<setting>}} such " +
+                "as {{node.path}} or {{node.domain}} fill in its values. Nodes inside a disabled ancestor are " +
+                "skipped. Use forEach for every \"on all X\" edit instead of one step per node.",
             mapOf("steps" to "array[object]", "stopOnError" to "boolean", "detail" to "string"),
             listOf("steps"),
         ),

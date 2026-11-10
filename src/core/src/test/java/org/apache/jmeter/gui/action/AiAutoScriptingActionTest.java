@@ -89,7 +89,8 @@ class AiAutoScriptingActionTest {
             assertTrue(prompt.contains("plain final reply ends it permanently"));
             assertTrue(prompt.contains("no markdown tables"));
             assertTrue(prompt.contains("Do not read, use, update or create legacy BreakTest AI Knowledge"));
-            assertFalse(prompt.contains("{{"));
+            // {{node.x}} is batch template syntax the agent is told about, not a prompt placeholder.
+            assertFalse(prompt.matches("(?s).*\\{\\{[A-Z_]+}}.*"));
             assertTrue(prompt.length() < renderedPrompt("CODEX").length());
         });
     }

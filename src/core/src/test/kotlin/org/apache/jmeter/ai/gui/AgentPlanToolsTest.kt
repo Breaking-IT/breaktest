@@ -388,6 +388,80 @@ class AgentPlanToolsTest : JMeterTestCase() {
         assertEquals(null, field.get(BreakTestAgentGuiService), "a new AI run starts without a baseline")
     }
 
+    private fun config(name: String, parent: JMeterTreeNode): JMeterTreeNode =
+        add(
+            ConfigTestElement().apply {
+                this.name = name
+                setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.config.gui.SimpleConfigGui")
+                setProperty(TestElement.TEST_CLASS, ConfigTestElement::class.java.name)
+            },
+            parent,
+        )
+
+    @Test
+    fun `forEach edits every matching node with per-node values and skips disabled scopes`() {
+        val second = config("Checkout", group)
+        val backup = add(org.apache.jmeter.control.GenericController().apply { name = "Old copy" }, group)
+        val hidden = config("Old cart", backup)
+        backup.isEnabled = false
+
+        val result = call(
+            "batch_open_plan",
+            """{"steps":[{"tool":"configure_element_open_plan","forEach":{"className":"ConfigTestElement"},
+               "arguments":{"rawProperties":{"label":"{{node.name}} in {{node.parentName}}"}}}]}""",
+        ).path("results")[0].path("result")
+        assertEquals(2, result.path("matched").asInt(), result.toString())
+        assertEquals(2, result.path("succeeded").asInt())
+        assertEquals("Open cart in Shoppers", request.testElement.getPropertyAsString("label"))
+        assertEquals("Checkout in Shoppers", second.testElement.getPropertyAsString("label"))
+        assertEquals("", hidden.testElement.getPropertyAsString("label"), "a node in a disabled scope is left alone")
+
+        val withDisabled = call(
+            "batch_open_plan",
+            """{"steps":[{"tool":"set_enabled_open_plan","forEach":{"name":"Old cart","includeDisabled":true},
+               "arguments":{"enabled":false}}]}""",
+        ).path("results")[0].path("result")
+        assertEquals(1, withDisabled.path("matched").asInt())
+        assertFalse(hidden.isEnabled)
+    }
+
+    @Test
+    fun `forEach reads return their results and refuse an unfiltered or oversized match`() {
+        config("Checkout", group)
+        val read = call(
+            "batch_open_plan",
+            """{"steps":[{"tool":"get_element_open_plan","forEach":{"className":"ConfigTestElement"}}]}""",
+        ).path("results")[0].path("result")
+        assertEquals(listOf("Open cart", "Checkout"), read.path("results").map { it.path("result").path("properties").path("name").asText() })
+
+        val unfiltered = call("batch_open_plan", """{"steps":[{"tool":"get_element_open_plan","forEach":{}}]}""")
+        assertTrue(unfiltered.path("results")[0].path("error").asText().contains("needs at least one filter"), unfiltered.toString())
+        val oversized = call(
+            "batch_open_plan",
+            """{"steps":[{"tool":"get_element_open_plan","forEach":{"className":"ConfigTestElement","maxMatches":1}}]}""",
+        )
+        assertTrue(oversized.path("results")[0].path("error").asText().contains("matched 2 nodes"), oversized.toString())
+    }
+
+    @Test
+    fun `table rows can be appended, upserted and removed without rewriting the table`() {
+        val path = "Plan / Shoppers / Variables"
+        fun rows() = (variables.testElement as Arguments).argumentsAsMap
+        call("configure_element_open_plan", """{"targetNodePath":"$path","tableMode":"append","tables":{"arguments":[{"name":"tenant","value":"acme"}]}}""")
+        assertEquals(mapOf("host" to "shop.example", "tenant" to "acme"), rows())
+        call(
+            "configure_element_open_plan",
+            """{"targetNodePath":"$path","tableMode":"upsert","tables":{"arguments":[{"name":"host","value":"test.example"},{"name":"port","value":"8443"}]}}""",
+        )
+        assertEquals(mapOf("host" to "test.example", "tenant" to "acme", "port" to "8443"), rows())
+        call("configure_element_open_plan", """{"targetNodePath":"$path","tableMode":"remove","tables":{"arguments":[{"name":"tenant"}]}}""")
+        assertEquals(mapOf("host" to "test.example", "port" to "8443"), rows())
+        val bad = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            call("configure_element_open_plan", """{"targetNodePath":"$path","tableMode":"merge","tables":{"arguments":[]}}""")
+        }
+        assertTrue(bad.message!!.contains("tableMode"), bad.message)
+    }
+
     @Test
     fun `scoped search reports node names rooted at the plan`() {
         val match = call("search_open_plan_values", """{"query":"/cart/42","scopeNodePath":"Plan / Shoppers"}""")

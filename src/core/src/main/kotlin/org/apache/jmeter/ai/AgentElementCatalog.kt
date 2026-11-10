@@ -107,7 +107,12 @@ public object AgentElementCatalog {
         runCatching { element.javaClass.getMethod(property.writeMethod.name, String::class.java) }.isSuccess
 
     /** Return a fully configured clone; failed setters never partially mutate the live element. */
-    public fun configured(element: TestElement, values: JsonNode, tables: JsonNode? = null): TestElement {
+    public fun configured(
+        element: TestElement,
+        values: JsonNode,
+        tables: JsonNode? = null,
+        tableMode: String? = null,
+    ): TestElement {
         require(values.isObject) { "properties must be an object" }
         val copy = (element.clone() as TestElement).also(TestBeanHelper::prepare)
         val descriptors = properties(copy).associateBy { it.name }
@@ -145,7 +150,7 @@ public object AgentElementCatalog {
             property.writeMethod.invoke(copy, converted)
             persistBeanProperty(copy, property, converted)
         }
-        if (tables != null) AgentElementTables.configure(copy, tables)
+        if (tables != null) AgentElementTables.configure(copy, tables, AgentElementTables.Mode.of(tableMode))
         return copy
     }
 
