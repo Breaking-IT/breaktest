@@ -513,6 +513,7 @@ public object BreakTestAgentGuiService {
         restoredGui.setTestPlanFile(backup.originalPlanPath)
         restoredGui.setDirty(backup.wasDirty)
         NodeIds.clear()
+        forgetValidationBaseline()
         postActivity(
             "warn",
             "Restored open plan from AI pre-run backup",
@@ -5704,6 +5705,24 @@ public object BreakTestAgentGuiService {
     /** Samples of the most recent validation run, top level only; sub-results hang below them. */
     internal fun lastValidationSamples(): List<AgentSampleSummary>? = lastValidation?.samples
 
+    /**
+     * The last summary this agent was actually given. A repeat validation only shrinks to
+     * "unchanged" against that, so a new run, or a run on another plan, starts with a full summary.
+     */
+    @Volatile
+    private var summaryBaseline: LastValidationSnapshot? = null
+
+    /** Called when an AI run starts; its agent has not seen any earlier validation. */
+    @JvmStatic
+    public fun beginAgentRun() {
+        summaryBaseline = null
+    }
+
+    /** The plan was replaced (opened, new or restored), so earlier validations describe another plan. */
+    internal fun forgetValidationBaseline() {
+        summaryBaseline = null
+    }
+
     private fun validateOpenPlan(arguments: JsonNode): Any {
         val (tree, scopePath) = validationTreeWithScope(arguments)
         val report = BreakTestAgent().inspectAndValidate(
@@ -5716,7 +5735,9 @@ public object BreakTestAgentGuiService {
         lastValidation = LastValidationSnapshot(scopePath, System.currentTimeMillis(), report.validation.samples)
         return if (arguments.path("summary").asBoolean(false)) {
             val changes = AiAutoScriptingLogWindow.changes()
-            AgentReportCompactor.summaryForRepair(report, previous?.takeIf { it.scopeNodePath == scopePath }?.samples) +
+            val baseline = summaryBaseline?.takeIf { it.scopeNodePath == scopePath }?.samples
+            summaryBaseline = lastValidation
+            AgentReportCompactor.summaryForRepair(report, baseline) +
                 // Saves the separate change-list call before the final report.
                 mapOf("agentChanges" to mapOf("count" to changes.size, "byType" to changes.groupingBy { it["type"] }.eachCount()))
         } else if (arguments.path("compact").asBoolean(false)) {

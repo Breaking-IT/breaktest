@@ -132,6 +132,7 @@ public class AiAutoScriptingAction extends AbstractAction {
             BreakTestAgentGuiService.start();
             // The backup comes first, so reverting the run also removes the copy made here.
             String backupPath = BreakTestAgentGuiService.createBackupForOpenPlan();
+            BreakTestAgentGuiService.beginAgentRun();
             if (request.keepCopy() && request.threadGroupNode() != null) {
                 String copyName = BreakTestAgentGuiService.keepThreadGroupCopy(request.threadGroupPath());
                 postActivity("Kept a disabled copy of the thread group: " + copyName);

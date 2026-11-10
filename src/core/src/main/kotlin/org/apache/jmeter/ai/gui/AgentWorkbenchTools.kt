@@ -401,6 +401,7 @@ internal object AgentWorkbenchTools {
             "The open plan has unsaved changes; save it with save_open_plan or pass discardChanges=true"
         }
         gui.clearTestPlan()
+        service.forgetValidationBaseline()
         gui.treeListener.jTree.setSelectionRow(0)
         FileServer.getFileServer().setScriptName(null)
         ActionRouter.getInstance().actionPerformed(event(ActionNames.ADD_ALL))

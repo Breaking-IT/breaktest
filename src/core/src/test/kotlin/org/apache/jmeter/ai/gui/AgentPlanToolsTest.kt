@@ -374,6 +374,18 @@ class AgentPlanToolsTest : JMeterTestCase() {
     }
 
     @Test
+    fun `a new run forgets the validation the agent saw before`() {
+        val field = BreakTestAgentGuiService::class.java.getDeclaredField("summaryBaseline").apply { isAccessible = true }
+        val snapshotClass = BreakTestAgentGuiService::class.java.declaredClasses.single { it.simpleName == "LastValidationSnapshot" }
+        val constructor = snapshotClass.declaredConstructors.single().apply { isAccessible = true }
+        fun remember() = field.set(BreakTestAgentGuiService, constructor.newInstance("Plan / Shoppers", 0L, emptyList<Any>()))
+
+        remember()
+        BreakTestAgentGuiService.beginAgentRun()
+        assertEquals(null, field.get(BreakTestAgentGuiService), "a new AI run starts without a baseline")
+    }
+
+    @Test
     fun `scoped search reports node names rooted at the plan`() {
         val match = call("search_open_plan_values", """{"query":"/cart/42","scopeNodePath":"Plan / Shoppers"}""")
             .path("matches").single()

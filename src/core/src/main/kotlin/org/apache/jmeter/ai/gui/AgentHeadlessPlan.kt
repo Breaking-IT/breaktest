@@ -57,6 +57,7 @@ public object AgentHeadlessPlan {
             count = BreakTestAgentGuiService.allTreeNodes(model.testPlan).size
         }
         open = true
+        BreakTestAgentGuiService.forgetValidationBaseline()
         return count
     }
 
