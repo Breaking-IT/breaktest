@@ -238,7 +238,7 @@ public class AgentPlanSummarizer(
             return this
         }
         if (limit == 0) {
-            return "... [DSL omitted $length chars]"
+            return "... [DSL omitted $length chars; pass includeDsl=true, or use get_plan_outline for the structure]"
         }
         return take(limit) + "\n... [DSL truncated ${length - limit} chars]"
     }

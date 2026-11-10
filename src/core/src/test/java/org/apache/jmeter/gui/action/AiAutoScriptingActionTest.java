@@ -83,13 +83,14 @@ class AiAutoScriptingActionTest {
             assertTrue(prompt.contains("unless the user explicitly says not to run/test"));
             assertTrue(prompt.contains("ignoreTimers=false"));
             assertTrue(prompt.contains("Restore every temporary endpoint/configuration override"));
-            assertTrue(prompt.contains("Use $breaktest-jmeter-repair"));
+            assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"));
             assertTrue(prompt.contains("Always pass threadGroupName or scopeNodePath"));
             assertTrue(prompt.contains("only when the user explicitly requests a global edit"));
             assertTrue(prompt.contains("plain final reply ends it permanently"));
             assertTrue(prompt.contains("no markdown tables"));
             assertTrue(prompt.contains("Do not read, use, update or create legacy BreakTest AI Knowledge"));
-            assertFalse(prompt.contains("{{"));
+            // {{node.x}} is batch template syntax the agent is told about, not a prompt placeholder.
+            assertFalse(prompt.matches("(?s).*\\{\\{[A-Z_]+}}.*"));
             assertTrue(prompt.length() < renderedPrompt("CODEX").length());
         });
     }
@@ -475,13 +476,6 @@ class AiAutoScriptingActionTest {
         assertFalse(hasRepairBlocker("Status: completed", "Remaining blocker: final validation could not be completed."));
     }
 
-    @Test
-    void fileBackedRepairTargetsActivePlanInsteadOfBackupOrClone() {
-        assertEquals("", AiAutoScriptingAction.repairTargetPath(false, "/plans/current.jmx"));
-        assertEquals(new java.io.File("/plans/current.jmx").getAbsolutePath(),
-                AiAutoScriptingAction.repairTargetPath(true, "/plans/current.jmx"));
-    }
-
     @ParameterizedTest
     @CsvSource({"PI,--thinking,low", "CLAUDE,--effort,low", "OPENCODE,--variant,low",
         "CODEX,-c,model_reasoning_effort=\"low\""})
@@ -495,9 +489,9 @@ class AiAutoScriptingActionTest {
             Method withThinking = request.getClass().getDeclaredMethod("withThinkingLevel", levelClass);
             withThinking.setAccessible(true);
             request = withThinking.invoke(request, enumConstant(levelClass, "LOW"));
-            Method withPaths = request.getClass().getDeclaredMethod("withPaths", String.class, String.class);
-            withPaths.setAccessible(true);
-            request = withPaths.invoke(request, "/backup.jmx", "/plan.jmx");
+            Method withBackupPath = request.getClass().getDeclaredMethod("withBackupPath", String.class);
+            withBackupPath.setAccessible(true);
+            request = withBackupPath.invoke(request, "/backup.jmx");
             List<String> command = commandFor(request);
             assertTrue(java.util.stream.IntStream.range(0, command.size() - 1)
                     .anyMatch(i -> command.get(i).equals(flag) && command.get(i + 1).equals(value)), command.toString());
@@ -573,9 +567,9 @@ class AiAutoScriptingActionTest {
             Method withThinking = request.getClass().getDeclaredMethod("withThinkingLevel", nestedClass("AiThinkingLevel"));
             withThinking.setAccessible(true);
             request = withThinking.invoke(request, enumConstant(nestedClass("AiThinkingLevel"), "LOW"));
-            Method withPaths = request.getClass().getDeclaredMethod("withPaths", String.class, String.class);
-            withPaths.setAccessible(true);
-            request = withPaths.invoke(request, "/backup.jmx", "/plan.jmx");
+            Method withBackupPath = request.getClass().getDeclaredMethod("withBackupPath", String.class);
+            withBackupPath.setAccessible(true);
+            request = withBackupPath.invoke(request, "/backup.jmx");
             List<String> command = commandFor(request);
             assertEquals(1, java.util.Collections.frequency(command, "--model"));
             assertEquals("omlx/local-model", command.get(command.indexOf("--model") + 1));
@@ -810,7 +804,7 @@ class AiAutoScriptingActionTest {
             assertTrue(instructions.bridgeCall().contains("--arguments-file"));
             assertTrue(instructions.bridgeCall().contains("overwrite that file before every bridge call"));
             assertTrue(instructions.startActivity().contains("agent_activity --arguments-file"));
-            assertTrue(instructions.startActivity().contains("Starting AI Auto Scripting"));
+            assertTrue(instructions.startActivity().contains("The start is already announced"));
         } finally {
             JMeterUtils.setJMeterHome(previousHome);
             if (previousTool == null) {
@@ -822,18 +816,19 @@ class AiAutoScriptingActionTest {
     }
 
     @Test
-    void codexPromptUsesSkillFirstWithImmediateBridgeFallback() throws Exception {
+    void codexPromptDoesNotInvokeTheRepairSkill() throws Exception {
         withDefaultPrompt(() -> {
             String prompt = renderedPrompt("CODEX");
-            assertTrue(prompt.contains("Use $breaktest-jmeter-repair when it is available"));
-            assertTrue(prompt.contains("use the bundled bridge below immediately"));
+            assertFalse(prompt.contains("$breaktest-jmeter-repair"));
+            assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"));
+            assertTrue(prompt.contains("authoritative BreakTest tool interface"));
         });
     }
 
     @Test
     void otherHarnessPromptsUseBundledBridgeWithoutLookingForCodexSkillOrMcpRegistration() throws Exception {
         withDefaultPrompt(() -> {
-            for (String tool : new String[] {"CLAUDE", "CURSOR", "GEMINI", "PI", "OPENCODE", "COPILOT"}) {
+            for (String tool : new String[] {"CODEX", "CLAUDE", "CURSOR", "GEMINI", "PI", "OPENCODE", "COPILOT"}) {
                 for (String mode : new String[] {"FULL_SCRIPT_REPAIR", "SPECIFIC_REQUEST"}) {
                     Object request = newRunRequest(tool);
                     var field = request.getClass().getDeclaredField("mode");
@@ -988,7 +983,6 @@ class AiAutoScriptingActionTest {
         Class<?> requestClass = nestedClass("AiRunRequest");
         Class<?> toolClass = nestedClass("AiTool");
         Class<?> modeClass = nestedClass("AiRunMode");
-        Class<?> editSurfaceClass = nestedClass("AiEditSurface");
         Object tool = enumConstant(toolClass, toolName);
         Constructor<?> constructor = null;
         for (Constructor<?> candidate : requestClass.getDeclaredConstructors()) {
@@ -1005,7 +999,7 @@ class AiAutoScriptingActionTest {
                 tool,
                 null,
                 modeClass.getEnumConstants()[0],
-                editSurfaceClass.getEnumConstants()[0],
+                false,
                 false,
                 60,
                 0,

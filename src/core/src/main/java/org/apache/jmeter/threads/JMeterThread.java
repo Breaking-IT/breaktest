@@ -47,6 +47,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import org.apache.jmeter.ai.AgentRunStats;
 import org.apache.jmeter.control.Controller;
 import org.apache.jmeter.control.ForkController;
 import org.apache.jmeter.control.ForkController.ErrorAction;
@@ -2611,6 +2612,9 @@ public class JMeterThread implements Runnable, Interruptible {
 
     private void notifyListeners(List<SampleListener> listeners, SampleResult result, int metadataRequirements,
             boolean transaction, SampleResult startedSample) {
+        if (AgentRunStats.isEnabled()) {
+            AgentRunStats.record(result, transaction);
+        }
         if (needsJMeterVariables(metadataRequirements)) {
             setJMeterVariables(result, snapshotVariables(threadVars));
         }

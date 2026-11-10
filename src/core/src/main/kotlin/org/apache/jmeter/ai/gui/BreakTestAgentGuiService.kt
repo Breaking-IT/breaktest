@@ -25,7 +25,9 @@ import org.apache.jmeter.ai.AgentLiteralIndex
 import org.apache.jmeter.ai.AgentRegexSupport
 import org.apache.jmeter.ai.AgentReportCompactor
 import org.apache.jmeter.ai.AgentRunOptions
+import org.apache.jmeter.ai.AgentRunStats
 import org.apache.jmeter.ai.AgentSampleSummary
+import org.apache.jmeter.ai.AgentToolSpecs
 import org.apache.jmeter.ai.AgentWebSocketSupport
 import org.apache.jmeter.ai.BreakTestAgent
 import org.apache.jmeter.ai.edit.BoundaryCorrelationRequest
@@ -38,7 +40,6 @@ import org.apache.jmeter.ai.edit.TestPlanEditor
 import org.apache.jmeter.control.Controller
 import org.apache.jmeter.control.TransactionController
 import org.apache.jmeter.gui.GuiPackage
-import org.apache.jmeter.gui.action.ActionNames
 import org.apache.jmeter.gui.action.Copy
 import org.apache.jmeter.gui.action.Load
 import org.apache.jmeter.gui.tree.JMeterTreeNode
@@ -97,8 +98,10 @@ public object BreakTestAgentGuiService {
     private const val MAX_REPAIR_ACTION_ROLLBACK_UNDOS = 25
     /** Above this many changed nodes a scoped replacement stays a single summary row. */
     private const val MAX_ITEMISED_REPLACEMENT_NODES = 3
-    private const val MAX_ACTIVE_FILE_REFRESHES_PER_RUN = 1
     private const val TEST_PLAN_USER_DEFINED_VARIABLES = "TestPlan.user_defined_variables"
+
+    /** On a kept copy: the id of the thread group it is a copy of. */
+    private const val REPAIR_COPY_OF = "BreakTest.aiRepairCopyOf"
     private val backupTimeFormat = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss")
 
     private val log = LoggerFactory.getLogger(BreakTestAgentGuiService::class.java)
@@ -156,7 +159,6 @@ public object BreakTestAgentGuiService {
     private var token: String? = null
     private val backedUpPlanKeys = mutableSetOf<String>()
     private var latestOpenPlanBackup: OpenPlanBackup? = null
-    private var activeFileRefreshesThisRun = 0
     private val repairActionSnapshots = object : LinkedHashMap<String, Map<String, Map<String, Any?>>>() {
         override fun removeEldestEntry(
             eldest: MutableMap.MutableEntry<String, Map<String, Map<String, Any?>>>?,
@@ -197,6 +199,7 @@ public object BreakTestAgentGuiService {
             return
         }
         closeListeners()
+        AgentRunStats.setEnabled(true)
         val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
         val unixServer = openUnixServer()
         val serviceToken = UUID.randomUUID().toString()
@@ -292,7 +295,9 @@ public object BreakTestAgentGuiService {
                 postActivity("started", "MCP tool `$tool` started", details = "args#$argumentDigest")
             }
             val argumentBytes = jsonByteSize(arguments)
-            val result = handleTool(tool, arguments)
+            val changedOutside = planChangedSinceLastCall()
+            val result = handleToolInProcess(tool, arguments)
+            rememberPlanRevision()
             val resultBytes = jsonByteSize(result)
             if (tool != "agent_activity") {
                 val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000
@@ -303,8 +308,9 @@ public object BreakTestAgentGuiService {
                         "result=${resultBytes.toHumanBytes()}",
                 )
             }
-            mapOf("ok" to true, "result" to result)
+            mapOf("ok" to true, "result" to result, "planChangedOutside" to changedOutside)
         } catch (e: Exception) {
+            rememberPlanRevision()
             log.warn("BreakTest Agent GUI tool '{}' failed", tool, e)
             if (tool != "unknown" && tool != "agent_activity") {
                 postActivity("failed", "MCP tool `$tool` failed: ${e.message ?: e}")
@@ -314,7 +320,62 @@ public object BreakTestAgentGuiService {
         return mapper.writeValueAsString(response)
     }
 
-    private fun handleTool(tool: String, arguments: JsonNode): Any =
+    /** What an agent may do: `read`, `edit` (also validation runs) or `run` (also real test runs, the default). */
+    private fun permittedTier(): Int =
+        when (JMeterUtils.getPropDefault("breaktest.agent.permissions", "run").trim().lowercase()) {
+            "read" -> AgentToolSpecs.TIER_READ
+            "edit" -> AgentToolSpecs.TIER_EDIT
+            else -> AgentToolSpecs.TIER_RUN
+        }
+
+    internal fun requirePermitted(tool: String) {
+        val needed = AgentToolSpecs.tier(tool)
+        require(needed <= permittedTier()) {
+            "Tool '$tool' is not allowed: BreakTest is set to breaktest.agent.permissions=" +
+                JMeterUtils.getPropDefault("breaktest.agent.permissions", "run") +
+                ", and this tool needs '${AgentToolSpecs.tierName(needed)}'"
+        }
+    }
+
+    /** Entry point for every tool call, also used when the plan is open without a GUI window. */
+    @JvmStatic
+    public fun handleToolInProcess(tool: String, arguments: JsonNode): Any {
+        requirePermitted(tool)
+        return handleTool(tool, arguments)
+    }
+
+    private val planRevision = java.util.concurrent.atomic.AtomicLong()
+    private var observedModel: org.apache.jmeter.gui.tree.JMeterTreeModel? = null
+    private var revisionAfterLastCall = -1L
+    private val revisionListener = object : javax.swing.event.TreeModelListener {
+        override fun treeNodesChanged(e: javax.swing.event.TreeModelEvent?) { planRevision.incrementAndGet() }
+        override fun treeNodesInserted(e: javax.swing.event.TreeModelEvent?) { planRevision.incrementAndGet() }
+        override fun treeNodesRemoved(e: javax.swing.event.TreeModelEvent?) { planRevision.incrementAndGet() }
+        override fun treeStructureChanged(e: javax.swing.event.TreeModelEvent?) { planRevision.incrementAndGet() }
+    }
+
+    @Synchronized
+    private fun currentPlanRevision(): Long {
+        val model = GuiPackage.getInstance()?.treeModel
+        if (model != null && model !== observedModel) {
+            observedModel?.removeTreeModelListener(revisionListener)
+            model.addTreeModelListener(revisionListener)
+            observedModel = model
+        }
+        return planRevision.get()
+    }
+
+    /** True when the tree changed between two agent calls, so the agent's picture of the plan is stale. */
+    private fun planChangedSinceLastCall(): Boolean =
+        currentPlanRevision().let { revisionAfterLastCall != -1L && it != revisionAfterLastCall }
+
+    private fun rememberPlanRevision() {
+        revisionAfterLastCall = currentPlanRevision()
+    }
+
+    // Tests reach these by their plain JVM names.
+    @JvmName("handleTool")
+    internal fun handleTool(tool: String, arguments: JsonNode): Any =
         when (tool) {
             "status" -> guiCall {
                 val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
@@ -324,7 +385,6 @@ public object BreakTestAgentGuiService {
                     "selectedNode" to gui.treeListener.currentNode?.name,
                 )
             }
-            "refresh_open_plan_from_file" -> refreshOpenPlanFromFile(arguments)
             "restore_open_plan_from_backup" -> restoreOpenPlanFromBackup(arguments)
             "inspect_open_plan" -> BreakTestAgent().inspect(
                 currentPlanTree(),
@@ -399,7 +459,8 @@ public object BreakTestAgentGuiService {
             "move_node_open_plan" -> moveNodeOpenPlan(arguments)
             "delete_node_open_plan" -> deleteNodeOpenPlan(arguments)
             "move_think_times_to_transactions_open_plan" -> moveThinkTimesToTransactionsOpenPlan(arguments)
-            else -> throw IllegalArgumentException("Unknown GUI agent tool: $tool")
+            else -> AgentPlanTools.handle(tool, arguments)
+                ?: throw IllegalArgumentException("Unknown GUI agent tool: $tool")
         }
 
     @JvmStatic
@@ -407,7 +468,6 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             gui.updateCurrentNode()
-            activeFileRefreshesThisRun = 0
             val backupFile = backupFileFor(gui.testPlanFile)
             backupFile.parentFile?.mkdirs()
             backupFile.outputStream().use { SaveService.saveTree(convertTree(gui.treeModel.testPlan), it) }
@@ -423,147 +483,6 @@ public object BreakTestAgentGuiService {
                 details = backupFile.path,
             )
             backupFile.path
-        }
-
-    /** Reloads the active JMX after file-backed AI repair has finished. */
-    @JvmStatic
-    public fun reloadOpenPlanAfterFileRepair(path: String): Map<String, Any?> {
-        val arguments = mapper.createObjectNode()
-            .put("path", path)
-            .put("force", true)
-        return refreshOpenPlanFromFile(arguments)
-    }
-
-    @JvmStatic
-    public fun createRepairCloneForOpenPlan(): String? =
-        guiCall {
-            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            gui.updateCurrentNode()
-            val cloneFile = repairCloneFileFor(gui.testPlanFile)
-            cloneFile.parentFile?.mkdirs()
-            cloneFile.outputStream().use { SaveService.saveTree(convertTree(gui.treeModel.testPlan), it) }
-            postActivity(
-                "info",
-                "Created AI repair clone from current open GUI state",
-                details = "${cloneFile.path} (includes current in-memory edits)",
-            )
-            cloneFile.path
-        }
-
-    @JvmStatic
-    public fun mergeRepairCloneIntoOpenPlan(repairTargetPath: String, threadGroupPath: String): Map<String, Any?> =
-        guiCall {
-            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val repairFile = File(repairTargetPath)
-            require(repairFile.isFile) {
-                "Repair target does not exist: ${repairFile.path}"
-            }
-            gui.updateCurrentNode()
-            ensureBackupForOpenPlan(gui)
-
-            val repairedTree = SaveService.loadTree(repairFile)
-            val repairedThreadGroup = findThreadGroupInTree(repairedTree, threadGroupPath)
-            val repairedSubTree = repairedTree.findSubTree(repairedThreadGroup)
-                ?: throw IllegalStateException("Could not locate repaired Thread Group subtree for '$threadGroupPath'")
-            val activeThreadGroup = selectThreadGroup(gui, threadGroupPath)
-            val parent = activeThreadGroup.parent as? JMeterTreeNode
-                ?: throw IllegalStateException("Selected Thread Group has no parent")
-
-            gui.beginUndoTransaction()
-            try {
-                val generatedName = uniqueGeneratedThreadGroupName(gui, repairedThreadGroup.name.orEmpty())
-                repairedThreadGroup.name = generatedName
-                mergeUserDefinedVariables(gui, repairedTree)
-                // Insert the subtree without JMeterTreeModel.addSubTree: that path runs
-                // every element through the shared per-class GUI panels and flushes them
-                // into the currently selected node, which renamed the user's original
-                // (still selected) Thread Group to the *_AI_Generated name.
-                val generatedNode = insertDetachedNode(gui, parent, repairedThreadGroup)
-                insertDetachedSubTree(gui, generatedNode, repairedSubTree)
-                gui.treeModel.nodeStructureChanged(parent)
-                markEdited(gui, parent, generatedNode)
-                postActivity(
-                    "info",
-                    "Merged AI generated Thread Group",
-                    details = "${repairFile.path} -> ${nodePath(generatedNode)}",
-                )
-                recordChange(
-                    "Merged repair",
-                    generatedNode,
-                    "Added AI generated Thread Group",
-                    "Source: ${repairFile.path}",
-                )
-                mapOf(
-                    "merged" to true,
-                    "sourcePath" to repairFile.path,
-                    "threadGroupName" to generatedName,
-                    "threadGroupNodePath" to nodePath(generatedNode),
-                )
-            } finally {
-                gui.endUndoTransaction()
-            }
-        }
-
-    private fun refreshOpenPlanFromFile(arguments: JsonNode): Map<String, Any?> =
-        guiCall {
-            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
-            val current = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before it can be refreshed")
-            val requested = arguments.path("path").optionalText()?.takeIf { it.isNotBlank() } ?: current
-            val currentFile = File(current).canonicalFile
-            val requestedFile = File(requested).canonicalFile
-            require(currentFile == requestedFile) {
-                "Refusing to refresh a different JMX. Current open plan is ${currentFile.path}, requested ${requestedFile.path}"
-            }
-            require(requestedFile.isFile) {
-                "Cannot refresh open plan because file does not exist: ${requestedFile.path}"
-            }
-            val force = arguments.path("force").asBoolean(false)
-            if (!force && activeFileRefreshesThisRun >= MAX_ACTIVE_FILE_REFRESHES_PER_RUN) {
-                postActivity(
-                    "warn",
-                    "Skipped active JMX refresh because this AI run already refreshed the GUI once",
-                    details = "Continuing against the saved active JMX file without another expensive GUI reload: ${requestedFile.path}.",
-                )
-                return@guiCall mapOf(
-                    "refreshed" to false,
-                    "skipped" to true,
-                    "reason" to "refresh_budget_exhausted",
-                    "path" to requestedFile.path,
-                    "refreshesThisRun" to activeFileRefreshesThisRun,
-                )
-            }
-            gui.updateCurrentNode()
-            if (gui.isDirty) {
-                postActivity(
-                    "warn",
-                    "Skipped active JMX refresh because the GUI has unsaved changes",
-                    details = "Save or discard the current GUI edits before refreshing from ${requestedFile.path}.",
-                )
-                return@guiCall mapOf(
-                    "refreshed" to false,
-                    "skipped" to true,
-                    "reason" to "gui_dirty",
-                    "path" to requestedFile.path,
-                )
-            }
-            Load.loadProjectFile(
-                ActionEvent(BreakTestAgentGuiService::class.java, ActionEvent.ACTION_PERFORMED, ActionNames.OPEN),
-                requestedFile,
-                false,
-            )
-            activeFileRefreshesThisRun++
-            gui.setDirty(false)
-            postActivity(
-                "info",
-                "Refreshed open plan from active JMX file",
-                details = "${requestedFile.path} (refresh $activeFileRefreshesThisRun/$MAX_ACTIVE_FILE_REFRESHES_PER_RUN)",
-            )
-            mapOf(
-                "refreshed" to true,
-                "path" to requestedFile.path,
-                "refreshesThisRun" to activeFileRefreshesThisRun,
-            )
         }
 
     private fun restoreOpenPlanFromBackup(arguments: JsonNode): Map<String, Any?> =
@@ -584,17 +503,17 @@ public object BreakTestAgentGuiService {
         }
         // Parse before touching the live GUI so a corrupt or incomplete backup
         // can never replace the current in-memory plan.
-        SaveService.loadTree(backup.file)
-        Load.loadProjectFile(
-            ActionEvent(BreakTestAgentGuiService::class.java, ActionEvent.ACTION_PERFORMED, ActionNames.OPEN),
-            backup.file,
-            false,
-        )
+        val restoredTree = SaveService.loadTree(backup.file)
+        require(!JMeterUtils.isTestRunning()) { "A test is running; stop it before restoring the plan" }
+        // Insert the tree directly instead of opening the backup as a file: opening it loads in
+        // the background and then names the backup as the plan's file, so the next Save would
+        // have overwritten the backup instead of the plan.
+        Load.insertLoadedTree(ActionEvent.ACTION_PERFORMED, restoredTree)
         val restoredGui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready after backup restore")
         restoredGui.setTestPlanFile(backup.originalPlanPath)
         restoredGui.setDirty(backup.wasDirty)
         NodeIds.clear()
-        activeFileRefreshesThisRun = 0
+        forgetValidationBaseline()
         postActivity(
             "warn",
             "Restored open plan from AI pre-run backup",
@@ -612,28 +531,16 @@ public object BreakTestAgentGuiService {
     private fun listRecordedHarExchangesOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            // A recording imported into a plan that was never saved is still held in memory,
+            // so an unsaved plan is looked up without a file instead of being refused.
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: return@guiCall mapOf(
-                    "linkedRecordingAvailable" to false,
-                    "status" to RecordedHarExchangeResolver.Status.TEST_PLAN_FILE_UNKNOWN.name,
-                    // Distinguish "this plan has no recording" from "the recording
-                    // cannot be read yet": samplers may well be linked, but a
-                    // recording is stored in the plan's archive and is only readable
-                    // once the plan has been written to disk.
-                    "diagnostic" to "The open plan has never been saved, so a linked recording cannot be " +
-                        "read from it yet. Samplers may still be linked to recorded exchanges. Report this " +
-                        "as an unsaved plan rather than as a plan without a recording, and work from " +
-                        "bounded validation evidence instead.",
-                    "recordingUnreadableReason" to "plan_not_saved",
-                    "exchanges" to emptyList<Map<String, Any?>>(),
-                )
             val bodyLimit = arguments.path("bodyLimit").asInt(600).coerceAtLeast(0)
             val maxEntries = arguments.path("maxEntries").asInt(80).coerceAtLeast(1)
             val includeStaticAssets = arguments.path("includeStaticAssets").asBoolean(false)
             val samplers = scopedSamplerNodes(gui, arguments.path("threadGroupName").optionalText())
             val exchanges = samplers
                 .mapIndexedNotNull { index, sampler ->
-                    val resolution = RecordedHarExchangeResolver.resolveFor(sampler, Path.of(testPlanFile))
+                    val resolution = RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile?.let { Path.of(it) })
                     if (!includeStaticAssets && isStaticHarRequest(resolution.requestText())) {
                         return@mapIndexedNotNull null
                     }
@@ -653,6 +560,17 @@ public object BreakTestAgentGuiService {
                     )
                 }
                 .take(maxEntries)
+            if (testPlanFile == null && exchanges.none { it["hasExchange"] == true }) {
+                return@guiCall mapOf(
+                    "linkedRecordingAvailable" to false,
+                    "status" to RecordedHarExchangeResolver.Status.TEST_PLAN_FILE_UNKNOWN.name,
+                    "diagnostic" to "The open plan has never been saved and no recording is held in memory " +
+                        "for it. Samplers may still be linked to recorded exchanges that become readable " +
+                        "once the plan is saved. Work from bounded validation evidence instead.",
+                    "recordingUnreadableReason" to "plan_not_saved",
+                    "exchanges" to emptyList<Map<String, Any?>>(),
+                )
+            }
             mapOf(
                 "linkedRecordingAvailable" to exchanges.any { it["hasExchange"] == true },
                 "testPlanFile" to testPlanFile,
@@ -667,7 +585,6 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before its linked recording can be resolved")
             val bodyLimit = arguments.path("bodyLimit").asInt(12_000).coerceAtLeast(0)
             val sampler = if (arguments.path("targetNodeId").optionalText() != null || arguments.path("targetNodePath").optionalText() != null) {
                 selectSamplerReference(gui, arguments, "target", "target")
@@ -677,7 +594,7 @@ public object BreakTestAgentGuiService {
                 arguments.path("targetSamplerLabel").optionalText(),
                 "target",
             )
-            val resolution = RecordedHarExchangeResolver.resolveFor(sampler, Path.of(testPlanFile))
+            val resolution = RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile?.let { Path.of(it) })
             mapOf(
                 "samplerLabel" to sampler.testElement.name,
                 "nodePath" to nodePath(sampler),
@@ -706,7 +623,6 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before its linked recording can be resolved")
             val query = arguments.path("query").optionalText()
             val regexText = arguments.path("regex").optionalText()
             require(query != null || regexText != null) {
@@ -719,7 +635,7 @@ public object BreakTestAgentGuiService {
             val matches = mutableListOf<Map<String, Any?>>()
             val samplers = scopedSamplerNodes(gui, arguments.path("threadGroupName").optionalText())
             for ((index, sampler) in samplers.withIndex()) {
-                val resolution = RecordedHarExchangeResolver.resolveFor(sampler, Path.of(testPlanFile))
+                val resolution = RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile?.let { Path.of(it) })
                 if (!resolution.exchange().isPresent) {
                     continue
                 }
@@ -783,7 +699,6 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before its linked recording can be resolved")
             val includeStaticAssets = arguments.path("includeStaticAssets").asBoolean(false)
             val maxCandidates = arguments.path("maxCandidates").asInt(120).coerceAtLeast(1)
             val contextChars = arguments.path("contextChars").asInt(180).coerceAtLeast(0)
@@ -912,13 +827,14 @@ public object BreakTestAgentGuiService {
             "samplerCount" to samplers.size,
             "functionalSamplerCount" to functional.size,
             "samplersTruncated" to (functional.size > 100),
-            "nodeColumns" to listOf("id", "parentId", "name", "type", "enabled"),
+            "nodeColumns" to "id|parentId|name|type, one node per line; a trailing |off marks a disabled node",
             "nodes" to functional.take(100).flatMap { it.path.filterIsInstance<JMeterTreeNode>() }
-                .filter { it.isDescendantOf(group) }.distinct().map { node ->
+                .filter { it.isDescendantOf(group) }.distinct().joinToString("\n") { node ->
                     listOf(
-                        nodeId(node), (node.parent as? JMeterTreeNode)?.takeIf { it.isDescendantOf(group) }?.let(::nodeId),
-                        node.testElement.name, node.testElement.javaClass.simpleName, node.isEnabled,
-                    )
+                        nodeId(node), (node.parent as? JMeterTreeNode)?.takeIf { it.isDescendantOf(group) }?.let(::nodeId).orEmpty(),
+                        node.testElement.name.orEmpty().replace('|', '/'),
+                        node.testElement.javaClass.simpleName.removeSuffix("Proxy").removeSuffix("Controller"),
+                    ).joinToString("|") + if (node.isEnabled) "" else "|off"
                 },
             "repairPlan" to compactPreflightPlan(gui, plan),
             "dynamicAudit" to auditDynamicRequestValuesOpenPlan(scoped.deepCopy().put("compact", true)),
@@ -937,27 +853,61 @@ public object BreakTestAgentGuiService {
             val args = mapper.valueToTree<JsonNode>(action["applyArguments"])
             val targetPath = action["targetNodePath"] as? String
             val targetId = targetPath?.let { runCatching { nodeId(selectNodeByPath(gui.treeModel.testPlan, it, "target")) }.getOrNull() }
-            val base = action.filterKeys { it in setOf("id", "kind", "type", "confidence", "fieldName", "variableName", "replacementCount", "sourceEncodingVariant", "sourceOrdering", "sourceRequestContainsLiteral") }
+            val overlapping = overlappingRepairActions(action, snapshot.values.toList())
+            val recommendation = repairRecommendation(action, overlapping)
+            // Proposals that are not meant to be applied are listed without their evidence: the
+            // packet is re-read on every model turn, and get_repair_action_open_plan has the rest.
+            if (recommendation["recommendation"] in setOf("optional", "skip")) {
+                return@map action.filterKeys { it in setOf("id", "kind", "fieldName", "variableName") } + recommendation
+            }
+            val base = action.filterKeys { it in setOf("id", "kind", "type", "confidence", "fieldName", "variableName", "replacementCount", "sourceEncodingVariant", "sourceRequestContainsLiteral") } +
+                mapOf(
+                    // The reason is the same sentence for every move; the guidance says it once.
+                    "sourceOrdering" to (action["sourceOrdering"] as? Map<*, *>)?.filterKeys { it != "reason" },
+                ).filterValues { it != null } + recommendation
             if (args.isObject) {
                 base + mapOf(
                     "sourceNodeId" to args.path("sourceNodeId").asText(), "targetNodeId" to targetId,
                     "literal" to args.path("literal").asText(), "regex" to args.path("regex").asText(),
                     "useField" to args.path("useField").asText(), "evidence" to args.path("evidence").asText(),
-                    "overlappingActionIds" to overlappingRepairActions(action, snapshot.values.toList()),
+                    "overlappingActionIds" to overlapping,
                     "alternativeSources" to mapper.valueToTree<JsonNode>(action["sourceCandidates"]).drop(1).map { alternative ->
-                        mapOf(
-                            "sourceNodeId" to alternative.path("sourceNodeId").asText(),
-                            "useField" to alternative.path("useField").asText(), "evidence" to alternative.path("evidence").asText()
-                        )
-                    }
-                )
+                        mapOf("sourceNodeId" to alternative.path("sourceNodeId").asText(), "useField" to alternative.path("useField").asText())
+                    }.takeIf { it.isNotEmpty() }
+                ).filterValues { it != null }
             } else base + mapOf("steps" to action["steps"])
         }
         return plan.filterKeys { it !in setOf("actions", "includeApplyArguments", "guidance") } + mapOf(
             "actions" to reviews, "reviewOnly" to true,
-            "guidance" to "Select reviewed action IDs; exact edit arguments remain in the snapshot. sourceOrdering is optional and only applied with applyOrdering=true.",
+            "guidance" to "Each action has a recommendation with why. Apply the ones marked apply together; leave optional ones " +
+                "unless the user asks for them or validation fails without them; skip marks a response echo; decide review ones " +
+                "from the overlap. Exact edit arguments remain in the snapshot; get_repair_action_open_plan returns the evidence of an " +
+                "optional or skipped action. sourceOrdering moves an issuing sampler out of its Parallel Controller so dependents " +
+                "have a deterministic source, and is only applied with applyOrdering=true.",
         )
     }
+
+    /**
+     * A first verdict per proposal, so the agent's review is a check instead of a classification
+     * from scratch. Cache validators are optional: sending a stale If-None-Match only turns a 304
+     * into a 200, while correlating it usually means pulling its source out of a Parallel
+     * Controller, which changes how the page loads.
+     */
+    private fun repairRecommendation(action: Map<String, Any?>, overlapping: List<Any?>): Map<String, Any?> {
+        val field = action["fieldName"]?.toString().orEmpty().lowercase()
+        val (verdict, why) = when {
+            action["sourceRequestContainsLiteral"] == true ->
+                "skip" to "the source request already sends this value, so the response only echoes a scenario input"
+            field in CACHE_VALIDATOR_FIELDS ->
+                "optional" to "cache validator: a stale value only changes 304 into 200" +
+                    if (action["sourceOrdering"] != null) "; applying it moves its source out of a Parallel Controller" else ""
+            overlapping.isNotEmpty() -> "review" to "overlaps ${overlapping.joinToString()}; prefer the complete token"
+            else -> "apply" to null
+        }
+        return mapOf("recommendation" to verdict, "why" to why).filterValues { it != null }
+    }
+
+    private val CACHE_VALIDATOR_FIELDS = setOf("if-none-match", "if-modified-since", "etag")
 
     /** Flag overlapping proposals for review; a substring may also have independent consumers. */
     private fun overlappingRepairActions(action: Map<String, Any?>, actions: List<Map<String, Any?>>): List<Any?> {
@@ -1007,9 +957,13 @@ public object BreakTestAgentGuiService {
     private fun applyCorrelationBatchOpenPlan(arguments: JsonNode): Map<String, Any?> = guiCall {
         val correlations = arguments.path("correlations")
         require(correlations.isArray && correlations.size() in 1..40) { "Supply 1..40 correlation argument objects" }
-        correlations.forEach {
+        correlations.forEachIndexed { index, it ->
             requireResponseEvidence(it, "batch correlation")
-            require(it.path("literal").asText().isNotBlank()) { "Each correlation needs a literal to replace" }
+            require(it.path("literal").asText().isNotBlank()) {
+                "Correlation ${index + 1} has no literal. Each batch item extracts a value and replaces the recorded " +
+                    "literal with \${variableName}, so pass that recorded value as literal. To only add or update an " +
+                    "extractor, call apply_regex_correlation_open_plan without literal (several fit in one batch_open_plan)."
+            }
             require(!it.path("allowUnmatchedEvidence").asBoolean(false)) { "Batch correlations must match response evidence" }
         }
         val snapshotId = "llm-correlations-${UUID.randomUUID()}"
@@ -1044,7 +998,8 @@ public object BreakTestAgentGuiService {
                 .map { it.testElement.getPropertyAsString("RegexExtractor.refname") }
                 .filter { it.isNotBlank() }.toMutableSet()
 
-            if (testPlanFile != null) {
+            // Also for a plan that was never saved: its recording is held in memory.
+            run {
                 val harActions = planHarCorrelationActions(
                     gui = gui,
                     testPlanFile = testPlanFile,
@@ -2114,6 +2069,49 @@ public object BreakTestAgentGuiService {
         }
     }
 
+    /**
+     * The User Defined Variables element under the Shared Profile, created on first use. Variables
+     * there reach every Thread Group and scenario and stay visible as their own node, instead of
+     * being tucked into the Test Plan's own table. Null for a plan without a Shared Profile.
+     */
+    private fun sharedVariablesNode(gui: GuiPackage, create: Boolean): JMeterTreeNode? {
+        val profile = allTreeNodes(gui.treeModel.testPlan)
+            .firstOrNull { it.testElement is org.apache.jmeter.scenario.SharedProfile && it.isEnabled }
+            ?: return null
+        (0 until profile.childCount).map { profile.getChildAt(it) as JMeterTreeNode }
+            .firstOrNull { it.isEnabled && TestPlanEditor().isVariablesElement(it.testElement) }
+            ?.let { return it }
+        if (!create) {
+            return null
+        }
+        val variables = org.apache.jmeter.config.Arguments().apply {
+            name = "User Defined Variables"
+            setProperty(TestElement.GUI_CLASS, "org.apache.jmeter.config.gui.ArgumentsPanel")
+            setProperty(TestElement.TEST_CLASS, org.apache.jmeter.config.Arguments::class.java.name)
+        }
+        return insertDetachedNode(gui, profile, variables).also {
+            recordChange("Added element", it, "User Defined Variables under ${profile.testElement.name}")
+        }
+    }
+
+    /** Sets one variable where agent variables belong and returns the node that now holds it. */
+    private fun storeUserDefinedVariable(gui: GuiPackage, name: String, value: String): JMeterTreeNode {
+        val planNode = testPlanNode(gui)
+        val testPlan = planNode.testElement as? TestPlan
+            ?: throw IllegalStateException("Open root node is not a Test Plan")
+        val shared = sharedVariablesNode(gui, create = true)
+        // One definition only: a value left on the Test Plan by an earlier run moves along.
+        testPlan.arguments.removeArgument(name)
+        if (shared == null) {
+            testPlan.addParameter(name, value)
+            return planNode
+        }
+        val variables = shared.testElement as org.apache.jmeter.config.Arguments
+        variables.removeArgument(name)
+        variables.addArgument(name, value)
+        return shared
+    }
+
     private fun setUserDefinedVariableOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val name = arguments.requiredText("name")
@@ -2126,11 +2124,7 @@ public object BreakTestAgentGuiService {
             ensureBackupForOpenPlan(gui)
             gui.beginUndoTransaction()
             try {
-                val node = testPlanNode(gui)
-                val testPlan = node.testElement as? TestPlan
-                    ?: throw IllegalStateException("Open root node is not a Test Plan")
-                testPlan.arguments.removeArgument(name)
-                testPlan.addParameter(name, value)
+                val node = storeUserDefinedVariable(gui, name, value)
                 markEdited(gui, node)
                 postActivity(
                     "info",
@@ -2147,6 +2141,8 @@ public object BreakTestAgentGuiService {
                     "name" to name,
                     "value" to value,
                     "nodeName" to node.testElement.name,
+                    "nodeId" to nodeId(node),
+                    "nodePath" to nodePath(node),
                 )
             } finally {
                 gui.endUndoTransaction()
@@ -2285,9 +2281,12 @@ public object BreakTestAgentGuiService {
                     return
                 }
                 for (node in tree.list()) {
-                    val nodeName = (node as? JMeterTreeNode)?.testElement?.name ?: node.toString()
+                    // A scoped search walks a converted tree of plain test elements.
+                    val nodeName = (node as? JMeterTreeNode)?.testElement?.name
+                        ?: (node as? TestElement)?.name
+                        ?: node.toString()
                     val element = (node as? JMeterTreeNode)?.testElement ?: node as? TestElement
-                    if (element != null) {
+                    if (element != null && !(excludeUserDefinedVariables && TestPlanEditor().isVariablesElement(element))) {
                         searchElementValues(
                             element,
                             path + nodeName,
@@ -2304,7 +2303,11 @@ public object BreakTestAgentGuiService {
                     visitNode(tree.getTree(node), path + nodeName)
                 }
             }
-            visitNode(searchScopeTree(gui, scope), emptyList())
+            // Keep scoped match paths rooted at the plan, like unscoped ones.
+            val scopeParentPath = (scope?.parent as? JMeterTreeNode)
+                ?.let { nodePath(it).split(" / ").filter(String::isNotEmpty) }
+                .orEmpty()
+            visitNode(searchScopeTree(gui, scope), scopeParentPath)
             mapOf(
                 "matchCount" to matches.size,
                 "truncated" to (matches.size >= maxMatches),
@@ -2459,12 +2462,21 @@ public object BreakTestAgentGuiService {
             val grouped = candidates.groupBy { it.kind to it.literal }
             val compactCandidates = grouped.values.map { occurrences ->
                 val first = occurrences.first()
+                // Same verdict as the repair packet gives it, so it is not investigated again here.
+                val cacheValidator = occurrences.all { it.ownerName.lowercase() in CACHE_VALIDATOR_FIELDS }
                 mapOf(
-                    "kind" to first.kind, "literal" to first.literal, "priority" to first.priority,
-                    "reason" to first.reason, "occurrenceCount" to occurrences.size,
+                    "kind" to if (cacheValidator) "cache-validator" else first.kind,
+                    "literal" to first.literal, "priority" to first.priority,
+                    "reason" to if (cacheValidator) {
+                        "Optional: a cache validator header; a stale value only changes 304 into 200. No action needed."
+                    } else {
+                        first.reason
+                    },
+                    "optional" to true.takeIf { cacheValidator },
+                    "occurrenceCount" to occurrences.size,
                     "samplerIndexes" to occurrences.map { it.samplerIndex }.distinct(),
                     "properties" to occurrences.map { it.propertyName }.distinct()
-                )
+                ).filterValues { it != null }
             }
             mapOf(
                 "candidateCount" to candidates.size,
@@ -2780,7 +2792,9 @@ public object BreakTestAgentGuiService {
             AgentElementCatalog.create(arguments.requiredText("elementId")),
             arguments.path("properties").takeIf { !it.isMissingNode } ?: com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(),
             arguments.get("tables"),
+            arguments.path("tableMode").optionalText(),
         )
+        applyRawProperties(element, arguments)
         arguments.path("name").optionalText()?.let { element.name = it }
         val target = sectionedTarget(gui, parent, element)
         require(org.apache.jmeter.gui.util.MenuFactory.canAddTo(target, element)) { "This element cannot be added under the selected parent" }
@@ -2796,6 +2810,82 @@ public object BreakTestAgentGuiService {
         }
     }
 
+    /**
+     * Escape hatch for settings the typed schema does not expose: writes stored property keys
+     * directly. Only scalar values, so nested element and collection properties stay intact.
+     */
+    /**
+     * Replaces the rows of a stored list the table tools do not know. Text rows make a list of
+     * strings; object rows become elements of the class named by `testclass` (or of the class of
+     * the list's first existing row), with the other keys as their stored properties.
+     */
+    private fun applyRawLists(element: TestElement, arguments: JsonNode) {
+        val lists = arguments.path("rawLists").takeIfPresent() ?: return
+        require(lists.isObject) { "rawLists must be an object of list key to array of rows" }
+        for ((key, rows) in lists.properties()) {
+            require(rows.isArray) { "rawLists.$key must be an array" }
+            val existing = element.getProperty(key) as? org.apache.jmeter.testelement.property.CollectionProperty
+            val rowClass = existing?.takeIf { it.size() > 0 }?.get(0)?.objectValue?.javaClass
+            val values: List<Any> = rows.map { row ->
+                if (!row.isObject) {
+                    require(row.isValueNode && !row.isNull) { "rawLists.$key rows must be text or objects" }
+                    return@map row.asText()
+                }
+                val type = row.path("testclass").optionalText()?.let { Class.forName(it) } ?: rowClass
+                    ?: throw IllegalArgumentException("rawLists.$key: the list is empty, so each row needs testclass (the row's element class)")
+                require(TestElement::class.java.isAssignableFrom(type)) { "rawLists.$key: ${type.name} is not a test element" }
+                (type.getDeclaredConstructor().newInstance() as TestElement).also { item ->
+                    for ((name, value) in row.properties()) {
+                        if (name == "testclass") continue
+                        require(value.isValueNode && !value.isNull) { "rawLists.$key.$name must be text, a number or a boolean" }
+                        if (value.isBoolean) item.setProperty(name, value.asBoolean()) else item.setProperty(name, value.asText())
+                    }
+                }
+            }
+            element.setProperty(org.apache.jmeter.testelement.property.CollectionProperty(key, values))
+        }
+    }
+
+    private fun applyRawProperties(element: TestElement, arguments: JsonNode) {
+        applyRawLists(element, arguments)
+        val raw = arguments.path("rawProperties").takeIfPresent() ?: return
+        require(raw.isObject) { "rawProperties must be an object of property key to scalar value" }
+        for ((path, value) in raw.properties()) {
+            require(value.isValueNode && !value.isNull) { "rawProperties.$path must be text, a number or a boolean" }
+            // "outer/inner" walks into a nested element; a number picks a row of a collection.
+            val segments = path.split('/').filter { it.isNotEmpty() }
+            var owner: TestElement = element
+            var index = 0
+            while (index < segments.size - 1) {
+                val nested = owner.getProperty(segments[index])
+                owner = when {
+                    nested is TestElementProperty && nested.objectValue is TestElement -> nested.objectValue as TestElement
+                    nested is org.apache.jmeter.testelement.property.CollectionProperty -> {
+                        val row = segments.getOrNull(index + 1)?.toIntOrNull()
+                            ?: throw IllegalArgumentException("rawProperties.$path: '${segments[index]}' is a list; follow it with a row number")
+                        require(row in 0 until nested.size() && index + 2 < segments.size) {
+                            "rawProperties.$path: '${segments[index]}' has ${nested.size()} rows and needs a property after the row number"
+                        }
+                        index++
+                        nested.get(row).objectValue as? TestElement
+                            ?: throw IllegalArgumentException("rawProperties.$path: row $row is not an element")
+                    }
+                    else -> throw IllegalArgumentException("rawProperties.$path: '${segments[index]}' is not a nested element")
+                }
+                index++
+            }
+            val key = segments.last()
+            val existing = owner.getProperty(key)
+            require(existing !is MultiProperty && existing !is TestElementProperty && existing !is ObjectProperty) {
+                "rawProperties.$path is a nested property; address a property inside it, e.g. $path/<key>"
+            }
+            when {
+                value.isBoolean -> owner.setProperty(key, value.asBoolean())
+                else -> owner.setProperty(key, value.asText())
+            }
+        }
+    }
+
     private fun configureElementOpenPlan(arguments: JsonNode): Map<String, Any?> = guiCall {
         val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
         gui.updateCurrentNode()
@@ -2804,7 +2894,9 @@ public object BreakTestAgentGuiService {
             target.testElement,
             arguments.path("properties").takeIf { !it.isMissingNode } ?: com.fasterxml.jackson.databind.ObjectMapper().createObjectNode(),
             arguments.get("tables"),
+            arguments.path("tableMode").optionalText(),
         )
+        applyRawProperties(configured, arguments)
         ensureBackupForOpenPlan(gui)
         gui.beginUndoTransaction()
         try {
@@ -2977,6 +3069,60 @@ public object BreakTestAgentGuiService {
                 )
             } finally {
                 gui.endUndoTransaction()
+            }
+        }
+
+    /**
+     * Adds a disabled copy of the thread group as it is now, directly after it, and returns the
+     * copy's name. The repair then works on the original, which keeps its name and id, so
+     * scenarios and references still point at the repaired version. A copy kept by an earlier run
+     * of the same thread group is replaced. Deliberately not listed as an agent change.
+     */
+    @JvmStatic
+    public fun keepThreadGroupCopy(threadGroupPath: String): String =
+        guiCall {
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            gui.updateCurrentNode()
+            val source = selectNodeByPath(gui.treeModel.testPlan, threadGroupPath, "thread group")
+            val group = source.testElement as? AbstractThreadGroup
+                ?: throw IllegalArgumentException("'${source.testElement.name}' is not a thread group")
+            val parent = source.parent as? JMeterTreeNode ?: error("The thread group has no parent")
+            val originalId = group.orCreateThreadGroupId
+            (0 until parent.childCount).map { parent.getChildAt(it) as JMeterTreeNode }
+                .filter { it.testElement.getPropertyAsString(REPAIR_COPY_OF) == originalId }
+                .forEach { removeTreeNode(gui, it) }
+            val copy = Copy.cloneTreeNode(source)
+            RecordedHarExchangeResolver.carryInheritedRecordingSource(source, copy.testElement)
+            resolveCopyConflicts(gui, copy)
+            copy.testElement.name = "${group.name} (before AI repair)"
+            // The copy must not share the original's id, or scenario workloads would match both.
+            val usedIds = allTreeNodes(gui.treeModel.testPlan)
+                .mapNotNull { (it.testElement as? AbstractThreadGroup)?.threadGroupId }.filter { it.isNotEmpty() }.toSet()
+            (copy.testElement as AbstractThreadGroup).threadGroupId =
+                AbstractThreadGroup.uniqueReadableId(copy.testElement.name, usedIds)
+            copy.testElement.setProperty(REPAIR_COPY_OF, originalId)
+            copy.isEnabled = false
+            gui.treeModel.insertNodeInto(copy, parent, parent.getIndex(source) + 1)
+            RecordedHarExchangeResolver.dropRedundantRecordingSource(copy)
+            gui.setDirty(true)
+            copy.testElement.name.orEmpty()
+        }
+
+    /**
+     * Puts the open plan back as it was when the last AI run started: the thread group, the copy
+     * that run kept and anything else it changed. Refuses when another plan has been opened since.
+     */
+    @JvmStatic
+    public fun revertLastRun(): Map<String, Any?> =
+        guiCall {
+            val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            val backup = latestOpenPlanBackup ?: error("There is no AI run to revert in this session")
+            require(gui.testPlanFile?.takeIf { it.isNotBlank() } == backup.originalPlanPath) {
+                "A different plan is open than the one the last AI run changed"
+            }
+            restoreLatestOpenPlanBackup(null, "Reverted by the user").also {
+                // The file on disk may hold the repaired plan by now, so offer to save the reverted one.
+                gui.setDirty(true)
             }
         }
 
@@ -3307,7 +3453,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun insertDetachedSubTree(gui: GuiPackage, parent: JMeterTreeNode, tree: HashTree) {
+    internal fun insertDetachedSubTree(gui: GuiPackage, parent: JMeterTreeNode, tree: HashTree) {
         for (element in tree.list()) {
             if (element !is TestElement) {
                 continue
@@ -3424,7 +3570,8 @@ public object BreakTestAgentGuiService {
         transaction.setFixedDelay(delay.fixed)
     }
 
-    private fun removeTreeNode(gui: GuiPackage, node: JMeterTreeNode) {
+    @JvmName("removeTreeNode")
+    internal fun removeTreeNode(gui: GuiPackage, node: JMeterTreeNode) {
         val nodes = mutableListOf<JMeterTreeNode>()
         val elements = mutableListOf<TestElement>()
         fun collect(current: JMeterTreeNode) {
@@ -3627,9 +3774,12 @@ public object BreakTestAgentGuiService {
         }
         val arguments = mutableListOf<HttpArgument>()
         for (container in containers) {
-            val iterator = container.propertyIterator()
-            while (iterator.hasNext()) {
-                val argument = iterator.next().objectValue ?: continue
+            // Arguments keeps its rows inside one collection property; iterating the
+            // container's own properties only ever yields that collection.
+            val rows = (container as? org.apache.jmeter.config.Arguments)?.iterator()
+                ?: container.propertyIterator()
+            for (row in rows) {
+                val argument = row.objectValue ?: continue
                 val name = callString(argument, "getName")
                 val value = callString(argument, "getValue")
                 if (name != null || value != null) {
@@ -3807,7 +3957,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun markEdited(gui: GuiPackage, changedNode: JMeterTreeNode, selectNode: JMeterTreeNode = changedNode) {
+    internal fun markEdited(gui: GuiPackage, changedNode: JMeterTreeNode, selectNode: JMeterTreeNode = changedNode) {
         gui.setDirty(true)
         gui.treeModel.nodeStructureChanged(changedNode)
         if (gui.mainFrame == null) return
@@ -3847,7 +3997,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun recordChange(type: String, node: JMeterTreeNode, summary: String, details: String? = null) {
+    internal fun recordChange(type: String, node: JMeterTreeNode, summary: String, details: String? = null) {
         AiAutoScriptingLogWindow.recordChange(
             type,
             node.testElement.name.orEmpty(),
@@ -3864,7 +4014,7 @@ public object BreakTestAgentGuiService {
             value
         }
 
-    private fun ensureBackupForOpenPlan(gui: GuiPackage) {
+    internal fun ensureBackupForOpenPlan(gui: GuiPackage) {
         val key = backupKey(gui.testPlanFile)
         if (key in backedUpPlanKeys) {
             return
@@ -3875,21 +4025,11 @@ public object BreakTestAgentGuiService {
     private fun backupFileFor(testPlanFile: String?): File {
         val source = testPlanFile?.takeIf { it.isNotBlank() }?.let { File(it).absoluteFile }
         val directory = source?.parentFile?.takeIf { it.isDirectory }
-            ?: File(JMeterUtils.getJMeterHome()).takeIf { it.isDirectory }
+            ?: JMeterUtils.getJMeterHome()?.let(::File)?.takeIf { it.isDirectory }
             ?: File(System.getProperty("java.io.tmpdir"))
         val baseName = source?.nameWithoutExtension?.takeIf { it.isNotBlank() } ?: "untitled"
         val timestamp = LocalDateTime.now().format(backupTimeFormat)
         return File(directory, "$baseName.ai-backup-$timestamp.jmx")
-    }
-
-    private fun repairCloneFileFor(testPlanFile: String?): File {
-        val source = testPlanFile?.takeIf { it.isNotBlank() }?.let { File(it).absoluteFile }
-        val directory = source?.parentFile?.takeIf { it.isDirectory }
-            ?: File(JMeterUtils.getJMeterHome()).takeIf { it.isDirectory }
-            ?: File(System.getProperty("java.io.tmpdir"))
-        val baseName = source?.nameWithoutExtension?.takeIf { it.isNotBlank() } ?: "untitled"
-        val timestamp = LocalDateTime.now().format(backupTimeFormat)
-        return File(directory, "$baseName.ai-repaired-$timestamp.jmx")
     }
 
     private fun backupKey(testPlanFile: String?): String =
@@ -4080,7 +4220,7 @@ public object BreakTestAgentGuiService {
         return result
     }
 
-    private fun allTreeNodes(tree: HashTree): List<JMeterTreeNode> {
+    internal fun allTreeNodes(tree: HashTree): List<JMeterTreeNode> {
         val result = mutableListOf<JMeterTreeNode>()
         fun visit(currentTree: HashTree) {
             for (node in currentTree.list()) {
@@ -4094,7 +4234,7 @@ public object BreakTestAgentGuiService {
         return result
     }
 
-    private fun JMeterTreeNode.matchesNodeType(type: String): Boolean {
+    internal fun JMeterTreeNode.matchesNodeType(type: String): Boolean {
         val className = testElement::class.java.name
         return when (type) {
             "sampler" -> testElement is Sampler
@@ -4113,7 +4253,8 @@ public object BreakTestAgentGuiService {
                 className.contains(".extractor.") ||
                 className.contains(".modifiers.")
             "config" -> className.contains(".config.")
-            else -> className.contains(type, ignoreCase = true)
+            // The simple name, so "scenario" does not match everything in the scenario package.
+            else -> testElement::class.java.simpleName.contains(type, ignoreCase = true)
         }
     }
 
@@ -4202,7 +4343,7 @@ public object BreakTestAgentGuiService {
 
     private fun linkedHarExchanges(
         gui: GuiPackage,
-        testPlanFile: String,
+        testPlanFile: String?,
         threadGroupName: String?,
         includeStaticAssets: Boolean,
     ): List<HarExchange> {
@@ -4214,7 +4355,7 @@ public object BreakTestAgentGuiService {
             allSamplers.filter { sampler -> sampler.isDescendantOf(threadGroup) }
         }
         return scopedSamplers.mapIndexedNotNull { index, sampler ->
-            val resolution = RecordedHarExchangeResolver.resolveFor(sampler, Path.of(testPlanFile))
+            val resolution = RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile?.let { Path.of(it) })
             if (!resolution.exchange().isPresent) {
                 return@mapIndexedNotNull null
             }
@@ -4233,7 +4374,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun JMeterTreeNode.isDescendantOf(ancestor: JMeterTreeNode): Boolean {
+    internal fun JMeterTreeNode.isDescendantOf(ancestor: JMeterTreeNode): Boolean {
         var current: javax.swing.tree.TreeNode? = this
         while (current is JMeterTreeNode) {
             if (current === ancestor) {
@@ -4328,7 +4469,7 @@ public object BreakTestAgentGuiService {
 
     private fun planHarCorrelationActions(
         gui: GuiPackage,
-        testPlanFile: String,
+        testPlanFile: String?,
         threadGroupName: String?,
         includeStaticAssets: Boolean,
         contextChars: Int,
@@ -4431,7 +4572,9 @@ public object BreakTestAgentGuiService {
                 if (!plannedLiterals.add(canonicalRepairLiteral(requestCandidate.literal))) {
                     continue
                 }
-                val variableName = uniqueVariableName(variableNameFor(requestCandidate), usedVariableNames)
+                val variableName = uniqueVariableName(
+                    variableNameFor(requestCandidate), usedVariableNames, target.sampler.testElement.name,
+                )
                 val evidence = sourceExchange.response.contextAround(
                     literalIndex,
                     literalIndex + matchedLiteral.length,
@@ -4789,12 +4932,23 @@ public object BreakTestAgentGuiService {
         return (base + if (hasStructuredRegex) 2 else -4).coerceIn(0, 99)
     }
 
-    private fun uniqueVariableName(base: String, used: MutableSet<String>): String {
+    /**
+     * [consumer] is the request that uses the value. When the plain name is taken, its last path
+     * segment tells the variables apart (csrf_token_payments) before falling back to a number.
+     */
+    private fun uniqueVariableName(base: String, used: MutableSet<String>, consumer: String? = null): String {
         val sanitized = base
             .replace(Regex("""[^A-Za-z0-9_]+"""), "_")
             .trim('_')
             .replaceFirstChar { it.lowercase() }
             .ifBlank { "ai_value" }
+        if (sanitized in used) {
+            val context = consumer.orEmpty().substringBefore('?').trimEnd('/').substringAfterLast('/')
+                .replace(Regex("""[^A-Za-z0-9]+"""), "_").trim('_')
+            if (context.isNotEmpty() && context.none { it == '{' } && used.add("${sanitized}_$context")) {
+                return "${sanitized}_$context"
+            }
+        }
         var candidate = sanitized
         var index = 2
         while (!used.add(candidate)) {
@@ -4892,7 +5046,8 @@ public object BreakTestAgentGuiService {
             ?.trim('_')
             ?.takeIf { it.isNotBlank() }
             ?: candidate.kind.replace("-", "_")
-        return base.replaceFirstChar { it.lowercase() }
+        // "x-csrf-token" reads better as csrf_token; the X- prefix says nothing about the value.
+        return base.replaceFirstChar { it.lowercase() }.removePrefix("x_").ifBlank { base }
     }
 
     private fun isLowValueHarLiteral(value: String): Boolean {
@@ -5022,7 +5177,7 @@ public object BreakTestAgentGuiService {
         }
     }
 
-    private fun nodeId(node: JMeterTreeNode): String = NodeIds.idFor(node)
+    internal fun nodeId(node: JMeterTreeNode): String = NodeIds.idFor(node)
 
     private fun selectNodeById(gui: GuiPackage, nodeId: String, role: String): JMeterTreeNode {
         val node = NodeIds.nodeFor(nodeId)
@@ -5157,7 +5312,7 @@ public object BreakTestAgentGuiService {
         return selectSamplerReference(gui, arguments, prefix, role)
     }
 
-    private fun selectNodeReference(
+    internal fun selectNodeReference(
         gui: GuiPackage,
         arguments: JsonNode,
         prefix: String,
@@ -5331,11 +5486,14 @@ public object BreakTestAgentGuiService {
         return false
     }
 
-    private fun nodePath(node: JMeterTreeNode): String {
+    @JvmName("nodePath")
+    internal fun nodePath(node: JMeterTreeNode): String {
         val path = node.path.filterIsInstance<JMeterTreeNode>()
         // The hidden GUI root and visible Test Plan wrap the same element.
         // Compare identity so legitimate repeated names and detached trees survive.
-        val visiblePath = if (path.size >= 2 && path[0].testElement === path[1].testElement) {
+        // A plan loaded from a file gives the hidden root its own element, so also match the root node.
+        val hiddenRoot = GuiPackage.getInstance()?.treeModel?.root
+        val visiblePath = if (path.size >= 2 && (path[0] === hiddenRoot || path[0].testElement === path[1].testElement)) {
             path.drop(1)
         } else {
             path
@@ -5345,12 +5503,19 @@ public object BreakTestAgentGuiService {
 
     private fun selectThreadGroup(gui: GuiPackage, threadGroupName: String?): JMeterTreeNode {
         val matches = mutableListOf<JMeterTreeNode>()
+        // The start dialog names the thread group by its full tree path, hidden root included
+        // ("Test Plan / Test Plan / ..."), which is not the visible path compared below. Without
+        // this the launcher's initial analysis failed and every run began with a blind inspection.
+        val byPath = threadGroupName?.takeIf { " / " in it }
+            ?.let { runCatching { matchingNodesByPath(gui.treeModel.testPlan, it) }.getOrDefault(emptyList()) }
+            .orEmpty()
         fun visit(tree: HashTree) {
             for (node in tree.list()) {
                 if (node is JMeterTreeNode && node.testElement is AbstractThreadGroup && node.isEnabled) {
                     if (threadGroupName.isNullOrBlank() ||
                         node.testElement.name == threadGroupName ||
-                        nodePath(node) == threadGroupName
+                        nodePath(node) == threadGroupName ||
+                        byPath.any { it === node }
                     ) {
                         matches += node
                     }
@@ -5387,7 +5552,7 @@ public object BreakTestAgentGuiService {
         )
     }
 
-    private fun postActivity(
+    internal fun postActivity(
         level: String,
         message: String,
         source: String = "BreakTest Agent",
@@ -5415,7 +5580,7 @@ public object BreakTestAgentGuiService {
             convertTree(gui.treeModel.testPlan)
         }
 
-    private fun convertTree(tree: HashTree): HashTree {
+    internal fun convertTree(tree: HashTree): HashTree {
         val converted = ListedHashTree()
         for (node in tree.list()) {
             val key = if (node is JMeterTreeNode) node.testElement else node
@@ -5493,51 +5658,6 @@ public object BreakTestAgentGuiService {
             path
         }
 
-    private fun mergeUserDefinedVariables(gui: GuiPackage, repairedTree: HashTree): Int {
-        val repairedTestPlan = firstTestPlan(repairedTree)
-            ?: return 0
-        val variables = repairedTestPlan.userDefinedVariables
-        if (variables.isEmpty()) {
-            return 0
-        }
-        val node = testPlanNode(gui)
-        val activeTestPlan = node.testElement as? TestPlan
-            ?: throw IllegalStateException("Open root node is not a Test Plan")
-        var merged = 0
-        for ((name, value) in variables) {
-            if (name.isBlank()) {
-                continue
-            }
-            activeTestPlan.arguments.removeArgument(name)
-            activeTestPlan.addParameter(name, value)
-            merged++
-        }
-        if (merged > 0) {
-            gui.treeModel.nodeStructureChanged(node)
-            recordChange(
-                "Updated variables",
-                node,
-                "Merged User Defined Variables from AI repaired clone",
-                "Variables merged: $merged",
-            )
-        }
-        return merged
-    }
-
-    private fun firstTestPlan(tree: HashTree): TestPlan? {
-        for (node in tree.list()) {
-            val element = node as? TestElement
-            if (element is TestPlan) {
-                return element
-            }
-            val nested = firstTestPlan(tree.getTree(node))
-            if (nested != null) {
-                return nested
-            }
-        }
-        return null
-    }
-
     private fun uniqueGeneratedThreadGroupName(gui: GuiPackage, originalName: String): String {
         val base = "${originalName.ifBlank { "Thread Group" }}_AI_Generated"
         val existingNames = gui.treeModel.getNodesOfType(AbstractThreadGroup::class.java)
@@ -5553,7 +5673,7 @@ public object BreakTestAgentGuiService {
         return "${base}_$index"
     }
 
-    private fun <T> guiCall(action: () -> T): T {
+    internal fun <T> guiCall(action: () -> T): T {
         if (SwingUtilities.isEventDispatchThread()) {
             return action()
         }
@@ -5584,6 +5704,28 @@ public object BreakTestAgentGuiService {
     @Volatile
     private var lastValidation: LastValidationSnapshot? = null
 
+    /** Samples of the most recent validation run, top level only; sub-results hang below them. */
+    internal fun lastValidationSamples(): List<AgentSampleSummary>? = lastValidation?.samples
+
+    /**
+     * The last summary this agent was actually given. A repeat validation only shrinks to
+     * "unchanged" against that, so a new run, or a run on another plan, starts with a full summary.
+     */
+    @Volatile
+    private var summaryBaseline: LastValidationSnapshot? = null
+
+    /** Called when an AI run starts; its agent has not seen any earlier validation. */
+    @JvmStatic
+    public fun beginAgentRun() {
+        summaryBaseline = null
+    }
+
+    /** The plan was replaced (opened, new or restored), so earlier validations describe another plan. */
+    internal fun forgetValidationBaseline() {
+        lastValidation = null
+        summaryBaseline = null
+    }
+
     private fun validateOpenPlan(arguments: JsonNode): Any {
         val (tree, scopePath) = validationTreeWithScope(arguments)
         val report = BreakTestAgent().inspectAndValidate(
@@ -5594,7 +5736,14 @@ public object BreakTestAgentGuiService {
         )
         val previous = lastValidation
         lastValidation = LastValidationSnapshot(scopePath, System.currentTimeMillis(), report.validation.samples)
-        return if (arguments.path("compact").asBoolean(false)) {
+        return if (arguments.path("summary").asBoolean(false)) {
+            val changes = AiAutoScriptingLogWindow.changes()
+            val baseline = summaryBaseline?.takeIf { it.scopeNodePath == scopePath }?.samples
+            summaryBaseline = lastValidation
+            AgentReportCompactor.summaryForRepair(report, baseline) +
+                // Saves the separate change-list call before the final report.
+                mapOf("agentChanges" to mapOf("count" to changes.size, "byType" to changes.groupingBy { it["type"] }.eachCount()))
+        } else if (arguments.path("compact").asBoolean(false)) {
             val previousStatus = previous
                 ?.takeIf { it.scopeNodePath == scopePath }
                 ?.samples
@@ -5680,16 +5829,31 @@ public object BreakTestAgentGuiService {
         val descriptor = descriptorFile()
         descriptor.parentFile.mkdirs()
         writeDescriptorTo(descriptor, port, socketFile, serviceToken)
+        runCatching {
+            val own = File(instanceDescriptorDirectory(), instanceDescriptorPrefix() + ProcessHandle.current().pid() + ".json")
+            writeDescriptorTo(own, port, socketFile, serviceToken)
+            own.deleteOnExit()
+        }
     }
 
     private fun writeDescriptorTo(descriptor: File, port: Int, socketFile: File?, serviceToken: String) {
         descriptor.writeText(
             mapper.writeValueAsString(
-                mapOf("host" to "127.0.0.1", "port" to port, "socketPath" to socketFile?.path, "token" to serviceToken)
+                mapOf(
+                    "host" to "127.0.0.1", "port" to port, "socketPath" to socketFile?.path, "token" to serviceToken,
+                    "pid" to ProcessHandle.current().pid(),
+                )
             ),
             Charsets.UTF_8,
         )
     }
+
+    /** One descriptor per running GUI, so a client can list the instances and pick one. */
+    @JvmStatic
+    public fun instanceDescriptorDirectory(): File = File(System.getProperty("java.io.tmpdir"))
+
+    @JvmStatic
+    public fun instanceDescriptorPrefix(): String = "breaktest-agent-${System.getProperty("user.name")}-instance-"
 
     /** Pin a launched agent to this GUI even when another GUI republishes the shared descriptor. */
     @JvmStatic

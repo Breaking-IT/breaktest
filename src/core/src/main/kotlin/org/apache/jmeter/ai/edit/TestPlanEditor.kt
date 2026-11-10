@@ -279,6 +279,9 @@ public class TestPlanEditor {
         excludeUserDefinedVariables: Boolean = false,
         changedElements: MutableCollection<TestElement>? = null,
     ): Int {
+        if (excludeUserDefinedVariables && isVariablesElement(element)) {
+            return 0
+        }
         val visitedElements = IdentityHashMap<TestElement, Boolean>()
         val visitedProperties = IdentityHashMap<JMeterProperty, Boolean>()
         var replacements = replaceLiteralInElement(
@@ -308,6 +311,13 @@ public class TestPlanEditor {
         }
         return replacements
     }
+
+    /**
+     * A standalone User Defined Variables element, wherever it sits in the plan. Request
+     * parameters use the same class but only nested inside their sampler, never as a tree element.
+     */
+    public fun isVariablesElement(element: TestElement): Boolean =
+        element.javaClass == org.apache.jmeter.config.Arguments::class.java
 
     public fun replaceLiteralInTree(
         tree: HashTree,
@@ -367,6 +377,9 @@ public class TestPlanEditor {
         visitedProperties: IdentityHashMap<JMeterProperty, Boolean>,
         changedElements: MutableCollection<TestElement>?,
     ): Int {
+        if (excludeUserDefinedVariables && isVariablesElement(element)) {
+            return 0
+        }
         var replacements = replaceLiteralInElement(
             element,
             literal,

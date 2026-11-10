@@ -148,7 +148,7 @@ public class BreakTestAgent(
                 "credential",
                 fieldName,
                 literal,
-                "Credential-like '$fieldName' value in validated request data; move it to a top-level User Defined Variable and replace request data before continuing auth repair.",
+                "Credential-like '$fieldName' value in validated request data; move it to a shared User Defined Variable and replace request data before continuing auth repair.",
                 115,
             )
         }

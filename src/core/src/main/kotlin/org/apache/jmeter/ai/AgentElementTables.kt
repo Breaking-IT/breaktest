@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import org.apache.jmeter.config.Argument
 import org.apache.jmeter.config.Arguments
 import org.apache.jmeter.testelement.TestElement
+import org.apache.jmeter.testelement.property.CollectionProperty
 
 /** Adapters for native table models. Protocol types are resolved only when installed, avoiding a core dependency. */
 internal object AgentElementTables {
@@ -35,7 +36,8 @@ internal object AgentElementTables {
 
     private fun rowTypes(element: TestElement): Map<String, String> = when {
         isType(element, WS_CONNECT) || isType(element, HEADER_MANAGER) -> mapOf("headers" to HEADER)
-        isType(element, HTTP_SAMPLER) -> mapOf("arguments" to HTTP_ARGUMENT)
+        // A request owns its headers; they are not a child Header Manager.
+        isType(element, HTTP_SAMPLER) -> mapOf("arguments" to HTTP_ARGUMENT, "headers" to HEADER)
         element is Arguments -> mapOf("arguments" to Argument::class.java.name)
         else -> emptyMap()
     }
@@ -49,17 +51,90 @@ internal object AgentElementTables {
         )
     }
 
-    fun configure(element: TestElement, tables: JsonNode) {
+    /** Current rows of each supported table, reduced to the fields that carry a value. */
+    fun read(element: TestElement): Map<String, List<Map<String, Any?>>> = rowTypes(element).keys.associateWith { rows(element, it) }
+
+    private fun rows(element: TestElement, table: String): List<Map<String, Any?>> =
+        rowElements(element, table).map { row ->
+            fun call(method: String): Any? = runCatching { row.javaClass.getMethod(method).invoke(row) }.getOrNull()
+            mapOf(
+                "name" to call("getName"), "value" to call("getValue"),
+                "alwaysEncoded" to call("isAlwaysEncoded")?.takeIf { it == true },
+                "useEquals" to call("isUseEquals")?.takeIf { it == false },
+            ).filterValues { it != null }
+        }
+
+    private fun rowElements(element: TestElement, table: String): List<TestElement> {
+        val getter = when {
+            table == "headers" && isType(element, HTTP_SAMPLER) -> "getNativeHeaders"
+            table == "headers" -> "getHeaders"
+            else -> "getArguments"
+        }
+        val container = if (element is Arguments) element else runCatching { element.javaClass.getMethod(getter).invoke(element) }.getOrNull()
+        val items: List<Any?> = when (container) {
+            is Arguments -> container.iterator().asSequence().map { it.objectValue }.toList()
+            is CollectionProperty -> container.iterator().asSequence().map { it.objectValue }.toList()
+            is Iterable<*> -> container.toList()
+            else -> emptyList()
+        }
+        return items.filterIsInstance<TestElement>()
+    }
+
+    /** How supplied rows combine with the rows a table already has. */
+    enum class Mode {
+        /** The supplied rows become the table. */
+        REPLACE,
+
+        /** The supplied rows are added after the existing ones. */
+        APPEND,
+
+        /** A supplied row replaces the existing row of the same name; other supplied rows are added. */
+        UPSERT,
+
+        /** Existing rows with a supplied row's name are removed; only names are needed. */
+        REMOVE,
+        ;
+
+        companion object {
+            fun of(text: String?): Mode =
+                text?.takeIf { it.isNotBlank() }?.let { value -> values().firstOrNull { it.name.equals(value, ignoreCase = true) } }
+                    ?: if (text.isNullOrBlank()) REPLACE else throw IllegalArgumentException("tableMode must be replace, append, upsert or remove")
+        }
+    }
+
+    private fun rowName(row: TestElement): String? =
+        runCatching { row.javaClass.getMethod("getName").invoke(row) as? String }.getOrNull()
+
+    fun configure(element: TestElement, tables: JsonNode, mode: Mode = Mode.REPLACE) {
         require(tables.isObject) { "tables must be an object" }
         val types = rowTypes(element)
         for ((name, values) in tables.properties()) {
             val type = types[name] ?: error("Unknown table '$name'; inspect the element schema first")
             require(values.isArray) { "$name must be an array of row objects" }
-            val rows = values.map { AgentElementCatalog.configured(newRow(type), it) }
+            val supplied = values.map { AgentElementCatalog.configured(newRow(type), it) }
+            // Header names are case-insensitive; parameter and variable names are not.
+            val sameName: (String?, String?) -> Boolean =
+                if (name == "headers") { a, b -> a.equals(b, ignoreCase = true) } else { a, b -> a == b }
+            val existing = if (mode == Mode.REPLACE) emptyList() else rowElements(element, name)
+            val rows = when (mode) {
+                Mode.REPLACE -> supplied
+                Mode.APPEND -> existing + supplied
+                Mode.UPSERT -> {
+                    val merged = existing.toMutableList()
+                    for (row in supplied) {
+                        val at = merged.indexOfFirst { sameName(rowName(it), rowName(row)) }
+                        if (at >= 0) merged[at] = row else merged += row
+                    }
+                    merged
+                }
+                Mode.REMOVE -> existing.filter { old -> supplied.none { sameName(rowName(it), rowName(old)) } }
+            }
             when {
+                name == "headers" && isType(element, HTTP_SAMPLER) ->
+                    element.javaClass.getMethod("setNativeHeaders", List::class.java).invoke(element, rows)
                 isType(element, WS_CONNECT) -> element.javaClass.getMethod("setHeaders", List::class.java).invoke(element, rows)
                 isType(element, HEADER_MANAGER) -> {
-                    val headers = element.javaClass.getMethod("getHeaders").invoke(element) as org.apache.jmeter.testelement.property.CollectionProperty
+                    val headers = element.javaClass.getMethod("getHeaders").invoke(element) as CollectionProperty
                     headers.clear()
                     rows.forEach { element.javaClass.getMethod("add", Class.forName(HEADER)).invoke(element, it) }
                 }

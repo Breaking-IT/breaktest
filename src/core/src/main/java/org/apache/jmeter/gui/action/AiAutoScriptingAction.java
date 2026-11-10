@@ -39,7 +39,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -63,13 +62,13 @@ import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.KeyStroke;
 import javax.swing.ScrollPaneConstants;
-import javax.swing.SwingUtilities;
 import javax.swing.text.DefaultEditorKit;
 import javax.swing.tree.TreePath;
 
 import org.apache.jmeter.ai.gui.AiAutoScriptingLogWindow;
 import org.apache.jmeter.ai.gui.AiCliProcess;
 import org.apache.jmeter.ai.gui.BreakTestAgentGuiService;
+import org.apache.jmeter.ai.mcp.BreakTestAgentMcpServer;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -120,9 +119,6 @@ public class AiAutoScriptingAction extends AbstractAction {
         if (request == null) {
             return;
         }
-        if (request.editSurface().fileBacked() && !saveActivePlanBeforeFileRepair(gui, e)) {
-            return;
-        }
         selectThreadGroup(gui, request.threadGroupNode());
         if (!RUNNING.compareAndSet(false, true)) {
             postActivity("AI Auto Scripting is already running.");
@@ -134,10 +130,15 @@ public class AiAutoScriptingAction extends AbstractAction {
             AiAutoScriptingLogWindow.setStopHandler(AiAutoScriptingAction::stopCurrentRun);
             AiAutoScriptingLogWindow.startRun();
             BreakTestAgentGuiService.start();
+            // The backup comes first, so reverting the run also removes the copy made here.
             String backupPath = BreakTestAgentGuiService.createBackupForOpenPlan();
-            String activePlanPath = gui == null ? "" : gui.getTestPlanFile();
-            String repairTargetPath = repairTargetPath(request.editSurface().fileBacked(), activePlanPath);
-            AiRunRequest runRequest = request.withPaths(backupPath, repairTargetPath);
+            BreakTestAgentGuiService.beginAgentRun();
+            if (request.keepCopy() && request.threadGroupNode() != null) {
+                String copyName = BreakTestAgentGuiService.keepThreadGroupCopy(request.threadGroupPath());
+                postActivity("Kept a disabled copy of the thread group: " + copyName);
+            }
+            AiAutoScriptingLogWindow.setRevertHandler(AiAutoScriptingAction::revertLastRun);
+            AiRunRequest runRequest = request.withBackupPath(backupPath);
 
             Thread worker = new Thread(() -> runAiAutoScripting(runRequest), "BreakTest AI Auto Scripting");
             worker.setDaemon(true);
@@ -202,41 +203,39 @@ public class AiAutoScriptingAction extends AbstractAction {
         return true;
     }
 
+    /**
+     * Puts the plan back as it was before the last run: the thread group, the copy that run kept
+     * and everything else it changed, such as shared variables.
+     */
+    private static void revertLastRun() {
+        if (RUNNING.get()) {
+            postActivity("Stop the running AI Auto Scripting before reverting.");
+            return;
+        }
+        GuiPackage gui = GuiPackage.getInstance();
+        int choice = JOptionPane.showConfirmDialog(
+                gui == null ? null : gui.getMainFrame(),
+                "Put the plan back as it was before the last AI run?\n\n"
+                        + "This undoes every change in the plan since that run started, including your own.",
+                "Revert AI changes",
+                JOptionPane.OK_CANCEL_OPTION,
+                JOptionPane.WARNING_MESSAGE);
+        if (choice != JOptionPane.OK_OPTION) {
+            return;
+        }
+        try {
+            BreakTestAgentGuiService.revertLastRun();
+            AiAutoScriptingLogWindow.setRevertHandler(null);
+            postActivity("Reverted: the plan is back as it was before the last AI run.");
+        } catch (Exception ex) {
+            log.warn("Could not revert the last AI run", ex);
+            postActivity("Could not revert the last AI run: " + ex.getMessage());
+        }
+    }
+
     @Override
     public Set<String> getActionNames() {
         return COMMANDS;
-    }
-
-    /**
-     * File-backed repair edits the active JMX itself. Save pending GUI state first
-     * so the immutable AI backup and the active repair target start identically.
-     */
-    private static boolean saveActivePlanBeforeFileRepair(GuiPackage gui, ActionEvent event) {
-        if (gui == null) {
-            postActivity("AI Auto Scripting cancelled: no active GUI plan is available for file repair.");
-            return false;
-        }
-        gui.updateCurrentNode();
-        if (gui.getTestPlanFile() == null || gui.getTestPlanFile().isBlank() || gui.hasUnsavedChanges()) {
-            ActionRouter.getInstance().doActionNow(
-                    new ActionEvent(event.getSource(), event.getID(), ActionNames.SAVE));
-            gui.updateCurrentNode();
-        }
-        if (gui.getTestPlanFile() == null || gui.getTestPlanFile().isBlank() || gui.hasUnsavedChanges()) {
-            postActivity("AI Auto Scripting cancelled: save the active plan before using JMX file mode.");
-            return false;
-        }
-        return true;
-    }
-
-    static String repairTargetPath(boolean fileBacked, String activePlanPath) {
-        if (!fileBacked) {
-            return "";
-        }
-        if (activePlanPath == null || activePlanPath.isBlank()) {
-            throw new IllegalStateException("The active plan must be saved before JMX file repair can start");
-        }
-        return new File(activePlanPath).getAbsolutePath();
     }
 
     private static void runAiAutoScripting(AiRunRequest request) {
@@ -247,14 +246,16 @@ public class AiAutoScriptingAction extends AbstractAction {
         File runDescriptor = null;
         CodexOutputCompatibility codexOutput = null;
         try {
-            if (request.mode() == AiRunMode.FULL_SCRIPT_REPAIR && request.editSurface() == AiEditSurface.LIVE_GUI) {
+            if (request.mode() == AiRunMode.FULL_SCRIPT_REPAIR) {
                 long analysisStarted = System.nanoTime();
                 try {
                     request.analysisPacket = BreakTestAgentGuiService.prepareScriptRepair(request.threadGroupPath());
                     postActivity("Initial correlation analysis ready in " + (System.nanoTime() - analysisStarted) / 1_000_000
                             + "ms: " + payloadSize(request.analysisPacket) + ". Sending evidence to the repair agent.");
                 } catch (Exception ex) {
-                    postActivity("Initial correlation analysis unavailable; agent will inspect the selected scope.");
+                    log.warn("Initial correlation analysis failed for {}", request.threadGroupPath(), ex);
+                    postActivity("Initial correlation analysis unavailable (" + ex.getMessage()
+                            + "); agent will inspect the selected scope.");
                 }
             }
             File workingDirectory = aiWorkingDirectory(request.tool());
@@ -269,7 +270,6 @@ public class AiAutoScriptingAction extends AbstractAction {
             postActivity("AI tool: " + request.tool().displayName()
                     + " (dangerous local-agent settings approved in the start dialog).");
             postActivity(AiEngineDescription.describe(request.tool().id(), request.tool().displayName(), request.thinkingLevel.value, request.modelOverride));
-            postActivity("Edit surface: " + request.editSurface().displayName());
             postActivity("Run limits: max runtime " + request.maxRuntimeSeconds()
                     + "s, similar retry limit " + request.maxSimilarRetries()
                     + ", add assertions " + (request.addAssertions() ? "yes" : "no") + ".");
@@ -281,10 +281,6 @@ public class AiAutoScriptingAction extends AbstractAction {
                     instructions = instructions.substring(0, 1_500) + "... (truncated)";
                 }
                 postActivity("User instructions: " + instructions);
-            }
-            if (!request.repairTargetPath().isBlank()) {
-                postActivity("Repair target: " + request.repairTargetPath());
-                postActivity("Repair summary: " + repairSummaryPath(request));
             }
             postActivity("Working directory: " + workingDirectory.getPath());
 
@@ -314,8 +310,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 postActivity("AI Auto Scripting stopped by user.");
                 AiAutoScriptingLogWindow.finishRun("Stopped");
             } else if (exitCode == 0) {
-                boolean endedWithoutChanges = request.editSurface() == AiEditSurface.LIVE_GUI
-                        && request.mode() == AiRunMode.FULL_SCRIPT_REPAIR
+                boolean endedWithoutChanges = request.mode() == AiRunMode.FULL_SCRIPT_REPAIR
                         && AiAutoScriptingLogWindow.changes().isEmpty();
                 if (output.hasRepairBlocker()) {
                     postActivity("AI Auto Scripting finished with blockers.");
@@ -335,11 +330,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 postActivity("AI Auto Scripting exited with code " + exitCode + ".");
                 AiAutoScriptingLogWindow.finishRun("Exited with code " + exitCode);
             }
-            if (!stopped && !timedOut.get()) {
-                importRepairSummary(request);
-            }
             postCompletionSummary(request, exitCode, Duration.between(started, Instant.now()), output);
-            reloadActiveFileRepair(request, exitCode);
         } catch (Exception ex) {
             if (timedOut.get()) {
                 postActivity("AI Auto Scripting stopped after reaching the maximum runtime.");
@@ -665,13 +656,6 @@ public class AiAutoScriptingAction extends AbstractAction {
         return bytes + " B";
     }
 
-    private static String repairSummaryPath(AiRunRequest request) {
-        if (request.repairTargetPath().isBlank()) {
-            return "";
-        }
-        return request.repairTargetPath() + ".ai-summary.json";
-    }
-
     private static String commandSummary(List<String> command) {
         if (command.isEmpty()) {
             return "";
@@ -707,9 +691,6 @@ public class AiAutoScriptingAction extends AbstractAction {
         }
         GuiPackage gui = GuiPackage.getInstance();
         String testPlanFile = gui != null ? gui.getTestPlanFile() : null;
-        if (request.editSurface().fileBacked()) {
-            return fileBackedRepairPrompt(request, testPlanFile);
-        }
         if (request.mode() != AiRunMode.FULL_SCRIPT_REPAIR) {
             return specificRequestPrompt(request, testPlanFile);
         }
@@ -724,8 +705,38 @@ public class AiAutoScriptingAction extends AbstractAction {
                 Map.entry("RUN_OPTIONS", runOptionsInstruction(request)),
                 Map.entry("TEST_PLAN_FILE", testPlanFile == null ? "(unknown)" : testPlanFile),
                 Map.entry("BACKUP_PATH", orUnknown(request.backupPath())),
-                Map.entry("USER_INSTRUCTIONS", userInstructionBlock(request))
+                Map.entry("USER_INSTRUCTIONS", userInstructionBlock(request)),
+                Map.entry("TOOL_SIGNATURES", BreakTestAgentMcpServer.toolSignaturesForPrompt(REPAIR_TOOLS)),
+                // Guidance the run cannot use is not sent: it would be re-read on every model turn.
+                Map.entry("WEBSOCKET_SECTION", usesWebSocket(request)
+                        ? "\n" + AiPrompts.render(AiPrompts.WEBSOCKET_SECTION, Map.of()) : ""),
+                Map.entry("GENERATION_SECTION", request.hasUserInput()
+                        ? "\n" + AiPrompts.render(AiPrompts.GENERATION_SECTION, Map.of()) : "")
         ));
+    }
+
+    /** The tools the repair workflow names, so their schemas need no separate lookup. */
+    private static final List<String> REPAIR_TOOLS = List.of(
+            "apply_repair_actions_open_plan", "apply_correlation_batch_open_plan", "batch_open_plan",
+            "validate_open_plan", "get_sample", "audit_dynamic_request_values_open_plan",
+            "add_response_assertions_open_plan", "replace_literals_open_plan", "agent_activity");
+
+    private static boolean usesWebSocket(AiRunRequest request) {
+        if (request.instructions().toLowerCase(java.util.Locale.ROOT).contains("websocket")) {
+            return true;
+        }
+        JMeterTreeNode group = request.threadGroupNode();
+        if (group == null) {
+            return false;
+        }
+        java.util.Enumeration<?> nodes = group.depthFirstEnumeration();
+        while (nodes.hasMoreElements()) {
+            if (nodes.nextElement() instanceof JMeterTreeNode node
+                    && node.getTestElement().getClass().getName().toLowerCase(java.util.Locale.ROOT).contains("websocket")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String specificRequestPrompt(AiRunRequest request, String testPlanFile) {
@@ -743,36 +754,13 @@ public class AiAutoScriptingAction extends AbstractAction {
         ));
     }
 
-    private static String fileBackedRepairPrompt(AiRunRequest request, String testPlanFile) {
-        String taskScope = AiPrompts.fragment(request.mode() != AiRunMode.FULL_SCRIPT_REPAIR
-                ? "taskScope.specificRequest"
-                : "taskScope.fullRepair");
-        AgentBridgeCommand.Instructions bridge = AgentBridgeCommand.resolveInstructions();
-        return AiPrompts.render(AiPrompts.FILE_BACKED_REPAIR, Map.ofEntries(
-                Map.entry("BRIDGE", bridge.command()),
-                Map.entry("BRIDGE_CALL", bridge.bridgeCall()),
-                Map.entry("START_ACTIVITY_INSTRUCTION", bridge.startActivity()),
-                Map.entry("AGENT_BOOTSTRAP", harnessBootstrap(request.tool())),
-                Map.entry("TASK_SCOPE", taskScope),
-                Map.entry("THREAD_GROUP_NAME", request.threadGroupName()),
-                Map.entry("THREAD_GROUP_PATH", request.threadGroupPath()),
-                Map.entry("REPAIR_TARGET", orMissing(request.repairTargetPath(), "repair target path")),
-                Map.entry("REPAIR_SUMMARY_PATH", orMissing(repairSummaryPath(request), "repair summary path")),
-                Map.entry("RUN_OPTIONS", runOptionsInstruction(request)),
-                Map.entry("TEST_PLAN_FILE", testPlanFile == null ? "(unknown)" : testPlanFile),
-                Map.entry("BACKUP_PATH", orUnknown(request.backupPath())),
-                Map.entry("USER_INSTRUCTIONS", userInstructionBlock(request))
-        ));
-    }
-
     private static String harnessBootstrap(AiTool tool) {
-        return AgentBridgeCommand.harnessBootstrap(tool == AiTool.CODEX, tool.displayName());
+        return AgentBridgeCommand.harnessBootstrap(tool.displayName());
     }
     private static String userInstructionBlock(AiRunRequest request) {
         return AiPrompts.render(AiPrompts.USER_INSTRUCTIONS, Map.ofEntries(
                 Map.entry("TOOL", request.tool().displayName()),
                 Map.entry("MODE", request.mode().displayName()),
-                Map.entry("EDIT_SURFACE", request.editSurface().displayName()),
                 Map.entry("ADD_ASSERTIONS", request.addAssertions() ? "yes" : "no"),
                 Map.entry("MAX_RUNTIME_SECONDS", Integer.toString(request.maxRuntimeSeconds())),
                 Map.entry("MAX_SIMILAR_RETRIES", Integer.toString(request.maxSimilarRetries())),
@@ -795,10 +783,6 @@ public class AiAutoScriptingAction extends AbstractAction {
 
     private static String orUnknown(String value) {
         return value == null || value.isBlank() ? "(unknown)" : value;
-    }
-
-    private static String orMissing(String value, String label) {
-        return value == null || value.isBlank() ? "(missing " + label + ")" : value;
     }
 
     private static AiRunRequest showStartDialog(GuiPackage gui) {
@@ -838,17 +822,15 @@ public class AiAutoScriptingAction extends AbstractAction {
         modeChoices.add(specificRequest);
         modePanel.add(modeChoices, BorderLayout.CENTER);
 
-        JRadioButton liveGui = new JRadioButton("GUI mode", defaultEditSurface() == AiEditSurface.LIVE_GUI);
-        JRadioButton nonGui = new JRadioButton("JMX file mode", defaultEditSurface() == AiEditSurface.NON_GUI);
-        ButtonGroup surfaceGroup = new ButtonGroup();
-        surfaceGroup.add(liveGui);
-        surfaceGroup.add(nonGui);
-        JPanel surfacePanel = new JPanel(new BorderLayout(0, 4));
-        surfacePanel.add(new JLabel("Edit surface"), BorderLayout.NORTH);
-        JPanel surfaceChoices = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
-        surfaceChoices.add(liveGui);
-        surfaceChoices.add(nonGui);
-        surfacePanel.add(surfaceChoices, BorderLayout.CENTER);
+        JCheckBox keepCopy = new JCheckBox("Keep a copy of the thread group",
+                JMeterUtils.getPropDefault("breaktest.ai.keep_thread_group_copy", true));
+        keepCopy.setToolTipText("Adds a disabled copy of the thread group as it was before this run. "
+                + "A copy kept by an earlier run of the same thread group is replaced.");
+        JPanel safetyPanel = new JPanel(new BorderLayout(0, 4));
+        safetyPanel.add(new JLabel("Before the run"), BorderLayout.NORTH);
+        JPanel safetyChoices = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        safetyChoices.add(keepCopy);
+        safetyPanel.add(safetyChoices, BorderLayout.CENTER);
 
         JCheckBox addAssertions = new JCheckBox("Add assertions", true);
         addAssertions.setToolTipText("Add outcome assertions for generated flows or requested repair/test work.");
@@ -889,7 +871,7 @@ public class AiAutoScriptingAction extends AbstractAction {
         enginePanel.add(modelSelector, BorderLayout.CENTER);
         JPanel modeFields = new JPanel(new GridLayout(1, 2, 12, 0));
         modeFields.add(modePanel);
-        modeFields.add(surfacePanel);
+        modeFields.add(safetyPanel);
         JPanel choicesPanel = new JPanel(new BorderLayout(0, 10));
         choicesPanel.add(modeFields, BorderLayout.NORTH);
         choicesPanel.add(limitsPanel, BorderLayout.SOUTH);
@@ -981,7 +963,6 @@ public class AiAutoScriptingAction extends AbstractAction {
         AiTool selectedTool = (AiTool) aiTool.getSelectedItem();
         ThreadGroupChoice selectedThreadGroup = (ThreadGroupChoice) threadGroup.getSelectedItem();
         AiRunMode mode = specificRequest.isSelected() ? AiRunMode.SPECIFIC_REQUEST : AiRunMode.FULL_SCRIPT_REPAIR;
-        AiEditSurface editSurface = liveGui.isSelected() ? AiEditSurface.LIVE_GUI : AiEditSurface.NON_GUI;
         String instructionText = instructions.getText().trim();
         if (mode != AiRunMode.FULL_SCRIPT_REPAIR && instructionText.isBlank()) {
             JOptionPane.showMessageDialog(
@@ -996,7 +977,7 @@ public class AiAutoScriptingAction extends AbstractAction {
                 selectedTool,
                 selectedThreadGroup,
                 mode,
-                editSurface,
+                keepCopy.isSelected(),
                 addAssertions.isSelected(),
                 parseIntegerField(maxRuntimeSeconds, "Maximum runtime", 60, 14400),
                 parseIntegerField(maxSimilarRetries, "Similar retry limit", 0, 50),
@@ -1121,7 +1102,7 @@ public class AiAutoScriptingAction extends AbstractAction {
      */
     static List<String> oneShotCommand(AiTool tool, AiThinkingLevel thinkingLevel, String model, String prompt,
             File workingDirectory) {
-        AiRunRequest request = new AiRunRequest(tool, null, null, null, false, 60, 0, "", "", "", thinkingLevel, model);
+        AiRunRequest request = new AiRunRequest(tool, null, null, false, false, 60, 0, "", "", thinkingLevel, model);
         List<String> command = aiCommand(request, workingDirectory, prompt);
         switch (tool) {
         case CLAUDE -> command.add(1, "--strict-mcp-config");
@@ -1136,7 +1117,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     static String launchFailureMessage(AiTool tool, List<String> command, Exception ex) {
-        return launchFailureMessage(new AiRunRequest(tool, null, null, null, false, 60, 0, ""), command, ex);
+        return launchFailureMessage(new AiRunRequest(tool, null, null, false, false, 60, 0, ""), command, ex);
     }
 
     static <T> JPanel compactComboPanel(String label, JComboBox<T> comboBox) {
@@ -1156,23 +1137,6 @@ public class AiAutoScriptingAction extends AbstractAction {
             }
         }
         return AiTool.CODEX;
-    }
-
-    private static AiEditSurface defaultEditSurface() {
-        String configured = JMeterUtils.getPropDefault("breaktest.ai.edit_surface", "gui");
-        String lower = configured.toLowerCase(Locale.ROOT);
-        if (lower.contains("non") || lower.contains("clone") || lower.contains("file")) {
-            return AiEditSurface.NON_GUI;
-        }
-        if (lower.contains("gui") || lower.contains("live")) {
-            return AiEditSurface.LIVE_GUI;
-        }
-        for (AiEditSurface surface : AiEditSurface.values()) {
-            if (surface.id().equalsIgnoreCase(configured) || surface.displayName().equalsIgnoreCase(configured)) {
-                return surface;
-            }
-        }
-        return AiEditSurface.LIVE_GUI;
     }
 
     private static List<ThreadGroupChoice> enabledThreadGroups(GuiPackage gui) {
@@ -1297,98 +1261,6 @@ public class AiAutoScriptingAction extends AbstractAction {
         return output.hasRepairBlocker() ? "completed with blockers" : "completed";
     }
 
-    private static void importRepairSummary(AiRunRequest request) {
-        if (!request.editSurface().fileBacked() || request.repairTargetPath().isBlank()) {
-            return;
-        }
-        File summaryFile = new File(repairSummaryPath(request));
-        if (!summaryFile.isFile()) {
-            postActivity("Repair summary sidecar was not produced: " + summaryFile.getPath());
-            return;
-        }
-        try {
-            JsonNode root = JSON.readTree(summaryFile);
-            JsonNode changes = root.path("changes");
-            int importedChanges = 0;
-            if (changes.isArray()) {
-                for (JsonNode change : changes) {
-                    String type = textOrDefault(change, "type", "Updated JMX");
-                    String node = firstText(change, "node", "nodeName", "nodePath");
-                    if (node.isBlank()) {
-                        node = "Repair target";
-                    }
-                    String summary = firstText(change, "summary", "change", "title");
-                    if (summary.isBlank()) {
-                        summary = type;
-                    }
-                    String details = firstText(change, "details", "evidence", "result");
-                    AiAutoScriptingLogWindow.recordChange(type, node, summary, details, null);
-                    importedChanges++;
-                }
-            }
-            postActivity("Imported repair summary: " + importedChanges + " change(s) from "
-                    + summaryFile.getPath());
-        } catch (Exception ex) {
-            log.warn("Could not import AI repair summary {}", summaryFile, ex);
-            postActivity("Could not import repair summary: " + ex.getMessage());
-        }
-    }
-
-    private static String textOrDefault(JsonNode node, String field, String defaultValue) {
-        JsonNode value = node.path(field);
-        if (value.isMissingNode() || value.isNull()) {
-            return defaultValue;
-        }
-        String text = value.asText("");
-        return text.isBlank() ? defaultValue : text;
-    }
-
-    private static String firstText(JsonNode node, String... fields) {
-        for (String field : fields) {
-            JsonNode value = node.path(field);
-            if (!value.isMissingNode() && !value.isNull()) {
-                String text = value.asText("");
-                if (!text.isBlank()) {
-                    return text;
-                }
-            }
-        }
-        return "";
-    }
-
-    private static void reloadActiveFileRepair(AiRunRequest request, int exitCode) {
-        if (request.editSurface() != AiEditSurface.NON_GUI || request.repairTargetPath().isBlank()) {
-            return;
-        }
-        File repairTarget = new File(request.repairTargetPath());
-        if (!repairTarget.isFile()) {
-            postActivity("Active repair target was not found after the run: " + repairTarget.getPath());
-            return;
-        }
-        if (exitCode != 0) {
-            postActivity("AI run exited with code " + exitCode + "; reloading the active JMX so any partial "
-                    + "file edits remain visible: " + repairTarget.getPath());
-        }
-        SwingUtilities.invokeLater(() -> {
-            try {
-                postActivity("Reloading repaired active JMX: " + repairTarget.getPath());
-                Map<String, Object> result = BreakTestAgentGuiService.reloadOpenPlanAfterFileRepair(
-                        repairTarget.getPath());
-                if (Boolean.TRUE.equals(result.get("refreshed"))) {
-                    postActivity("Reloaded repaired active JMX; the pre-run backup remains unchanged: "
-                            + request.backupPath());
-                } else {
-                    postActivity("The repaired active JMX could not be reloaded automatically: "
-                            + result.getOrDefault("reason", "unknown reason") + ". File: " + repairTarget.getPath());
-                }
-            } catch (Exception ex) {
-                log.warn("Could not reload AI repaired active JMX {}", repairTarget, ex);
-                postActivity("Could not reload the repaired active JMX: " + ex.getMessage()
-                        + ". The repaired file remains on disk: " + repairTarget.getPath());
-            }
-        });
-    }
-
     static String formatDuration(Duration duration) {
         long totalSeconds = Math.max(0, duration.toSeconds());
         long minutes = totalSeconds / 60;
@@ -1411,31 +1283,6 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         private String displayName() {
             return displayName;
-        }
-    }
-
-    private enum AiEditSurface {
-        LIVE_GUI("gui", "GUI mode"),
-        NON_GUI("non-gui", "JMX file mode");
-
-        private final String id;
-        private final String displayName;
-
-        AiEditSurface(String id, String displayName) {
-            this.id = id;
-            this.displayName = displayName;
-        }
-
-        private String id() {
-            return id;
-        }
-
-        private String displayName() {
-            return displayName;
-        }
-
-        private boolean fileBacked() {
-            return this == NON_GUI;
         }
     }
 
@@ -1521,13 +1368,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         private final AiTool tool;
         private final ThreadGroupChoice threadGroup;
         private final AiRunMode mode;
-        private final AiEditSurface editSurface;
+        private final boolean keepCopy;
         private final boolean addAssertions;
         private final int maxRuntimeSeconds;
         private final int maxSimilarRetries;
         private final String instructions;
         private final String backupPath;
-        private final String repairTargetPath;
         private String analysisPacket = "";
         private final AiThinkingLevel thinkingLevel;
         private final String modelOverride;
@@ -1536,59 +1382,56 @@ public class AiAutoScriptingAction extends AbstractAction {
                 AiTool tool,
                 ThreadGroupChoice threadGroup,
                 AiRunMode mode,
-                AiEditSurface editSurface,
+                boolean keepCopy,
                 boolean addAssertions,
                 int maxRuntimeSeconds,
                 int maxSimilarRetries,
                 String instructions
         ) {
-            this(tool, threadGroup, mode, editSurface, addAssertions, maxRuntimeSeconds, maxSimilarRetries, instructions,
-                    "", "", AiThinkingLevel.DEFAULT, "");
+            this(tool, threadGroup, mode, keepCopy, addAssertions, maxRuntimeSeconds, maxSimilarRetries, instructions,
+                    "", AiThinkingLevel.DEFAULT, "");
         }
 
         private AiRunRequest(
                 AiTool tool,
                 ThreadGroupChoice threadGroup,
                 AiRunMode mode,
-                AiEditSurface editSurface,
+                boolean keepCopy,
                 boolean addAssertions,
                 int maxRuntimeSeconds,
                 int maxSimilarRetries,
                 String instructions,
                 String backupPath,
-                String repairTargetPath,
                 AiThinkingLevel thinkingLevel,
                 String modelOverride
         ) {
             this.tool = tool == null ? AiTool.CODEX : tool;
             this.threadGroup = threadGroup;
             this.mode = mode == null ? AiRunMode.FULL_SCRIPT_REPAIR : mode;
-            this.editSurface = editSurface == null ? AiEditSurface.LIVE_GUI : editSurface;
+            this.keepCopy = keepCopy;
             this.addAssertions = addAssertions;
             this.maxRuntimeSeconds = Math.max(60, maxRuntimeSeconds);
             this.maxSimilarRetries = Math.max(0, maxSimilarRetries);
             this.instructions = instructions == null ? "" : instructions;
             this.backupPath = backupPath == null ? "" : backupPath;
-            this.repairTargetPath = repairTargetPath == null ? "" : repairTargetPath;
             this.thinkingLevel = thinkingLevel == null ? AiThinkingLevel.DEFAULT : thinkingLevel;
             this.modelOverride = modelOverride == null ? "" : modelOverride.trim();
         }
 
-        private AiRunRequest withPaths(String backupPath, String repairTargetPath) {
-            return new AiRunRequest(tool, threadGroup, mode, editSurface, addAssertions, maxRuntimeSeconds,
-                    maxSimilarRetries, instructions, backupPath,
-                    repairTargetPath, thinkingLevel, modelOverride);
+        private AiRunRequest withBackupPath(String backupPath) {
+            return new AiRunRequest(tool, threadGroup, mode, keepCopy, addAssertions, maxRuntimeSeconds,
+                    maxSimilarRetries, instructions, backupPath, thinkingLevel, modelOverride);
         }
 
 
         private AiRunRequest withThinkingLevel(AiThinkingLevel level) {
-            return new AiRunRequest(tool, threadGroup, mode, editSurface, addAssertions, maxRuntimeSeconds,
-                    maxSimilarRetries, instructions, backupPath, repairTargetPath, level, modelOverride);
+            return new AiRunRequest(tool, threadGroup, mode, keepCopy, addAssertions, maxRuntimeSeconds,
+                    maxSimilarRetries, instructions, backupPath, level, modelOverride);
         }
 
         private AiRunRequest withModel(String model) {
-            return new AiRunRequest(tool, threadGroup, mode, editSurface, addAssertions, maxRuntimeSeconds,
-                    maxSimilarRetries, instructions, backupPath, repairTargetPath, thinkingLevel, model);
+            return new AiRunRequest(tool, threadGroup, mode, keepCopy, addAssertions, maxRuntimeSeconds,
+                    maxSimilarRetries, instructions, backupPath, thinkingLevel, model);
         }
 
         private AiTool tool() {
@@ -1611,8 +1454,8 @@ public class AiAutoScriptingAction extends AbstractAction {
             return mode;
         }
 
-        private AiEditSurface editSurface() {
-            return editSurface;
+        private boolean keepCopy() {
+            return keepCopy;
         }
 
         private boolean addAssertions() {
@@ -1633,10 +1476,6 @@ public class AiAutoScriptingAction extends AbstractAction {
 
         private String backupPath() {
             return backupPath;
-        }
-
-        private String repairTargetPath() {
-            return repairTargetPath;
         }
 
         private boolean hasUserInput() {
@@ -1675,7 +1514,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         private static String treePath(JMeterTreeNode node) {
             Object[] nodes = node.getPath();
             List<String> names = new ArrayList<>();
-            for (Object pathNode : nodes) {
+            for (int i = 0; i < nodes.length; i++) {
+                Object pathNode = nodes[i];
+                // The tree's root is hidden and wraps the Test Plan; naming it doubled the first segment.
+                if (i == 0 && nodes.length > 1 && node.getRoot() == pathNode) {
+                    continue;
+                }
                 if (pathNode instanceof JMeterTreeNode treeNode) {
                     names.add(treeNode.getName());
                 } else {

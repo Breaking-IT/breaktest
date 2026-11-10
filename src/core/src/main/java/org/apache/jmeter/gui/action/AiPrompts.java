@@ -38,8 +38,11 @@ import java.util.regex.Pattern;
 final class AiPrompts {
     static final String LIVE_GUI_REPAIR = "ai-prompt-live-gui-repair.txt";
     static final String SPECIFIC_REQUEST = "ai-prompt-specific-request.txt";
-    static final String FILE_BACKED_REPAIR = "ai-prompt-file-backed-repair.txt";
     static final String USER_INSTRUCTIONS = "ai-prompt-user-instructions.txt";
+    /** Appended to the repair prompt only for a thread group that has WebSocket samplers. */
+    static final String WEBSOCKET_SECTION = "ai-prompt-websocket.txt";
+    /** Appended to the repair prompt only when the user gave instructions, which may ask to build something. */
+    static final String GENERATION_SECTION = "ai-prompt-generation.txt";
     static final String RUN_OPTIONS = "ai-prompt-run-options.txt";
 
     private static final String FRAGMENTS = "ai-prompt-fragments.properties";

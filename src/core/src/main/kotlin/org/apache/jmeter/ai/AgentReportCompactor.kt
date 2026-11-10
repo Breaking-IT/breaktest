@@ -118,6 +118,110 @@ public object AgentReportCompactor {
         )
     }
 
+    /**
+     * The smallest report an agent can act on: one text row per reached request, the first
+     * failure with short heads of what was sent and received, the ranked repair proposals, and on
+     * a green run a response preview per transaction for choosing assertion markers. Everything
+     * else stays readable through get_sample by index, so a failing run costs a few kilobytes of
+     * context instead of tens.
+     */
+    public fun summaryForRepair(
+        report: BreakTestAgentReport,
+        previousSamples: List<AgentSampleSummary>? = null,
+    ): Map<String, Any?> {
+        val firstFailureIndex = report.validation.firstFailureIndex
+        val reached = report.validation.samples.filter { firstFailureIndex == null || it.index <= firstFailureIndex }
+        // Counted, not ordered: requests in a Parallel Controller finish in a different order on
+        // every run. Pass or fail, not the code: a cached answer may be 200 one run and 304 the next.
+        fun outcome(samples: List<AgentSampleSummary>) =
+            samples.groupingBy { it.label to (it.success && !it.hasAssertionFailure) }.eachCount()
+        // A green run that repeats the previous green run, typically the final check after adding
+        // assertions, only needs to say so: the agent already holds the rows and previews.
+        if (report.validation.successful && previousSamples != null && outcome(reached) == outcome(previousSamples)) {
+            return linkedMapOf(
+                "summary" to true,
+                "successful" to true,
+                "unchangedSincePreviousRun" to true,
+                "sampleCount" to report.validation.samples.size,
+                "transactionsOk" to reached.count { it.isTransactionSample() },
+                "stopReason" to report.validation.stopReason,
+            ).filterValues { it != null }
+        }
+        val shown = reached.filter { !it.isStaticAssetRequest() || !it.success }
+        val failure = report.analysis.firstFailure
+        val failedLeaf = failure?.flatten()?.firstOrNull { it.subResults.isEmpty() && (!it.success || it.hasAssertionFailure) } ?: failure
+        return linkedMapOf(
+            "summary" to true,
+            "successful" to report.validation.successful,
+            "sampleCount" to report.validation.samples.size,
+            "timedOut" to report.validation.timedOut.takeIf { it },
+            "stopReason" to report.validation.stopReason,
+            "firstFailureIndex" to firstFailureIndex,
+            "staticAssetsNotListed" to reached.count { it.isStaticAssetRequest() && it.success },
+            "columns" to "index | kind(R=request,T=transaction) | label | status | responseCode | ms",
+            "samples" to shown.joinToString("\n") { sample ->
+                listOf(
+                    sample.index, if (sample.isTransactionSample()) "T" else "R", sample.label,
+                    if (sample.success && !sample.hasAssertionFailure) "ok" else "FAILED",
+                    sample.responseCode, sample.elapsedTimeMillis,
+                ).joinToString(" | ")
+            },
+            "firstFailure" to failedLeaf?.let { leaf ->
+                mapOf(
+                    "index" to (failure?.index ?: leaf.index),
+                    "label" to leaf.label,
+                    "responseCode" to leaf.responseCode,
+                    "responseMessage" to leaf.responseMessage.takeIf { it.isNotBlank() },
+                    "failedAssertions" to leaf.assertions.filter { it.failure || it.error }
+                        .map { "${it.name}: ${it.message}" }.takeIf { it.isNotEmpty() },
+                    "request" to leaf.requestBody.limit(SUMMARY_HEAD_CHARS),
+                    "requestHeaders" to leaf.requestHeaders.limit(SUMMARY_HEAD_CHARS),
+                    "responseHeaders" to leaf.responseHeaders.limit(SUMMARY_HEAD_CHARS),
+                    "responseBody" to leaf.responseBody.limit(SUMMARY_HEAD_CHARS),
+                    "responseBodyChars" to leaf.responseBody.length,
+                ).filterValues { it != null }
+            },
+            "repairActions" to validationRepairActions(report, SUMMARY_HEAD_CHARS).take(SUMMARY_MAX_ACTIONS).takeIf { it.isNotEmpty() },
+            "requestCandidates" to compactRequestCandidates(report.preFailureRequestCandidates, SUMMARY_MAX_CANDIDATES)
+                .takeIf { it.isNotEmpty() },
+            "transactionPreviews" to transactionPreviews(reached).takeIf { report.validation.successful && it.isNotEmpty() },
+            "more" to "get_sample(index=N) returns the full request and response of any row, in windows; " +
+                "find=<text> starts the window at that text.",
+        ).filterValues { it != null }
+    }
+
+    /** Per transaction, the last responses with a body: candidates for one business-outcome assertion each. */
+    private fun transactionPreviews(reached: List<AgentSampleSummary>): List<Map<String, Any?>> {
+        val previews = mutableListOf<Map<String, Any?>>()
+        val sinceLastTransaction = mutableListOf<AgentSampleSummary>()
+        for (sample in reached) {
+            if (!sample.isTransactionSample()) {
+                sinceLastTransaction += sample
+                continue
+            }
+            // A transaction is reported as its own row after the requests it covers.
+            val leaves = sinceLastTransaction.toList()
+            sinceLastTransaction.clear()
+            previews += preview(sample.label, leaves, SUMMARY_PREVIEWS_PER_TRANSACTION)
+        }
+        // Requests that no transaction covers still need a marker each.
+        if (sinceLastTransaction.isNotEmpty()) {
+            previews += preview("(requests outside a transaction)", sinceLastTransaction, SUMMARY_MAX_LOOSE_PREVIEWS)
+        }
+        return previews
+    }
+
+    private fun preview(name: String, leaves: List<AgentSampleSummary>, limit: Int): Map<String, Any?> =
+        mapOf(
+            "transaction" to name,
+            "responses" to leaves
+                .filter { !it.isStaticAssetRequest() && it.responseBody.isNotBlank() && it.responseBodyEncoding == "text" }
+                // A business API answer makes a better marker than the page shell around it.
+                .let { texts -> texts.filter { it.responseBody.trimStart().take(1) in JSON_STARTS }.ifEmpty { texts } }
+                .takeLast(limit)
+                .map { mapOf("index" to it.index, "label" to it.label, "body" to it.responseBody.limit(SUMMARY_PREVIEW_CHARS)) },
+        )
+
     private fun AgentSampleSummary.compact(bodyLimit: Int): Map<String, Any?> =
         mapOf(
             "evidenceLevel" to "full",
@@ -429,6 +533,13 @@ public object AgentReportCompactor {
         }
     }
 
+    private const val SUMMARY_HEAD_CHARS = 700
+    private const val SUMMARY_PREVIEW_CHARS = 400
+    private val JSON_STARTS = setOf("{", "[")
+    private const val SUMMARY_PREVIEWS_PER_TRANSACTION = 2
+    private const val SUMMARY_MAX_LOOSE_PREVIEWS = 20
+    private const val SUMMARY_MAX_ACTIONS = 10
+    private const val SUMMARY_MAX_CANDIDATES = 15
     private const val MAX_SUB_RESULT_SUMMARY = 25
     private const val MAX_SUB_RESULT_EVIDENCE = 10
     private const val MAX_LITERAL_LENGTH = 220

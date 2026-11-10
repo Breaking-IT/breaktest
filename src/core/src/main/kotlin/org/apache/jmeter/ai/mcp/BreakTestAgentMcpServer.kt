@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.node.ObjectNode
 import org.apache.jmeter.ai.AgentReportCompactor
 import org.apache.jmeter.ai.AgentRunOptions
+import org.apache.jmeter.ai.AgentToolSpecs
 import org.apache.jmeter.ai.BreakTestAgent
 import org.apache.jmeter.ai.edit.BoundaryCorrelationRequest
 import org.apache.jmeter.ai.edit.TestPlanEditor
@@ -46,6 +47,7 @@ import java.time.Duration
  */
 public object BreakTestAgentMcpServer {
     private const val DEFAULT_DSL_CHARACTER_LIMIT = 80_000
+    private const val CORE_DESCRIPTION_CHARS = 420
 
     // Compact JSON everywhere: tool results are consumed by a model (and echoed
     // verbatim into transcripts by CLI agents such as OpenCode), so pretty-printing
@@ -59,6 +61,10 @@ public object BreakTestAgentMcpServer {
         initializeBreakTestHome(args.firstOrNull())
         val server = StdioJsonRpcServer(::handleRequest)
         server.run()
+        // A plan opened without a window starts the Swing event thread, which would keep
+        // this process alive after the client has closed the connection.
+        System.out.flush()
+        kotlin.system.exitProcess(0)
     }
 
     @JvmStatic
@@ -72,13 +78,42 @@ public object BreakTestAgentMcpServer {
 
     @JvmStatic
     public fun toolsListForCli(): String =
-        mapper.writeValueAsString(toolsListResult())
+        // Names and one-line summaries only: every full schema together is some 50 KB, which an
+        // agent that just wants to find a tool would otherwise carry through the whole run.
+        mapper.writeValueAsString(describeTools(mapper.createObjectNode()))
+
+    /**
+     * One line per tool: name, arguments with their types, and the required ones. Small enough
+     * to put in a prompt, so a scripted run does not spend a model turn on reading schemas.
+     */
+    @JvmStatic
+    public fun toolSignaturesForPrompt(names: List<String>): String {
+        val all = toolsListResult().path("tools").associateBy { it.path("name").asText() }
+        fun type(property: JsonNode): String {
+            val items = property.path("items")
+            return when {
+                items.path("properties").size() > 0 ->
+                    "array[{" + items.path("properties").properties().joinToString(", ") { (name, item) -> "$name:${type(item)}" } + "}]"
+                property.path("type").asText() == "array" -> "array[${items.path("type").asText("any")}]"
+                else -> property.path("type").asText("any")
+            }
+        }
+        return names.mapNotNull { all[it] }.joinToString("\n") { tool ->
+            val schema = tool.path("inputSchema")
+            val arguments = schema.path("properties").properties().joinToString(", ") { (name, property) -> "$name:${type(property)}" }
+            val required = schema.path("required").joinToString(", ") { it.asText() }
+            "- ${tool.path("name").asText()}($arguments${if (required.isEmpty()) "" else "; required: $required"})"
+        }
+    }
 
     @JvmStatic
     public fun toolsListForCli(names: List<String>): String {
         require(names.isNotEmpty()) { "Supply at least one tool name" }
         val all = toolsListResult().path("tools").associateBy { it.path("name").asText() }
-        require(names.all { it in all }) { "Unknown tool name in schema request" }
+        val unknown = names.filter { it !in all }
+        require(unknown.isEmpty()) {
+            "Unknown tool name(s) in schema request: ${unknown.joinToString()}. Call tools with no names for the list."
+        }
         return mapper.writeValueAsString(mapOf("tools" to names.distinct().map { all.getValue(it) }))
     }
 
@@ -103,7 +138,7 @@ public object BreakTestAgentMcpServer {
             when (method) {
                 "initialize" -> response(id, initializeResult(request.path("params")))
                 "ping" -> response(id, mapper.createObjectNode())
-                "tools/list" -> response(id, toolsListResult())
+                "tools/list" -> response(id, advertisedToolsResult())
                 "resources/list" -> response(id, emptyListResult("resources"))
                 "prompts/list" -> response(id, emptyListResult("prompts"))
                 "tools/call" -> response(id, callTool(request.path("params")))
@@ -126,8 +161,57 @@ public object BreakTestAgentMcpServer {
             "serverInfo",
             mapper.createObjectNode().apply {
                 put("name", "breaktest-agent")
-                put("version", "0.1.0")
+                put("version", "0.2.0")
             }
+        )
+        put("instructions", AgentToolSpecs.INSTRUCTIONS)
+    }
+
+    /** `core` advertises only the general-purpose tools; every tool stays callable either way. */
+    private fun coreToolsetOnly(): Boolean =
+        (System.getenv("BREAKTEST_MCP_TOOLSETS") ?: System.getProperty("breaktest.mcp.toolsets", "all"))
+            .split(',').map { it.trim().lowercase() }.let { "core" in it && "all" !in it }
+
+    internal fun advertisedToolsResult(coreOnly: Boolean = coreToolsetOnly()): ObjectNode {
+        val all = toolsListResult()
+        if (!coreOnly) {
+            return all
+        }
+        return mapper.createObjectNode().apply {
+            putArray("tools").addAll(
+                all.path("tools").filter { it.path("name").asText() in AgentToolSpecs.coreToolNames }.map { tool ->
+                    // The long guidance of the older tools is tuned for scripted repair runs; a
+                    // general client gets the gist and can ask describe_tools for the rest.
+                    val description = tool.path("description").asText()
+                    if (description.length > CORE_DESCRIPTION_CHARS) {
+                        val cut = description.lastIndexOf(". ", CORE_DESCRIPTION_CHARS).takeIf { it > 80 } ?: CORE_DESCRIPTION_CHARS
+                        (tool.deepCopy() as ObjectNode).put("description", description.take(cut + 1) + " (More: describe_tools.)")
+                    } else {
+                        tool
+                    }
+                },
+            )
+        }
+    }
+
+    /** Lets a client on the core toolset discover the specialised tools without paying for them up front. */
+    internal fun describeTools(arguments: JsonNode): Any {
+        val all = toolsListResult().path("tools")
+        val names = arguments.path("names").takeIf { it.isArray && it.size() > 0 }?.map { it.asText() }
+        if (names != null) {
+            val byName = all.associateBy { it.path("name").asText() }
+            val unknown = names.filter { it !in byName }
+            require(unknown.isEmpty()) { "Unknown tool name(s): ${unknown.joinToString()}" }
+            return mapOf("tools" to names.distinct().map { byName.getValue(it) })
+        }
+        return mapOf(
+            "tools" to all.map {
+                mapOf(
+                    "name" to it.path("name").asText(),
+                    "summary" to it.path("description").asText().substringBefore(". ").take(160),
+                )
+            },
+            "guidance" to "Pass names to get full input schemas. Every listed tool can be called directly or as a batch_open_plan step.",
         )
     }
 
@@ -137,22 +221,23 @@ public object BreakTestAgentMcpServer {
 
     private fun toolsListResult(): ObjectNode = mapper.createObjectNode().apply {
         putArray("tools").apply {
+            for (spec in AgentToolSpecs.allGuiTools + AgentToolSpecs.serverTools) {
+                add(tool(spec.name, spec.description, spec.properties, spec.required))
+            }
             add(
                 tool(
-                    "gui_status",
-                    "Return status for the running BreakTest GUI agent service and its open plan.",
-                    emptyMap(),
+                    "describe_tools",
+                    "List every BreakTest tool with a one-line summary, including specialised correlation, " +
+                        "repair, recording and WebSocket tools. Pass names to get full input schemas.",
+                    mapOf("names" to "array[string]"),
                     emptyList(),
                 )
             )
             add(
                 tool(
-                    "refresh_open_plan_from_file",
-                    "Reload the currently open BreakTest GUI plan from its saved JMX file. Use this only after a file-backed active-JMX repair batch has saved valid XML and inspect_jmx confirms the same path parses cleanly. The GUI bridge allows one normal refresh per AI run to avoid very slow repeated reloads of large JMX files; pass force=true only when the user explicitly requests another live reload.",
-                    mapOf(
-                        "path" to "string",
-                        "force" to "boolean",
-                    ),
+                    "gui_status",
+                    "Return status for the running BreakTest GUI agent service and its open plan.",
+                    emptyMap(),
                     emptyList(),
                 )
             )
@@ -179,7 +264,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "validate_open_plan",
-                    "Run a bounded validation pass for the test plan currently open in the running BreakTest GUI. Timers are skipped by default; set ignoreTimers=false to verify generated pacing and background work. Pass threadGroupName or scopeNodePath to validate only the selected Thread Group when backup/duplicate Thread Groups are enabled. Use compact=true so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise. Compact results carry full request/response evidence only for the first failure and the samples just before it; earlier passing samples and fully green runs return light response-body previews (evidenceLevel=light), which are still enough to pick assertion markers.",
+                    "Run a bounded validation pass for the test plan currently open in the running BreakTest GUI. Prefer summary=true: a few kilobytes with one row per reached request, the first failure with short request/response heads, ranked repairActions and requestCandidates, and on a green run a response preview per transaction for assertions; read anything else with get_sample(index). Timers are skipped by default; set ignoreTimers=false to verify generated pacing and background work. Pass threadGroupName or scopeNodePath to validate only the selected Thread Group when backup/duplicate Thread Groups are enabled. Use compact=true so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise. Compact results carry full request/response evidence only for the first failure and the samples just before it; earlier passing samples and fully green runs return light response-body previews (evidenceLevel=light), which are still enough to pick assertion markers.",
                     mapOf(
                         "threadGroupName" to "string",
                         "scopeNodePath" to "string",
@@ -193,6 +278,7 @@ public object BreakTestAgentMcpServer {
                         "includeDsl" to "boolean",
                         "dslCharacterLimit" to "number",
                         "includeStaticAssets" to "boolean",
+                        "summary" to "boolean",
                         "compact" to "boolean",
                         "compactSampleLimit" to "number",
                         "compactBodyLimit" to "number",
@@ -497,7 +583,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "replace_literal_open_plan",
-                    "Replace a literal in one target sampler subtree, under threadGroupName/scopeNodePath, or in the whole running BreakTest GUI plan only when allowWholePlan=true for an explicitly requested global edit. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. Prefer targetNodePath/targetOccurrenceIndex when labels repeat. For credential replacement, set excludeUserDefinedVariables=true so the Test Plan User Defined Variables table keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
+                    "Replace a literal in one target sampler subtree, under threadGroupName/scopeNodePath, or in the whole running BreakTest GUI plan only when allowWholePlan=true for an explicitly requested global edit. This reaches nested HTTP arguments, POST bodies, paths, headers, and child element properties. Element names are ignored by default; set includeNames=true only for an intentional rename. Prefer targetNodePath/targetOccurrenceIndex when labels repeat. For credential replacement, set excludeUserDefinedVariables=true so the User Defined Variables keeps the original secret value. Replacements using invalid ${'$'}{__UUID(...)} syntax are rejected; use ${'$'}{__UUID} or a JSR223/setup variable for reusable UUIDs.",
                     mapOf(
                         "targetNodeId" to "string",
                         "targetSamplerIndex" to "number",
@@ -537,7 +623,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "set_user_defined_variable_open_plan",
-                    "Create or update a top-level Test Plan User Defined Variable in the running BreakTest GUI plan. For credentials, pass the preserved original literal value, not the ${'$'}{variable} reference; self-referential values are rejected.",
+                    "Create or update a User Defined Variable in the running BreakTest GUI plan. It is stored in a User Defined Variables element under the Shared Profile (created on first use), so every Thread Group and scenario sees it; a plan without a Shared Profile keeps it on the Test Plan. For credentials, pass the preserved original literal value, not the ${'$'}{variable} reference; self-referential values are rejected.",
                     mapOf(
                         "name" to "string",
                         "value" to "string",
@@ -596,7 +682,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "search_open_plan_values",
-                    "Search string-valued open-plan properties for a literal or regex. Pass threadGroupName or scopeNodePath when multiple Thread Groups have similar transaction names. By default element names are ignored, so use this to verify old UUIDs, credentials, tokens, and stale IDs are gone from request data after edits. For credential verification, set excludeUserDefinedVariables=true so the original secret stored in the Test Plan variables table is not counted as a stale request value.",
+                    "Search string-valued open-plan properties for a literal or regex. Pass threadGroupName or scopeNodePath when multiple Thread Groups have similar transaction names. By default element names are ignored, so use this to verify old UUIDs, credentials, tokens, and stale IDs are gone from request data after edits. For credential verification, set excludeUserDefinedVariables=true so the original secret stored in the User Defined Variables is not counted as a stale request value.",
                     mapOf(
                         "literal" to "string",
                         "query" to "string",
@@ -701,13 +787,13 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "add_element_open_plan", "Create a native element with GUI defaults and typed properties. targetNodeId/targetNodePath identifies its parent; omit only to add at the Test Plan root (e.g. the first Thread Group). Uses normal GUI parent rules, backup, undo and change tracking. Returns compact confirmation by default without echoing payloads or scripts; compact=false returns the full element schema. Returned nodeId can parent the next element. Build hierarchy before validation; do not run placeholders.",
-                    mapOf("elementId" to "string", "name" to "string", "targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "compact" to "boolean"), listOf("elementId")
+                    mapOf("elementId" to "string", "name" to "string", "targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "tableMode" to "string", "rawProperties" to "object", "rawLists" to "object", "compact" to "boolean"), listOf("elementId")
                 )
             )
             add(
                 tool(
-                    "configure_element_open_plan", "Configure an existing element using the property and table schemas from describe_element. All setters are validated on a clone before applying; supports enums, text, booleans, integers and expressions when a string setter exists. Includes undo/change tracking. Returns compact confirmation by default; compact=false returns the full element schema.",
-                    mapOf("targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "compact" to "boolean"), emptyList()
+                    "configure_element_open_plan", "Configure an existing element using the property and table schemas from describe_element. All setters are validated on a clone before applying; supports enums, text, booleans, integers and expressions when a string setter exists. Includes undo/change tracking. rawProperties sets stored property keys (as shown by get_element_open_plan raw=true) for settings the schema does not expose; a/b reaches into a nested element and list/0/key into a row. rawLists replaces the rows of a stored list: text rows, or objects of stored keys with testclass naming the row class. tableMode decides how supplied table rows combine with existing ones: replace (default), append, upsert (replace the row with the same name, else add) or remove (rows with the supplied names; only name is needed). Returns compact confirmation by default; compact=false returns the full element schema.",
+                    mapOf("targetNodeId" to "string", "targetNodePath" to "string", "properties" to "object", "tables" to "object", "tableMode" to "string", "rawProperties" to "object", "rawLists" to "object", "compact" to "boolean"), emptyList()
                 )
             )
             add(
@@ -968,8 +1054,12 @@ public object BreakTestAgentMcpServer {
         }
         return try {
             when (name) {
+                in AgentToolSpecs.guiToolNames -> callGuiTool(name, arguments)
+                "describe_tools" -> describeTools(arguments)
+                "list_instances" -> listInstances()
+                "select_instance" -> selectInstance(arguments)
+                "open_plan_headless" -> openPlanHeadless(arguments)
                 "gui_status" -> callGuiTool("status", arguments)
-                "refresh_open_plan_from_file" -> callGuiTool("refresh_open_plan_from_file", arguments)
                 "restore_open_plan_from_backup" -> callGuiTool("restore_open_plan_from_backup", arguments)
                 "inspect_open_plan" -> callGuiTool("inspect_open_plan", arguments)
                 "validate_open_plan" -> callGuiTool("validate_open_plan", arguments)
@@ -1062,7 +1152,6 @@ public object BreakTestAgentMcpServer {
     private fun String.shouldMirrorActivity(): Boolean =
         this !in setOf(
             "gui_status",
-            "refresh_open_plan_from_file",
             "restore_open_plan_from_backup",
             "inspect_open_plan",
             "validate_open_plan",
@@ -1101,7 +1190,20 @@ public object BreakTestAgentMcpServer {
             "move_node_open_plan",
             "delete_node_open_plan",
             "move_think_times_to_transactions_open_plan",
-        )
+            // The GUI logs every tool it executes; mirroring these too cost two extra
+            // socket round trips per call and doubled the log lines.
+            "find_open_plan_nodes",
+            "list_available_elements",
+            "describe_element",
+            "add_element_open_plan",
+            "configure_element_open_plan",
+            "add_websocket_match_open_plan",
+            "update_websocket_open_plan",
+            "describe_tools",
+            "list_instances",
+            "select_instance",
+            "open_plan_headless",
+        ) && this !in AgentToolSpecs.guiToolNames
 
     /**
      * Shown next to every MCP-routed tool call in the AI log. The server is not
@@ -1229,8 +1331,60 @@ public object BreakTestAgentMcpServer {
         return left to right
     }
 
+    /** The BreakTest window chosen with select_instance; otherwise the most recently active one. */
+    @Volatile
+    private var selectedDescriptor: File? = null
+
+    private fun instanceDescriptors(): List<File> =
+        BreakTestAgentGuiService.instanceDescriptorDirectory()
+            .listFiles { file -> file.name.startsWith(BreakTestAgentGuiService.instanceDescriptorPrefix()) && file.name.endsWith(".json") }
+            .orEmpty()
+            .filter { file ->
+                val pid = runCatching { mapper.readTree(file).path("pid").asLong() }.getOrDefault(0)
+                // A window that crashed leaves its descriptor behind.
+                (pid > 0 && ProcessHandle.of(pid).isPresent).also { alive -> if (!alive) file.delete() }
+            }
+
+    private fun listInstances(): Any = mapOf(
+        "instances" to instanceDescriptors().map { file ->
+            val status = runCatching { callGuiTool("status", mapper.createObjectNode(), file) as JsonNode }.getOrNull()
+            mapOf(
+                "pid" to mapper.readTree(file).path("pid").asLong(),
+                "testPlanFile" to status?.path("testPlanFile")?.takeIf { !it.isNull }?.asText(),
+                "dirty" to status?.path("dirty")?.asBoolean(),
+                "selected" to (file == selectedDescriptor),
+                "reachable" to (status != null),
+            )
+        },
+        "guidance" to "Without select_instance, calls go to the window that most recently started or used its AI action.",
+    )
+
+    private fun selectInstance(arguments: JsonNode): Any {
+        require(!org.apache.jmeter.ai.gui.AgentHeadlessPlan.isOpen()) {
+            "This server has a headless plan open; use a separate MCP server session to select a BreakTest window"
+        }
+        val pid = arguments.path("pid").asLong()
+        val file = instanceDescriptors().firstOrNull { mapper.readTree(it).path("pid").asLong() == pid }
+            ?: throw IllegalArgumentException("No running BreakTest window with process id $pid; see list_instances")
+        selectedDescriptor = file
+        return mapOf("selected" to pid, "status" to callGuiTool("status", mapper.createObjectNode(), file))
+    }
+
+    private fun openPlanHeadless(arguments: JsonNode): Any {
+        val file = File(arguments.requiredText("path")).absoluteFile
+        require(file.isFile) { "No such file: ${file.path}" }
+        val nodeCount = org.apache.jmeter.ai.gui.AgentHeadlessPlan.open(file)
+        return mapOf("opened" to true, "path" to file.path, "nodeCount" to nodeCount, "mode" to "headless")
+    }
+
     private fun callGuiTool(name: String, arguments: JsonNode): Any {
-        val descriptor = BreakTestAgentGuiService.descriptorFile()
+        if (org.apache.jmeter.ai.gui.AgentHeadlessPlan.isOpen()) {
+            return mapper.valueToTree<JsonNode>(BreakTestAgentGuiService.handleToolInProcess(name, arguments))
+        }
+        return callGuiTool(name, arguments, selectedDescriptor ?: BreakTestAgentGuiService.descriptorFile())
+    }
+
+    private fun callGuiTool(name: String, arguments: JsonNode, descriptor: File): Any {
         require(descriptor.isFile) {
             "BreakTest GUI agent is not running. Start BreakTest GUI from this build first, or check that breaktest.agent.enabled was not set to false."
         }
@@ -1254,7 +1408,11 @@ public object BreakTestAgentMcpServer {
         if (!node.path("ok").asBoolean(false)) {
             throw IllegalStateException(node.path("error").asText("BreakTest GUI agent request failed"))
         }
-        return node.path("result")
+        val result = node.path("result")
+        if (node.path("planChangedOutside").asBoolean(false) && result is ObjectNode) {
+            result.put("planChangedSinceLastCall", true)
+        }
+        return result
     }
 
     private fun callGuiAgent(
@@ -1344,6 +1502,10 @@ private class StdioJsonRpcServer(
     private val mapper = ObjectMapper()
     private val input = BufferedInputStream(System.`in`)
 
+    // The MCP stdio transport sends one JSON message per line; older clients of this server
+    // used Content-Length headers. Each reply uses the framing of the request it answers.
+    private var lineDelimited = false
+
     fun run() {
         McpTrace.log("stdio run")
         while (true) {
@@ -1360,11 +1522,19 @@ private class StdioJsonRpcServer(
     private fun readMessage(): ByteArray? {
         var contentLength: Int? = null
         while (true) {
-            val line = readAsciiLine() ?: run {
+            val line = readLine() ?: run {
                 McpTrace.log("stdio eof before header")
                 return null
             }
+            if (contentLength == null && line.trimStart().startsWith("{")) {
+                lineDelimited = true
+                return line.toByteArray(Charsets.UTF_8)
+            }
             if (line.isEmpty()) {
+                if (contentLength == null) {
+                    // Blank line between line-delimited messages.
+                    continue
+                }
                 break
             }
             val separator = line.indexOf(':')
@@ -1376,31 +1546,36 @@ private class StdioJsonRpcServer(
             McpTrace.log("stdio missing content-length")
             return null
         }
+        lineDelimited = false
         McpTrace.log("stdio content-length=$length")
         return input.readNBytes(length).takeIf { it.size == length }
     }
 
-    private fun readAsciiLine(): String? {
+    private fun readLine(): String? {
         val bytes = mutableListOf<Byte>()
         while (true) {
             val next = input.read()
             if (next == -1) {
-                return if (bytes.isEmpty()) null else bytes.toByteArray().toString(Charsets.US_ASCII)
+                return if (bytes.isEmpty()) null else bytes.toByteArray().toString(Charsets.UTF_8)
             }
             if (next == '\n'.code) {
                 if (bytes.lastOrNull() == '\r'.code.toByte()) {
                     bytes.removeAt(bytes.lastIndex)
                 }
-                return bytes.toByteArray().toString(Charsets.US_ASCII)
+                return bytes.toByteArray().toString(Charsets.UTF_8)
             }
             bytes += next.toByte()
         }
     }
 
     private fun writeMessage(bytes: ByteArray) {
-        val header = "Content-Length: ${bytes.size}\r\n\r\n".toByteArray(Charsets.US_ASCII)
-        System.out.write(header)
-        System.out.write(bytes)
+        if (lineDelimited) {
+            System.out.write(bytes)
+            System.out.write('\n'.code)
+        } else {
+            System.out.write("Content-Length: ${bytes.size}\r\n\r\n".toByteArray(Charsets.US_ASCII))
+            System.out.write(bytes)
+        }
         System.out.flush()
     }
 }

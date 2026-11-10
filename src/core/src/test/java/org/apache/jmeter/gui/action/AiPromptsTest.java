@@ -42,30 +42,32 @@ class AiPromptsTest {
             Map.entry("TEST_PLAN_FILE", "/plans/shop.jmx"),
             Map.entry("BACKUP_PATH", "/plans/shop.jmx.bak"),
             Map.entry("USER_INSTRUCTIONS", "- user instructions"),
-            Map.entry("TASK_SCOPE", "task scope"),
-            Map.entry("REPAIR_TARGET", "/plans/shop.repair.jmx"),
-            Map.entry("REPAIR_SUMMARY_PATH", "/plans/shop.repair.jmx.ai-summary.json"),
             Map.entry("TOOL", "Copilot CLI"),
             Map.entry("MODE", "Full script repair"),
-            Map.entry("EDIT_SURFACE", "Live GUI"),
             Map.entry("ADD_ASSERTIONS", "yes"),
             Map.entry("MAX_RUNTIME_SECONDS", "900"),
             Map.entry("MAX_SIMILAR_RETRIES", "3"),
             Map.entry("EXTRA_INSTRUCTIONS", "(none provided)"),
+            Map.entry("TOOL_SIGNATURES", "- some_tool(argument:string)"),
+            Map.entry("WEBSOCKET_SECTION", ""),
+            Map.entry("GENERATION_SECTION", ""),
             Map.entry("ASSERTION_INSTRUCTION", "- assertion instruction"));
 
     @ParameterizedTest
     @ValueSource(strings = {
         AiPrompts.LIVE_GUI_REPAIR,
         AiPrompts.SPECIFIC_REQUEST,
-        AiPrompts.FILE_BACKED_REPAIR,
         AiPrompts.USER_INSTRUCTIONS,
+        AiPrompts.WEBSOCKET_SECTION,
+        AiPrompts.GENERATION_SECTION,
         AiPrompts.RUN_OPTIONS,
     })
     void everyTemplateRendersWithoutUnresolvedTokens(String template) {
         String rendered = AiPrompts.render(template, ALL_TOKENS);
         assertFalse(rendered.isBlank(), template + " rendered empty");
-        assertFalse(rendered.contains("{{"), () -> template + " left an unresolved token: " + firstToken(rendered));
+        // {{node.x}} is batch template syntax the agent is told about, not a prompt placeholder.
+        assertFalse(rendered.replace("{{node.", "").contains("{{"),
+                () -> template + " left an unresolved token: " + firstToken(rendered));
         // The templates are no longer String.format inputs; stray specifiers would be a bad port.
         assertFalse(rendered.contains("%s") || rendered.contains("%d"),
                 template + " still contains a format specifier");
@@ -84,7 +86,6 @@ class AiPromptsTest {
     @Test
     void allFragmentsResolve() {
         for (String key : new String[] {
-            "taskScope.fullRepair", "taskScope.specificRequest",
             "assertions.enabled", "assertions.disabled",
         }) {
             assertFalse(AiPrompts.fragment(key).isBlank(), "missing fragment " + key);
