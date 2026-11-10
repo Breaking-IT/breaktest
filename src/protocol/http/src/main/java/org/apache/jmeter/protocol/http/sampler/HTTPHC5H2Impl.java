@@ -1817,17 +1817,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
         }
     }
 
-    /** How long a stopping user waits for its HTTP/2 reactor to end before closing it anyway. */
-    static final String REACTOR_SHUTDOWN_WAIT_PROPERTY = "httpsampler.http2.reactor_shutdown_wait_ms";
-
     private static boolean awaitReactorShutdown(CloseableHttpAsyncClient client) {
         client.initiateShutdown();
-        // HttpCore's default graceful-close budget unless configured. Further cancellation signals
-        // must not restart the timeout or escape into the final client close. When the budget runs
-        // out, the caller closes a still-running selector and HttpCore logs a ClosedSelectorException,
-        // which a starved machine can hit with the default.
-        long budgetMillis = Math.max(0, JMeterUtils.getPropDefault(REACTOR_SHUTDOWN_WAIT_PROPERTY, 5_000L));
-        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(budgetMillis);
+        // Match HttpCore's default graceful-close budget. Further cancellation signals must
+        // not restart the timeout or escape into the final client close.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
         boolean interrupted = false;
         long remaining;
         while ((remaining = deadline - System.nanoTime()) > 0) {

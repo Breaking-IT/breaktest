@@ -97,6 +97,9 @@ import com.github.tomakehurst.wiremock.client.WireMock;
 
 @Execution(ExecutionMode.SAME_THREAD)
 class HTTPHC5H2ThreadLifecycleTest {
+    /** Just under the five-second reactor wait of a stopping user, allowing for timer slack. */
+    private static final long REACTOR_WAIT_FALLBACK_MILLIS = 4_500;
+
     private final Set<Object> cacheKeysToClean = ConcurrentHashMap.newKeySet();
 
     @BeforeAll
@@ -387,6 +390,7 @@ class HTTPHC5H2ThreadLifecycleTest {
     @ValueSource(booleans = {false, true})
     void stoppingActiveRequestsDoesNotLogWarningsOrReactorErrors(boolean parallel) throws Exception {
         List<String> problems = new CopyOnWriteArrayList<>();
+        AtomicLong stopMillis = new AtomicLong();
         Logger logger = (Logger) LogManager.getRootLogger();
         AbstractAppender appender = new AbstractAppender("shutdown-problems", null, null, false, null) {
             @Override
@@ -400,11 +404,6 @@ class HTTPHC5H2ThreadLifecycleTest {
         };
         appender.start();
         logger.addAppender(appender);
-        // A stopping user closes its client anyway once the reactor wait runs out, and HttpCore
-        // then logs a ClosedSelectorException. Slow CI machines exceeded the default five
-        // seconds, so give the reactor ample time: this test is about the orderly path.
-        Object previousWait = JMeterUtils.getJMeterProperties()
-                .setProperty(HTTPHC5H2Impl.REACTOR_SHUTDOWN_WAIT_PROPERTY, "60000");
         try {
             withServer(30_000, server -> {
                 int baseline = httpClientReactorThreadCount();
@@ -416,23 +415,28 @@ class HTTPHC5H2ThreadLifecycleTest {
                     assertEventually(() -> server.getAllServeEvents().size() >= (parallel ? 2 : 1),
                             10_000, "requests must be active before stopping the user");
                 } finally {
+                    long stopStarted = System.nanoTime();
                     user.stop();
                     user.interrupt();
                     carrier.interrupt();
                     carrier.join(10_000);
+                    stopMillis.set(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - stopStarted));
                 }
                 assertFalse(carrier.isAlive(), "stopped user must finish promptly");
                 assertFalse(clientCache().containsKey(user), "stopped user must release its clients");
                 assertEventually(() -> httpClientReactorThreadCount() <= baseline, 5_000,
                         "stopped user's reactors must terminate");
             });
-            assertTrue(problems.isEmpty(), () -> "unexpected shutdown logs: " + problems);
-        } finally {
-            if (previousWait == null) {
-                JMeterUtils.getJMeterProperties().remove(HTTPHC5H2Impl.REACTOR_SHUTDOWN_WAIT_PROPERTY);
-            } else {
-                JMeterUtils.getJMeterProperties().put(HTTPHC5H2Impl.REACTOR_SHUTDOWN_WAIT_PROPERTY, previousWait);
+            // A stopping user waits five seconds for its reactor and then closes the client
+            // anyway, which makes HttpCore log a ClosedSelectorException. Starved CI machines
+            // (macOS runners, stress-JIT flags) run into that fallback; a stop that stayed within
+            // the wait must still be silent.
+            if (stopMillis.get() >= REACTOR_WAIT_FALLBACK_MILLIS) {
+                problems.removeIf(problem -> problem.contains("ClosedSelectorException"));
             }
+            assertTrue(problems.isEmpty(),
+                    () -> "unexpected shutdown logs after a " + stopMillis.get() + " ms stop: " + problems);
+        } finally {
             logger.removeAppender(appender);
             appender.stop();
         }
