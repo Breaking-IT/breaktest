@@ -1497,7 +1497,6 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                             };
                         }
                     };
-            pHCCM.setDefaultSocketConfig(HttpClientTuning.CLASSIC_SOCKET_CONFIG);
             pHCCM.setDefaultConnectionConfig(ConnectionConfig.custom()
                     .setTimeToLive(TIME_TO_LIVE, TimeUnit.MILLISECONDS)
                     .setValidateAfterInactivity(VALIDITY_AFTER_INACTIVITY_TIMEOUT, TimeUnit.MILLISECONDS)

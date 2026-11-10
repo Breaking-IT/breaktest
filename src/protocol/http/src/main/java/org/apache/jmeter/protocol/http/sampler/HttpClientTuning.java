@@ -18,9 +18,7 @@
 package org.apache.jmeter.protocol.http.sampler;
 
 import org.apache.hc.core5.http.config.Http1Config;
-import org.apache.hc.core5.http.io.SocketConfig;
 import org.apache.hc.core5.http2.config.H2Config;
-import org.apache.hc.core5.util.Timeout;
 import org.apache.jmeter.util.JMeterUtils;
 
 /**
@@ -58,19 +56,6 @@ final class HttpClientTuning {
      */
     static final boolean DIRECT_ASYNC =
             JMeterUtils.getPropDefault("httpsampler.hc5.h2.direct_async", true);
-
-    /**
-     * Read timeout in milliseconds of a classic (blocking) connection whose sampler sets no
-     * response timeout (property {@code httpclient5.default_socket_timeout}), default 180000:
-     * HttpClient's own 3 minutes. A limit makes every blocking read of a virtual thread arm
-     * and cancel a timer, about one extra scheduler wake-up per request (some 9 us of CPU at
-     * 5,000 requests/s); 0 waits without limit, as the async client does, and avoids that.
-     * A sampler's response timeout still applies.
-     */
-    static final SocketConfig CLASSIC_SOCKET_CONFIG = SocketConfig.custom()
-            .setSoTimeout(Timeout.ofMilliseconds(
-                    Math.max(0, JMeterUtils.getPropDefault("httpclient5.default_socket_timeout", 180_000))))
-            .build();
 
     private HttpClientTuning() {
     }
