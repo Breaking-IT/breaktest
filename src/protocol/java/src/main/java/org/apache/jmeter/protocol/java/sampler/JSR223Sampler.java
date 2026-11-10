@@ -52,6 +52,7 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
 
     private transient Thread samplingThread;
     private transient volatile boolean interruptRequested;
+    private transient boolean preserveInterrupt;
 
     @Override
     public SampleResult sample(Entry entry) {
@@ -72,6 +73,7 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
         synchronized (this) {
             samplingThread = Thread.currentThread();
             interruptRequested = false;
+            preserveInterrupt = false;
         }
         try {
             ScriptEngine scriptEngine = getScriptEngine();
@@ -94,6 +96,10 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
         } finally {
             synchronized (this) {
                 samplingThread = null;
+                if (interruptRequested && !preserveInterrupt) {
+                    // A timeout belongs to this sample, even if the script ignored or restored it.
+                    Thread.interrupted();
+                }
             }
         }
         if (result.getEndTime() == 0) {
@@ -108,10 +114,24 @@ public class JSR223Sampler extends JSR223TestElement implements Cloneable, Sampl
      * busy loops and Groovy's {@code sleep(long)} method, which ignores interrupts, run on.
      */
     @Override
-    public synchronized boolean interrupt() {
+    public boolean interrupt() {
+        return interruptSamplingThread(false);
+    }
+
+    @Override
+    public boolean interruptForTimeout() {
+        return interruptSamplingThread(true);
+    }
+
+    private synchronized boolean interruptSamplingThread(boolean timeout) {
         if (samplingThread == null) {
             return false;
         }
+        if (!interruptRequested) {
+            preserveInterrupt = samplingThread.isInterrupted();
+        }
+        // Test/fork cancellation takes precedence over a timeout, in either order.
+        preserveInterrupt |= !timeout;
         interruptRequested = true;
         samplingThread.interrupt();
         return true;
