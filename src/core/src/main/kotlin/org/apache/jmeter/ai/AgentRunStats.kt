@@ -59,11 +59,8 @@ public object AgentRunStats {
     @Volatile
     private var runStart = 0L
 
-    @Volatile
-    private var firstSample = 0L
-
-    @Volatile
-    private var lastSample = 0L
+    private val firstSample = AtomicLong(Long.MAX_VALUE)
+    private val lastSample = AtomicLong(0L)
     private val order = AtomicLong()
     private val labels = ConcurrentHashMap<String, Label>()
     private val errorKinds = ConcurrentHashMap<String, LongAdder>()
@@ -85,8 +82,8 @@ public object AgentRunStats {
         synchronized(errorSamples) { errorSamples.clear() }
         captured.clear()
         order.set(0)
-        firstSample = 0
-        lastSample = 0
+        firstSample.set(Long.MAX_VALUE)
+        lastSample.set(0L)
     }
 
     /** Called for every sample and transaction result of a run. */
@@ -101,11 +98,9 @@ public object AgentRunStats {
                 }
             }
         }
-        val now = System.currentTimeMillis()
-        if (firstSample == 0L) {
-            firstSample = now
-        }
-        lastSample = now
+        // Completion callbacks can arrive out of timestamp order across load threads.
+        firstSample.accumulateAndGet(result.startTime, ::minOf)
+        lastSample.accumulateAndGet(result.endTime, ::maxOf)
         val name = result.sampleLabel.orEmpty()
         val label = labels[name] ?: run {
             if (labels.size >= MAX_LABELS) return
@@ -196,7 +191,7 @@ public object AgentRunStats {
      */
     @JvmStatic
     public fun snapshot(maxLabels: Int, errorSampleLimit: Int): Map<String, Any?> {
-        val seconds = ((lastSample - firstSample).coerceAtLeast(1)) / 1000.0
+        val seconds = ((lastSample.get() - firstSample.get()).coerceAtLeast(1)) / 1000.0
         val sorted = labels.entries.sortedBy { it.value.order }
         val requests = sorted.filter { !it.value.transaction }
         val rows = sorted.take(maxLabels).map { (name, label) ->

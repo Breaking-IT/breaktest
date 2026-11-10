@@ -297,6 +297,50 @@ class AgentPlanToolsTest : JMeterTestCase() {
     }
 
     @Test
+    fun `throughput includes the first sample duration and handles out of order completion`() {
+        val stats = org.apache.jmeter.ai.AgentRunStats
+        stats.reset()
+        try {
+            fun record(start: Long, elapsed: Long) {
+                val sample = org.apache.jmeter.samplers.SampleResult.createTestSample(start, start + elapsed)
+                sample.sampleLabel = "request"
+                sample.isSuccessful = true
+                stats.record(sample, false)
+            }
+            record(1000L, 1000L)
+            assertEquals(1.0, stats.snapshot(10, 0)["requestsPerSecond"])
+            // Callbacks can arrive out of timestamp order when multiple threads finish.
+            record(3000L, 1000L)
+            record(500L, 500L)
+            val report = stats.snapshot(10, 0)
+            assertEquals(0.9, report["requestsPerSecond"], "three requests over 3.5 seconds")
+        } finally {
+            stats.reset()
+        }
+    }
+
+    @Test
+    fun `replacing a plan invalidates cached sample and assertion evidence`() {
+        val service = BreakTestAgentGuiService
+        val field = service.javaClass.getDeclaredField("lastValidation").apply { isAccessible = true }
+        val previous = field.get(service)
+        val constructor = field.type.declaredConstructors.single().apply { isAccessible = true }
+        try {
+            field.set(service, constructor.newInstance("Old plan", 0L, emptyList<Any>()))
+            service.forgetValidationBaseline()
+            assertEquals(null, service.lastValidationSamples())
+            for (tool in listOf("list_samples", "get_sample", "search_validated_response_open_plan")) {
+                val failure = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException::class.java) {
+                    call(tool)
+                }
+                assertTrue(failure.message.orEmpty().contains("validation", ignoreCase = true), tool)
+            }
+        } finally {
+            field.set(service, previous)
+        }
+    }
+
+    @Test
     fun `run statistics report counts errors and percentiles per label`() {
         org.apache.jmeter.ai.AgentRunStats.reset()
         repeat(100) { index ->

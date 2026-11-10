@@ -5722,6 +5722,7 @@ public object BreakTestAgentGuiService {
 
     /** The plan was replaced (opened, new or restored), so earlier validations describe another plan. */
     internal fun forgetValidationBaseline() {
+        lastValidation = null
         summaryBaseline = null
     }
 
