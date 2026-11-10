@@ -23,6 +23,8 @@ import java.awt.Component;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
+import java.awt.Point;
+import java.awt.Rectangle;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ItemEvent;
@@ -334,20 +336,59 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
      * Update the visualizer with new data.
      */
     private void updateGui() {
-        JViewport viewport = (JViewport) jTree.getParent();
-        var viewPosition = viewport.getViewPosition();
-        boolean preservePosition = !autoScrollCB.isSelected();
+        ResultViewportAnchor anchor = autoScrollCB.isSelected() ? null : captureViewportAnchor();
         liveTreeView.setUpdating(true);
         updatingResults = true;
         try {
             rebuildResultTree();
         } finally {
-            if (preservePosition) {
-                viewport.setViewPosition(viewPosition);
+            if (anchor != null) {
+                restoreViewportAnchor(anchor);
             }
             liveTreeView.setUpdating(false);
             updatingResults = false;
         }
+    }
+
+    private record ResultViewportAnchor(boolean tableMode, Object result, Point position, int rowOffset) {
+    }
+
+    private ResultViewportAnchor captureViewportAnchor() {
+        boolean tableMode = isTableMode();
+        JComponent view = tableMode ? resultTable : jTree;
+        Point position = ((JViewport) view.getParent()).getViewPosition();
+        int row = tableMode ? resultTable.rowAtPoint(position) : jTree.getClosestRowForLocation(0, position.y);
+        Object result = row < 0 ? null : resultAtViewRow(tableMode, row);
+        Rectangle bounds = row < 0 ? null : resultRowBounds(tableMode, row);
+        return new ResultViewportAnchor(tableMode, result, position, bounds == null ? 0 : position.y - bounds.y);
+    }
+
+    private Object resultAtViewRow(boolean tableMode, int row) {
+        return tableMode ? resultTableModel.sampleAt(resultTable.convertRowIndexToModel(row))
+                : ((DefaultMutableTreeNode) jTree.getPathForRow(row).getLastPathComponent()).getUserObject();
+    }
+
+    private Rectangle resultRowBounds(boolean tableMode, int row) {
+        return tableMode ? resultTable.getCellRect(row, 0, true) : jTree.getRowBounds(row);
+    }
+
+    private void restoreViewportAnchor(ResultViewportAnchor anchor) {
+        JComponent view = anchor.tableMode() ? resultTable : jTree;
+        JViewport viewport = (JViewport) view.getParent();
+        Point position = new Point(anchor.position());
+        int rowCount = anchor.tableMode() ? resultTable.getRowCount() : jTree.getRowCount();
+        // Keep the same visible result in place when older rows are evicted or change height.
+        for (int row = 0; anchor.result() != null && row < rowCount; row++) {
+            if (resultAtViewRow(anchor.tableMode(), row) == anchor.result()) {
+                position.y = resultRowBounds(anchor.tableMode(), row).y + anchor.rowOffset();
+                break;
+            }
+        }
+        Dimension size = view.getPreferredSize();
+        Dimension extent = viewport.getExtentSize();
+        position.x = Math.max(0, Math.min(position.x, size.width - extent.width));
+        position.y = Math.max(0, Math.min(position.y, size.height - extent.height));
+        viewport.setViewPosition(position);
     }
 
     private void rebuildResultTree() {
@@ -367,7 +408,8 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
             followLatest = autoScrollCB.isSelected() && validationResults && !isTableMode()
                     && (liveResultsChanged || !runningResults.isEmpty() || !nextRunningResults.isEmpty());
             liveTreeView.prepareExpansion(oldExpandedElements, transactions,
-                    followLatest);
+                    autoScrollCB.isSelected() && validationResults
+                            && (liveResultsChanged || !nextRunningResults.isEmpty()));
             Object selected = getSelectedObject();
             oldSelectedElement = transactions.carryOverViewState(oldExpandedElements, selected);
             selectedFinished = selected != null && runningResults.contains(selected)
