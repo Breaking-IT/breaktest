@@ -13,6 +13,55 @@ CONDITIONS OF ANY KIND, either express or implied. See the License for the
 specific language governing permissions and limitations under the License.
 -->
 
+# BreakTest 2026.11.10 — MCP Plan Tools and Faster HTTP Testing
+
+This release opens the live plan editor to MCP coding harnesses, reduces HTTP sampler overhead, and improves test shutdown, pacing, replay evidence, and result navigation.
+
+## Live Plan Tools for MCP Harnesses
+
+- Connect coding harnesses to the standard MCP stdio server to inspect and edit the open plan, batch changes, save plans, run tests, and inspect captured requests and responses. Tools also support headless plan editing and selecting between running BreakTest windows.
+- Compact plan outlines, element settings, batch references and table edits reduce the calls needed for common plan changes. Run statistics include corrected throughput timing, and changing plans clears cached validation evidence.
+- AI Repair uses the same live tools. It can keep a disabled copy of the selected thread group and revert the plan to its pre-run state. Shared variables are stored under the Shared Profile when available.
+- Agent permissions can restrict access to read, edit or run operations. Starting a full test asks for confirmation in the window by default.
+
+Sources: [#289](https://github.com/Breaking-IT/breaktest/pull/289).
+
+## Lower HTTP CPU and Memory Use
+
+- HTTP users share I/O reactor threads while retaining their own connection pools, TLS contexts, DNS resolvers, credentials and connection limits. Body-less async requests avoid the classic-to-async adaptor; requests with bodies and SSE streams retain it.
+- Cleartext requests with automatic protocol negotiation use the HTTP/1.1 client. Deferred headers, URL reuse and less per-request bookkeeping reduce sampler overhead.
+- HTTP/1.1 session buffers default to 8 KB and HTTP/2 frame size to 16 KB. Large direct-async responses use a flow-controlled pipe to keep discard, checksum and truncation modes bounded in memory.
+- Conscrypt TLS is optional when its library is installed; the JDK TLS provider remains the default. Validation checkpoints skip internal transport variables so connection state does not prevent resume.
+
+Sources: [#288](https://github.com/Breaking-IT/breaktest/pull/288).
+
+## Reliable Shutdown, Pacing and Replay
+
+- HTTP/2 cleanup cancels pending connections and closes sessions still in TLS setup before reactor shutdown.
+- Stopping a test can interrupt active JSR223 samplers. Sample Timeout clears timeout-induced interrupts so they do not leak into the next sampler, while preserving independent cancellation.
+- Transaction pacing schedules from the actual transaction start, avoiding catch-up bursts after delayed starts or slow transactions.
+- Store Replay preserves separate response evidence for copied samplers that share a recording ID.
+- HTTP parameter clipboard paste preserves names, values, enabled state, URL encoding, content type and the Include Equals setting, including multiline and quoted fields.
+
+Sources: [#284](https://github.com/Breaking-IT/breaktest/pull/284), [#285](https://github.com/Breaking-IT/breaktest/pull/285), [#286](https://github.com/Breaking-IT/breaktest/pull/286), [#287](https://github.com/Breaking-IT/breaktest/pull/287), [#283](https://github.com/Breaking-IT/breaktest/pull/283).
+
+## Keep Your Place in Results
+
+- When Scroll automatically is off, incoming results preserve the selected sampler and the visible tree or table position, including when old results are evicted or filters change.
+- Live validation now follows the saved scrolling preference. Enable Scroll automatically to select and follow new validation results; it defaults to off for plans without an enabled setting.
+
+Sources: [#291](https://github.com/Breaking-IT/breaktest/pull/291).
+
+## Upgrade Notes
+
+- Java 21 remains the minimum runtime. HTTP/3 requires Java 27 or later and remains a beta transport.
+- AI Repair file mode and the refresh_open_plan_from_file tool have been removed. Update integrations to use the live plan tools or open_plan_headless for file-based editing.
+- The HTTP shared-reactor, direct-async and cleartext HTTP/1.1 paths are enabled by default and can be configured through httpsampler.hc5.h2.shared_reactor, httpsampler.hc5.h2.direct_async and httpsampler.cleartext.http11_impl.
+- The classic client keeps its default three-minute socket read timeout. Setting httpclient5.default_socket_timeout=0 opts out; a sampler without an explicit response timeout can then wait on a silent peer until the test stops.
+- JSR223 interruption is cooperative: scripts must respond to interruption; Java cannot safely force an uncooperative script to terminate.
+
+[Full changelog since 2026.10.26](https://github.com/Breaking-IT/breaktest/compare/2026.10.26...2026.11.10)
+
 # BreakTest 2026.10.26 — Apache-2.0, Recording Review, and Reliable Shutdown
 
 This release makes BreakTest Community available under Apache-2.0 and improves recording review, request replay, dynamic workload weights, and test shutdown.
