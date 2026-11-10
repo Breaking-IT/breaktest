@@ -107,6 +107,8 @@ public object AgentElementCatalog {
         runCatching { element.javaClass.getMethod(property.writeMethod.name, String::class.java) }.isSuccess
 
     /** Return a fully configured clone; failed setters never partially mutate the live element. */
+    // Java callers (protocol module tests) use the three-argument form.
+    @JvmOverloads
     public fun configured(
         element: TestElement,
         values: JsonNode,
