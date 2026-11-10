@@ -52,6 +52,9 @@ class WebSocketPayloadEditorTest extends JMeterTestCase {
         });
     }
 
+    // Laying out and painting 400 KB of wrapped text took 135 s on a macOS CI runner with stress-JIT
+    // flags, against 2-4 s on a developer machine. The default two-minute limit is too tight there.
+    @org.junit.jupiter.api.Timeout(value = 10, unit = TimeUnit.MINUTES)
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(strings = {"31 32 37 33 34 37 30 32 ", "3132373334373032"})
     void largePayloadCanBeSelectedPaintedCopiedAndEditedWithoutChangingBytes(String block) throws Exception {

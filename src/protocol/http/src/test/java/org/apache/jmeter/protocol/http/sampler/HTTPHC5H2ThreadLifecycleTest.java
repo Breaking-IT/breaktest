@@ -400,6 +400,11 @@ class HTTPHC5H2ThreadLifecycleTest {
         };
         appender.start();
         logger.addAppender(appender);
+        // A stopping user closes its client anyway once the reactor wait runs out, and HttpCore
+        // then logs a ClosedSelectorException. Slow CI machines exceeded the default five
+        // seconds, so give the reactor ample time: this test is about the orderly path.
+        Object previousWait = JMeterUtils.getJMeterProperties()
+                .setProperty(HTTPHC5H2Impl.REACTOR_SHUTDOWN_WAIT_PROPERTY, "60000");
         try {
             withServer(30_000, server -> {
                 int baseline = httpClientReactorThreadCount();
@@ -423,6 +428,11 @@ class HTTPHC5H2ThreadLifecycleTest {
             });
             assertTrue(problems.isEmpty(), () -> "unexpected shutdown logs: " + problems);
         } finally {
+            if (previousWait == null) {
+                JMeterUtils.getJMeterProperties().remove(HTTPHC5H2Impl.REACTOR_SHUTDOWN_WAIT_PROPERTY);
+            } else {
+                JMeterUtils.getJMeterProperties().put(HTTPHC5H2Impl.REACTOR_SHUTDOWN_WAIT_PROPERTY, previousWait);
+            }
             logger.removeAppender(appender);
             appender.stop();
         }
