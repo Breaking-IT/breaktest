@@ -127,7 +127,6 @@ import org.apache.hc.core5.reactor.ConnectionInitiator;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.hc.core5.reactor.IOSession;
 import org.apache.hc.core5.reactor.IOSessionListener;
-import org.apache.hc.core5.reactor.ssl.SSLBufferMode;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
@@ -1459,9 +1458,6 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
         // Match the HTTP/1.1 sampler: test targets need not have matching certificates.
         builder.setHostnameVerificationPolicy(HostnameVerificationPolicy.CLIENT);
-        if (HttpClientTuning.DYNAMIC_TLS_BUFFERS) {
-            builder.setSslBufferMode(SSLBufferMode.DYNAMIC);
-        }
         return builder.buildAsync();
     }
 

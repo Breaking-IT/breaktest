@@ -52,15 +52,6 @@ final class HttpClientTuning {
             .build();
 
     /**
-     * Experimental, default false: TLS buffers of an async connection (about 49 KB) are
-     * allocated while data is in flight and released when idle, instead of kept for the
-     * connection's life. Saves memory for idle kept-alive users at the cost of allocating them
-     * again for every request.
-     */
-    static final boolean DYNAMIC_TLS_BUFFERS =
-            JMeterUtils.getPropDefault("httpclient5.tls.dynamic_buffers", false);
-
-    /**
      * Default true (property {@code httpsampler.hc5.h2.direct_async}): requests without a body
      * go straight through the async client instead of the classic-to-async adaptor, which costs
      * extra I/O cycles per request. See {@link BufferedAsyncResponseConsumer}.
