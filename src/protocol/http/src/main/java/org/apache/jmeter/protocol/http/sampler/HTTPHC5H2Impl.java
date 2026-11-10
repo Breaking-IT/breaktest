@@ -357,7 +357,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     BufferedAsyncResponseConsumer direct = BufferedAsyncResponseConsumer.execute(
                             clientState.asyncClient, httpRequest, clientContext, res, getResponseTimeout(),
                             responseTimeout());
-                    fillSampleResult(res, httpRequest, clientContext, clientState, direct.response());
+                    try {
+                        fillSampleResult(res, httpRequest, clientContext, clientState, direct.response());
+                    } finally {
+                        direct.finish();
+                    }
                     direct.applyLatency(res);
                 } else {
                     // Request bodies and SSE streams keep the classic facade over the async client.
