@@ -101,6 +101,21 @@ class AgentElementCoverageTest : JMeterTestCase() {
                     .path("tables").path("headers").map { it.path("name").asText() to it.path("value").asText() }
                 assertEquals(listOf("Accept" to "application/json", "X-Tenant" to "/api/products"), first)
 
+                // Query parameters stay in the URL even for methods without an explicit body.
+                for (method in listOf("GET", "DELETE", "OPTIONS", "POST", "PUT", "PATCH", "HEAD")) {
+                    call(
+                        "add_http_request",
+                        """{"url":"https://shop.example/action?token=abc%2Fdef&empty=&flag","method":"$method","name":"query-$method","targetNodeId":"$group"}""",
+                    )
+                    val sampler = model.getNodesOfType(org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy::class.java)
+                        .single { it.testElement.name == "query-$method" }.testElement
+                        as org.apache.jmeter.protocol.http.sampler.HTTPSamplerProxy
+                    assertEquals("https://shop.example/action?token=abc%2Fdef&empty=&flag", sampler.url.toString(), method)
+                    if (method in listOf("POST", "PUT", "PATCH", "HEAD")) {
+                        assertEquals(0, sampler.arguments.argumentCount, method)
+                    }
+                }
+
                 val auth = call(
                     "add_element_open_plan",
                     """{"elementId":"org.apache.jmeter.protocol.http.gui.AuthPanel","targetNodeId":"$group","rawLists":{"AuthManager.auth_list":[

@@ -81,6 +81,58 @@ class AgentPlanToolsTest : JMeterTestCase() {
         json.valueToTree(BreakTestAgentGuiService.handleTool(tool, json.readTree(arguments)))
 
     @Test
+    fun `headless plan filename sets relative data file resolution`(@TempDir directory: Path) {
+        val server = org.apache.jmeter.services.FileServer.getFileServer()
+        val previousBase = java.io.File(server.baseDir)
+        val previousScript = server.scriptName
+        try {
+            AgentHeadlessPlan.setPlanFile(GuiPackage.getInstance(), directory.resolve("plan.jmx").toString())
+            assertEquals(directory.resolve("input.csv").toFile(), server.resolveFile("input.csv"))
+            assertEquals("plan.jmx", server.scriptName)
+        } finally {
+            server.setBase(previousBase)
+            server.setScriptName(previousScript)
+        }
+    }
+
+    @Test
+    fun `selecting a window cannot silently retain headless routing`() {
+        val open = AgentHeadlessPlan::class.java.getDeclaredField("open").apply { isAccessible = true }
+        val previous = open.getBoolean(AgentHeadlessPlan)
+        try {
+            open.setBoolean(AgentHeadlessPlan, true)
+            val failure = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+                org.apache.jmeter.ai.mcp.BreakTestAgentMcpServer.callToolForCli(
+                    "select_instance", json.createObjectNode().put("pid", 123),
+                )
+            }
+            assertTrue(failure.message.orEmpty().contains("headless plan open"))
+        } finally {
+            open.setBoolean(AgentHeadlessPlan, previous)
+        }
+    }
+
+    @Test
+    fun `write preconditions require correlation while read cache validators remain optional`() {
+        val method = BreakTestAgentGuiService::class.java.getDeclaredMethod(
+            "repairRecommendation", Map::class.java, List::class.java,
+        ).apply { isAccessible = true }
+        for (
+            (header, expected) in mapOf(
+                "If-Match" to "apply", "If-Unmodified-Since" to "apply",
+                "If-None-Match" to "optional", "If-Modified-Since" to "optional",
+            )
+        ) {
+            val result = method.invoke(
+                BreakTestAgentGuiService,
+                mapOf("fieldName" to header, "sourceRequestContainsLiteral" to false),
+                emptyList<Any>(),
+            ) as Map<*, *>
+            assertEquals(expected, result["recommendation"], header)
+        }
+    }
+
+    @Test
     fun `outline lists one indented line per node with ids and disabled marker`() {
         request.isEnabled = false
         val outline = call("get_plan_outline")

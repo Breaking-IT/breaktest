@@ -22,6 +22,7 @@ import org.apache.jmeter.gui.tree.JMeterTreeListener
 import org.apache.jmeter.gui.tree.JMeterTreeModel
 import org.apache.jmeter.gui.tree.JMeterTreeNode
 import org.apache.jmeter.save.SaveService
+import org.apache.jmeter.services.FileServer
 import org.apache.jmeter.testelement.TestElement
 import org.apache.jmeter.testelement.TestPlan
 import java.io.File
@@ -63,6 +64,7 @@ public object AgentHeadlessPlan {
 
     /** The regular setter also updates the window title, and there is no window here. */
     internal fun setPlanFile(gui: GuiPackage, path: String) {
+        FileServer.getFileServer().setBaseForScript(File(path))
         GuiPackage::class.java.getDeclaredField("testPlanFile").apply { isAccessible = true }.set(gui, path)
     }
 

@@ -1360,6 +1360,9 @@ public object BreakTestAgentMcpServer {
     )
 
     private fun selectInstance(arguments: JsonNode): Any {
+        require(!org.apache.jmeter.ai.gui.AgentHeadlessPlan.isOpen()) {
+            "This server has a headless plan open; use a separate MCP server session to select a BreakTest window"
+        }
         val pid = arguments.path("pid").asLong()
         val file = instanceDescriptors().firstOrNull { mapper.readTree(it).path("pid").asLong() == pid }
             ?: throw IllegalArgumentException("No running BreakTest window with process id $pid; see list_instances")

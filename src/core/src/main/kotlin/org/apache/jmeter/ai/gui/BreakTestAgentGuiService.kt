@@ -907,7 +907,7 @@ public object BreakTestAgentGuiService {
         return mapOf("recommendation" to verdict, "why" to why).filterValues { it != null }
     }
 
-    private val CACHE_VALIDATOR_FIELDS = setOf("if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "etag")
+    private val CACHE_VALIDATOR_FIELDS = setOf("if-none-match", "if-modified-since", "etag")
 
     /** Flag overlapping proposals for review; a substring may also have independent consumers. */
     private fun overlappingRepairActions(action: Map<String, Any?>, actions: List<Map<String, Any?>>): List<Any?> {

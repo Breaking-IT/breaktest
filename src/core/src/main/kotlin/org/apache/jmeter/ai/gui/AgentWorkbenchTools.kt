@@ -243,18 +243,20 @@ internal object AgentWorkbenchTools {
         }
         val rows = mapper.createArrayNode()
         val body = arguments.path("body").present()?.asText()
+        val queryAsArguments = body == null && method in setOf("GET", "DELETE", "OPTIONS")
         if (body != null) {
             properties.put("postBodyRaw", true)
             rows.addObject().put("name", "").put("value", body)
-        } else {
+        } else if (queryAsArguments) {
             for (pair in query.split('&').filter { it.isNotEmpty() }) {
                 rows.addObject().put("name", pair.substringBefore('=')).put("value", pair.substringAfter('=', ""))
+                    .put("useEquals", '=' in pair)
             }
         }
         val add = mapper.createObjectNode()
         add.put("elementId", HTTP_SAMPLER_GUI).put("name", arguments.path("name").text() ?: path)
-        // With a body the query stays in the path, since the single raw row is the body.
-        if (body != null && query.isNotEmpty()) properties.put("path", "$path?$query")
+        // Other methods send arguments in the body or omit them, so keep their URL query in the path.
+        if (!queryAsArguments && query.isNotEmpty()) properties.put("path", "$path?$query")
         add.set<JsonNode>("properties", properties)
         if (rows.size() > 0) add.putObject("tables").set<JsonNode>("arguments", rows)
         for (key in listOf("targetNodeId", "targetNodePath")) {
