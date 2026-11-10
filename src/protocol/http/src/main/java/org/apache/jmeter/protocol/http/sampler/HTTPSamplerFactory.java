@@ -152,6 +152,19 @@ public final class HTTPSamplerFactory {
         return HTTP11_ONLY_ORIGINS;
     }
 
+    /**
+     * As {@link #recordNegotiatedProtocol(String, HTTPSamplerBase, URL, String, String)}, reading
+     * the response headers as text, which renders deferred headers, only when the answer can
+     * depend on them.
+     */
+    static void recordNegotiatedProtocol(String impl, HTTPSamplerBase base, URL url, HTTPSampleResult result) {
+        String protocolVersion = result.getProtocolVersion();
+        if (protocolVersion != null && protocolVersion.startsWith("HTTP/1.") //$NON-NLS-1$
+                && negotiatesOverTls(impl, base, url)) {
+            recordNegotiatedProtocol(impl, base, url, protocolVersion, result.getResponseHeaders());
+        }
+    }
+
     private static boolean negotiatesOverTls(String impl, HTTPSamplerBase base, URL url) {
         return HTTPConstants.PROTOCOL_HTTPS.equalsIgnoreCase(url.getProtocol())
                 && StringUtilities.isBlank(base.getHttpProtocol())

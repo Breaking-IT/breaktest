@@ -72,6 +72,15 @@ public class HTTPSampleResult extends SampleResult {
         return headers == null ? super.getResponseHeaders() : headers.text();
     }
 
+    /**
+     * Tells whether the response may carry a header of this name. Deferred headers answer
+     * without being rendered to text, which a check on every response would otherwise force.
+     */
+    boolean mayHaveResponseHeader(String name) {
+        DeferredHttpHeaders headers = deferredResponseHeaders;
+        return headers == null || headers.mayContain(name);
+    }
+
     @Override
     public void setRequestHeaders(String headers) {
         deferredRequestHeaders = null;

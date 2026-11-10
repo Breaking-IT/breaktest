@@ -33,7 +33,6 @@ import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import org.apache.hc.client5.http.protocol.HttpClientContext;
 import org.apache.hc.core5.concurrent.FutureCallback;
 import org.apache.hc.core5.http.ClassicHttpResponse;
-import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.EntityDetails;
 import org.apache.hc.core5.http.Header;
 import org.apache.hc.core5.http.HttpResponse;
@@ -180,11 +179,9 @@ final class BufferedAsyncResponseConsumer implements AsyncResponseConsumer<Class
         classic.setVersion(head.getVersion());
         classic.setHeaders(head.getHeaders());
         if (entityDetails != null) {
-            ContentType contentType = null;
-            if (entityDetails.getContentType() != null) {
-                contentType = ContentType.parseLenient(entityDetails.getContentType());
-            }
-            classic.setEntity(new ByteArrayEntity(body.array(), 0, body.length(), contentType,
+            // The sampler reads the content type from the response header, so the entity
+            // carries none and nothing is parsed here on the I/O thread.
+            classic.setEntity(new ByteArrayEntity(body.array(), 0, body.length(), null,
                     entityDetails.getContentEncoding(), entityDetails.isChunked()));
         }
         return classic;

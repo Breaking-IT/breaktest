@@ -34,6 +34,14 @@ saw over HTTP/2.
 BreakTest minus the Java baseline is BreakTest's own overhead. The Java baseline minus the
 Rust baseline is what the JVM and HttpClient5 cost.
 
+On kept-alive traffic read `java-async` as a lower bound BreakTest cannot reach, not as its
+target. All its users share one pool and take whichever connection was released last, so at
+5,000 requests/s about a dozen connections on two or three I/O threads carry everything, and
+those threads wake about half as often per request as BreakTest's, whose users each hold
+their own connection spread over all I/O threads. Giving every user its own connection in
+that shared pool (a user token as lease state) is no better baseline: the pool then searches
+its free connections one by one, and the same traffic costs more than BreakTest does.
+
 ## Scenarios (`SCENARIOS`) and protocols (`PROTOCOLS`)
 
 | Scenario            | Model                                                                        |

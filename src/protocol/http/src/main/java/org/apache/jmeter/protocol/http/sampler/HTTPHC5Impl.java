@@ -742,6 +742,10 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
         if (owner == null) {
             return HTTPCLIENTS_CACHE_PER_THREAD_AND_HTTPCLIENTKEY.get();
         }
+        Map<HttpClientKey, HttpClientState> existing = HTTPCLIENTS_CACHE_PER_USER.get(owner);
+        if (existing != null) {
+            return existing;
+        }
         return HTTPCLIENTS_CACHE_PER_USER.computeIfAbsent(owner, ignored -> {
             Runnable cleanup = () -> {
                 Map<HttpClientKey, HttpClientState> clients = HTTPCLIENTS_CACHE_PER_USER.remove(owner);
@@ -871,7 +875,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
             HttpClientKey key = createHttpClientKey(url, localContext);
             clientState = setupClient(key, jMeterVariables, clientContext);
             httpClient = clientState.getClient();
-            URI uri = url.toURI();
+            URI uri = toUri(url);
             httpRequest = createHttpRequest(uri, method, areFollowingRedirect);
             setupRequest(url, httpRequest, res); // can throw IOException
             setupPreemptiveBasicAuth(url, httpRequest);
@@ -1493,6 +1497,7 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
                             };
                         }
                     };
+            pHCCM.setDefaultSocketConfig(HttpClientTuning.CLASSIC_SOCKET_CONFIG);
             pHCCM.setDefaultConnectionConfig(ConnectionConfig.custom()
                     .setTimeToLive(TIME_TO_LIVE, TimeUnit.MILLISECONDS)
                     .setValidateAfterInactivity(VALIDITY_AFTER_INACTIVITY_TIMEOUT, TimeUnit.MILLISECONDS)
@@ -1594,6 +1599,26 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
 
     protected AuthenticationStrategy getProxyAuthStrategy() {
         return DefaultAuthenticationStrategy.INSTANCE;
+    }
+
+    private record UrlAsUri(URL url, URI uri) {
+    }
+
+    private UrlAsUri lastUri;
+
+    /**
+     * {@link URL#toURI()} parses the URL text again. A sampler usually requests the same URL
+     * object every iteration (see {@code HTTPSamplerBase.getUrl()}), so the last result is kept.
+     */
+    @SuppressWarnings("ReferenceEquality") // URL.equals resolves host names; identity is the cheap, exact test
+    final URI toUri(URL url) throws URISyntaxException {
+        UrlAsUri cached = lastUri;
+        if (cached != null && cached.url == url) {
+            return cached.uri;
+        }
+        URI uri = url.toURI();
+        lastUri = new UrlAsUri(url, uri);
+        return uri;
     }
 
     private HttpClientKey createHttpClientKey(URL url, HttpContext context) throws GeneralSecurityException {

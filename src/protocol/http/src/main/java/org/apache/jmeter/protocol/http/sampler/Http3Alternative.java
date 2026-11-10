@@ -25,6 +25,8 @@ import org.jspecify.annotations.Nullable;
 
 /** Conservative Alt-Svc discovery for the direct-authority JDK HTTP/3 API. */
 final class Http3Alternative {
+    static final String HEADER = "Alt-Svc";
+
     private static final Pattern ENTRY = Pattern.compile(
             "(?:^|,)\\s*h3=\"([^\"]+)\"((?:\\s*;[^,]*)?)(?=,|$)");
     private static final Pattern MAX_AGE = Pattern.compile("(?:^|;)\\s*ma=(\\d+)\\s*(?=;|$)");
@@ -37,7 +39,7 @@ final class Http3Alternative {
         Long expiry = null;
         for (String line : headers.split("\r?\n")) {
             int colon = line.indexOf(':');
-            if (colon < 0 || !line.substring(0, colon).equalsIgnoreCase("Alt-Svc")) {
+            if (colon < 0 || !line.substring(0, colon).equalsIgnoreCase(HEADER)) {
                 continue;
             }
             String value = line.substring(colon + 1).trim();

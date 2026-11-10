@@ -165,6 +165,22 @@ class DeferredHttpHeadersTest extends JMeterTestCase {
     }
 
     @Test
+    void headerPresenceIsAnsweredWithoutFormatting() throws Exception {
+        HTTPSampleResult lazy = capture(true);
+        var field = HTTPSampleResult.class.getDeclaredField("deferredResponseHeaders");
+        field.setAccessible(true);
+        DeferredHttpHeaders headers = (DeferredHttpHeaders) field.get(lazy);
+        assertTrue(lazy.mayHaveResponseHeader("x-token"), "name and value header, any case");
+        assertTrue(lazy.mayHaveResponseHeader("X-Spaces"), "header kept as its raw line");
+        assertFalse(lazy.mayHaveResponseHeader("Alt-Svc"));
+        assertFalse(lazy.mayHaveResponseHeader("X-Tok"), "a name and value header matches on its whole name");
+        assertFalse(headers.isMaterialized());
+        lazy.getResponseHeaders();
+        assertTrue(lazy.mayHaveResponseHeader("Alt-Svc"), "formatted headers must be read as text");
+        assertTrue(capture(false).mayHaveResponseHeader("Alt-Svc"), "eager headers must be read as text");
+    }
+
+    @Test
     void settersOverrideSnapshotsAndCopiesKeepHeaders() throws Exception {
         HTTPSampleResult lazy = capture(true);
         assertEquals(capture(false).getResponseHeaders(), new SampleResult(lazy).getResponseHeaders());

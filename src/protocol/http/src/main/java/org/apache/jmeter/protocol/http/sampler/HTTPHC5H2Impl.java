@@ -323,7 +323,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     clientContext.setUserToken(clientState.getConnectionManager());
                     clientContext.setCredentialsProvider(clientState.credentialsProvider);
                 }
-                httpRequest = createHttpRequest(url.toURI(), method, areFollowingRedirect);
+                httpRequest = createHttpRequest(toUri(url), method, areFollowingRedirect);
                 setupRequest(url, httpRequest, res);
                 removeHeadersUnsupportedByHttp2(httpRequest);
                 setupPreemptiveBasicAuth(url, httpRequest);
@@ -377,7 +377,10 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                         continue;
                     }
                 }
-                updateUrlAfterRedirect(clientContext, res);
+                if (getAutoRedirects()) {
+                    // Only the client's own redirect handling can change the request URI.
+                    updateUrlAfterRedirect(clientContext, res);
+                }
                 HttpResponse response = clientContext.getResponse();
                 if (cacheManager != null && response != null) {
                     cacheManager.saveDetails(response, res);
@@ -581,6 +584,11 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 ? proxy.getSseTransportKey() : getJMeterThreadCacheKey();
         jMeterThreadCacheKey = cacheKey;
         if (cacheKey instanceof JMeterThread jMeterThread) {
+            Map<HttpClientKey, HttpClientState> existing = HTTPCLIENTS_CACHE_PER_JMETER_THREAD.get(cacheKey);
+            if (existing != null) {
+                // Cleanup was registered when the map was created, and running it removes the map.
+                return existing;
+            }
             Runnable cleanup = () -> closeThreadLocalConnections(cacheKey);
             jMeterThread.registerThreadCleanup(HTTPHC5H2Impl.class, cleanup);
             jMeterThread.registerUserCleanup(HTTPHC5H2Impl.class, cleanup);
@@ -814,9 +822,13 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
             }
             RouteLeaseState routeState = routeStates.computeIfAbsent(
                     route, ignored -> new RouteLeaseState(delegate, route));
-            logConnectionClosureDebug(
-                    "manager lease-start authority={} id={} route={} state={} requestTimeout={} protocol={} thread={}",
-                    authority, id, route, state, requestTimeout, routeState.protocol(), Thread.currentThread().getName());
+            if (DEBUG_CONNECTION_CLOSURE) {
+                // Guarded: the arguments alone take the route state's lock on every lease.
+                logConnectionClosureDebug(
+                        "manager lease-start authority={} id={} route={} state={} requestTimeout={} protocol={} thread={}",
+                        authority, id, route, state, requestTimeout, routeState.protocol(),
+                        Thread.currentThread().getName());
+            }
             try {
                 routeState.awaitLeaseTurn(requestTimeout);
             } catch (InterruptedException e) {
@@ -844,10 +856,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                     }
                     endpointRoutes.put(lease, route);
                     routeState.leaseCompleted(lease);
-                    logConnectionClosureDebug(
-                            "manager lease-completed authority={} id={} route={} endpoint={} protocol={} thread={}",
-                            authority, id, route, endpointIdentity(endpoint), routeState.protocol(),
-                            Thread.currentThread().getName());
+                    if (DEBUG_CONNECTION_CLOSURE) {
+                        logConnectionClosureDebug(
+                                "manager lease-completed authority={} id={} route={} endpoint={} protocol={} thread={}",
+                                authority, id, route, endpointIdentity(endpoint), routeState.protocol(),
+                                Thread.currentThread().getName());
+                    }
                     if (callback != null) {
                         callback.completed(lease);
                     }
@@ -879,10 +893,12 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
 
         @Override
         public void release(AsyncConnectionEndpoint endpoint, Object state, TimeValue keepAlive) {
-            logConnectionClosureDebug(
-                    "manager release authority={} route={} endpoint={} state={} keepAlive={} thread={}",
-                    authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), state, keepAlive,
-                    Thread.currentThread().getName());
+            if (DEBUG_CONNECTION_CLOSURE) {
+                logConnectionClosureDebug(
+                        "manager release authority={} route={} endpoint={} state={} keepAlive={} thread={}",
+                        authority, endpointRoutes.get(endpoint), endpointIdentity(endpoint), state, keepAlive,
+                        Thread.currentThread().getName());
+            }
             if (endpoint instanceof H2ConnectionCoalescing.BorrowedEndpoint borrowed) {
                 borrowed.release(state, keepAlive);
                 return;
