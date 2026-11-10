@@ -70,14 +70,15 @@ final class HttpClientTuning {
 
     /**
      * Read timeout in milliseconds of a classic (blocking) connection whose sampler sets no
-     * response timeout (property {@code httpclient5.default_socket_timeout}); 0, the default,
-     * waits without limit, as the async client does. HttpClient's own default of 3 minutes
-     * makes every blocking read of a virtual thread arm and cancel a timer, about one extra
-     * scheduler wake-up per request. A sampler's response timeout still applies.
+     * response timeout (property {@code httpclient5.default_socket_timeout}), default 180000:
+     * HttpClient's own 3 minutes. A limit makes every blocking read of a virtual thread arm
+     * and cancel a timer, about one extra scheduler wake-up per request (some 9 us of CPU at
+     * 5,000 requests/s); 0 waits without limit, as the async client does, and avoids that.
+     * A sampler's response timeout still applies.
      */
     static final SocketConfig CLASSIC_SOCKET_CONFIG = SocketConfig.custom()
             .setSoTimeout(Timeout.ofMilliseconds(
-                    Math.max(0, JMeterUtils.getPropDefault("httpclient5.default_socket_timeout", 0))))
+                    Math.max(0, JMeterUtils.getPropDefault("httpclient5.default_socket_timeout", 180_000))))
             .build();
 
     private HttpClientTuning() {
