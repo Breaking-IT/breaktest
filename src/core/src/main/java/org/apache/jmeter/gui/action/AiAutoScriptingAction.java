@@ -755,7 +755,7 @@ public class AiAutoScriptingAction extends AbstractAction {
     }
 
     private static String harnessBootstrap(AiTool tool) {
-        return AgentBridgeCommand.harnessBootstrap(tool == AiTool.CODEX, tool.displayName());
+        return AgentBridgeCommand.harnessBootstrap(tool.displayName());
     }
     private static String userInstructionBlock(AiRunRequest request) {
         return AiPrompts.render(AiPrompts.USER_INSTRUCTIONS, Map.ofEntries(

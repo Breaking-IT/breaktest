@@ -69,11 +69,12 @@ final class AgentBridgeCommand {
         }
     }
 
-    static String harnessBootstrap(boolean codex, String toolDisplayName) {
-        if (codex) {
-            return "Use $breaktest-jmeter-repair when it is available. If the skill or native BreakTest MCP tools "
-                    + "are unavailable, do not search for them or stop; use the bundled bridge below immediately.";
-        }
+    /**
+     * The same for every tool, Codex included. Codex used to be pointed at an installed
+     * breaktest-jmeter-repair skill; this prompt is self-contained now, and a skill written for an
+     * older workflow only added tens of kilobytes of conflicting instructions to every request.
+     */
+    static String harnessBootstrap(String toolDisplayName) {
         return "This run uses " + toolDisplayName + ". Do not look for or invoke a breaktest-jmeter-repair skill "
                 + "and do not require a registered BreakTest MCP server. Use the bundled bridge below as the "
                 + "authoritative BreakTest tool interface.";

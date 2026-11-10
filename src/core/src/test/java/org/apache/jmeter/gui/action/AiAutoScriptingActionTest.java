@@ -83,7 +83,7 @@ class AiAutoScriptingActionTest {
             assertTrue(prompt.contains("unless the user explicitly says not to run/test"));
             assertTrue(prompt.contains("ignoreTimers=false"));
             assertTrue(prompt.contains("Restore every temporary endpoint/configuration override"));
-            assertTrue(prompt.contains("Use $breaktest-jmeter-repair"));
+            assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"));
             assertTrue(prompt.contains("Always pass threadGroupName or scopeNodePath"));
             assertTrue(prompt.contains("only when the user explicitly requests a global edit"));
             assertTrue(prompt.contains("plain final reply ends it permanently"));
@@ -815,18 +815,19 @@ class AiAutoScriptingActionTest {
     }
 
     @Test
-    void codexPromptUsesSkillFirstWithImmediateBridgeFallback() throws Exception {
+    void codexPromptDoesNotInvokeTheRepairSkill() throws Exception {
         withDefaultPrompt(() -> {
             String prompt = renderedPrompt("CODEX");
-            assertTrue(prompt.contains("Use $breaktest-jmeter-repair when it is available"));
-            assertTrue(prompt.contains("use the bundled bridge below immediately"));
+            assertFalse(prompt.contains("$breaktest-jmeter-repair"));
+            assertTrue(prompt.contains("Do not look for or invoke a breaktest-jmeter-repair skill"));
+            assertTrue(prompt.contains("authoritative BreakTest tool interface"));
         });
     }
 
     @Test
     void otherHarnessPromptsUseBundledBridgeWithoutLookingForCodexSkillOrMcpRegistration() throws Exception {
         withDefaultPrompt(() -> {
-            for (String tool : new String[] {"CLAUDE", "CURSOR", "GEMINI", "PI", "OPENCODE", "COPILOT"}) {
+            for (String tool : new String[] {"CODEX", "CLAUDE", "CURSOR", "GEMINI", "PI", "OPENCODE", "COPILOT"}) {
                 for (String mode : new String[] {"FULL_SCRIPT_REPAIR", "SPECIFIC_REQUEST"}) {
                     Object request = newRunRequest(tool);
                     var field = request.getClass().getDeclaredField("mode");
