@@ -201,7 +201,8 @@ start_tool() {
             # The HTTP client behaviour from before this benchmark work: no shared reactor, and
             # negotiated cleartext requests on the async client.
             [ "$tool" = breaktest-before ] && before=(-Jhttpsampler.hc5.h2.shared_reactor=false
-                -Jhttpsampler.cleartext.http11_impl=false)
+                -Jhttpsampler.cleartext.http11_impl=false -Jhttpsampler.hc5.h2.direct_async=false
+                -Jhttpclient5.http1.buffer_size=32768 -Jhttpclient5.http2.max_frame_size=65536)
             # bin/breaktest registers the JVM as a macOS app (-Xdock), which App Nap may throttle.
             # shellcheck disable=SC2206 # HEAP and JVM_ARGS are flat flag strings
             [ "$tool" = breaktest-headless ] && launcher=(java $HEAP $JVM_ARGS -Djava.awt.headless=true -jar "$ROOT/bin/breaktest.jar")
