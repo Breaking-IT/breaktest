@@ -643,7 +643,8 @@ public class HTTPHC5Impl extends HTTPHCAbstractImpl {
     // HttpCore's default writer uses its configured version rather than the request version.
     // Honor explicit HTTP/1.0 per request so pooled HTTP/1.1 clients remain unaffected.
     private static final ManagedHttpClientConnectionFactory CONNECTION_FACTORY =
-            ManagedHttpClientConnectionFactory.builder().requestWriterFactory(() -> new DefaultHttpRequestWriter() {
+            ManagedHttpClientConnectionFactory.builder().http1Config(HttpClientTuning.HTTP1_CONFIG)
+                    .requestWriterFactory(() -> new DefaultHttpRequestWriter() {
                 @Override
                 protected HttpVersion protocolVersion(HttpRequest request) {
                     return HttpVersion.HTTP_1_0.equals(request.getVersion())

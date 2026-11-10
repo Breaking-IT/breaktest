@@ -45,6 +45,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -1891,6 +1892,13 @@ public abstract class HTTPSamplerBase extends AbstractSampler
     }
 
 
+    // The URL built by the previous getUrl() call and the parts it was built from.
+    private transient URL lastUrl;
+    private transient String lastUrlProtocol;
+    private transient String lastUrlDomain;
+    private transient int lastUrlPort;
+    private transient String lastUrlFile;
+
     /**
      * Get the URL, built from its component parts.
      *
@@ -1943,10 +1951,23 @@ public abstract class HTTPSamplerBase extends AbstractSampler
             }
         }
         // If default port for protocol is used, we do not include port in URL
-        if (isProtocolDefaultPort()) {
-            return ConversionUtils.toUrl(protocol, domain, pathAndQuery.toString());
+        int port = isProtocolDefaultPort() ? -1 : getPort();
+        String file = pathAndQuery.toString();
+        // Most samplers request the same URL every iteration: skip parsing it again.
+        URL cached = lastUrl;
+        if (cached != null && port == lastUrlPort && file.equals(lastUrlFile)
+                && protocol.equals(lastUrlProtocol) && Objects.equals(domain, lastUrlDomain)) {
+            return cached;
         }
-        return ConversionUtils.toUrl(protocol, domain, getPort(), pathAndQuery.toString());
+        URL url = port < 0
+                ? ConversionUtils.toUrl(protocol, domain, file)
+                : ConversionUtils.toUrl(protocol, domain, port, file);
+        lastUrlProtocol = protocol;
+        lastUrlDomain = domain;
+        lastUrlPort = port;
+        lastUrlFile = file;
+        lastUrl = url;
+        return url;
     }
 
     /**

@@ -127,6 +127,7 @@ import org.apache.hc.core5.reactor.ConnectionInitiator;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.hc.core5.reactor.IOSession;
 import org.apache.hc.core5.reactor.IOSessionListener;
+import org.apache.hc.core5.reactor.ssl.SSLBufferMode;
 import org.apache.hc.core5.util.CharArrayBuffer;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
@@ -221,6 +222,7 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
      * {@link UserConnectionRouter} sends each request's connection work to that user's pool.
      */
     static final String SHARED_REACTOR = "httpsampler.hc5.h2.shared_reactor";
+
 
     /**
      * I/O threads of a shared client, default one per core. A reactor thread also runs the TLS
@@ -351,12 +353,22 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 removeHeadersUnsupportedByHttp2(httpRequest);
                 clientContext.setAttribute(HTTPHC5Impl.CONTEXT_ATTRIBUTE_SAMPLER_RESULT, res);
                 clientContext.setAttribute(CONTEXT_ATTRIBUTE_CONNECTION_MANAGER, clientState.getConnectionManager());
-                CloseableHttpClient client = testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled()
-                        ? new SseHttpClient(clientState.asyncClient, responseTimeout()) : clientState.getClient();
-                client.execute(httpRequest, clientContext, httpResponse -> {
-                    fillSampleResult(res, httpRequest, clientContext, clientState, httpResponse);
-                    return null;
-                });
+                boolean sse = testElement instanceof HTTPSamplerProxy proxy && proxy.isSseEnabled();
+                if (HttpClientTuning.DIRECT_ASYNC && !sse && httpRequest.getEntity() == null) {
+                    BufferedAsyncResponseConsumer direct = BufferedAsyncResponseConsumer.execute(
+                            clientState.asyncClient, httpRequest, clientContext, res, getResponseTimeout(),
+                            responseTimeout());
+                    fillSampleResult(res, httpRequest, clientContext, clientState, direct.response());
+                    direct.applyLatency(res);
+                } else {
+                    // Request bodies and SSE streams keep the classic facade over the async client.
+                    CloseableHttpClient client = sse
+                            ? new SseHttpClient(clientState.asyncClient, responseTimeout()) : clientState.getClient();
+                    client.execute(httpRequest, clientContext, httpResponse -> {
+                        fillSampleResult(res, httpRequest, clientContext, clientState, httpResponse);
+                        return null;
+                    });
+                }
                 if ("421".equals(res.getResponseCode()) && !retriedMisdirected
                         && clientContext.getAttribute(H2ConnectionCoalescing.USED) instanceof HttpRoute rejected) {
                     clientState.connectionManager.coalescing.reject(rejected);
@@ -601,6 +613,8 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .setConnectionManager(connectionManager)
                 // The router outlives any one shared client; user pools close with their user.
                 .setConnectionManagerShared(sharedReactor)
+                .setHttp1Config(HttpClientTuning.HTTP1_CONFIG)
+                .setH2Config(HttpClientTuning.H2_CONFIG)
                 .setIOReactorConfig(reactorConfig)
                 .setDefaultCookieSpecRegistry(cookieSpecRegistry)
                 .setRedirectStrategy(new LaxRedirectStrategy())
@@ -1429,6 +1443,9 @@ public final class HTTPHC5H2Impl extends HTTPHC5Impl {
                 .setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
         // Match the HTTP/1.1 sampler: test targets need not have matching certificates.
         builder.setHostnameVerificationPolicy(HostnameVerificationPolicy.CLIENT);
+        if (HttpClientTuning.DYNAMIC_TLS_BUFFERS) {
+            builder.setSslBufferMode(SSLBufferMode.DYNAMIC);
+        }
         return builder.buildAsync();
     }
 
