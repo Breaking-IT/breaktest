@@ -24,6 +24,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.awt.Dimension;
+import java.awt.Point;
 import java.awt.event.MouseEvent;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -42,10 +44,12 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JMenuItem;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTree;
+import javax.swing.JViewport;
 import javax.swing.SwingUtilities;
 import javax.swing.tree.DefaultMutableTreeNode;
 import javax.swing.tree.TreePath;
@@ -1014,6 +1018,7 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         SwingUtilities.invokeAndWait(() -> {
             ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
             try {
+                ((JCheckBox) visualizerField(visualizer, "autoScrollCB")).setSelected(true);
                 var treeField = ViewResultsFullVisualizer.class.getDeclaredField("jTree");
                 treeField.setAccessible(true);
                 JTree tree = (JTree) treeField.get(visualizer);
@@ -1067,6 +1072,7 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         SwingUtilities.invokeAndWait(() -> {
             ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
             try {
+                ((JCheckBox) visualizerField(visualizer, "autoScrollCB")).setSelected(true);
                 var treeField = ViewResultsFullVisualizer.class.getDeclaredField("jTree");
                 treeField.setAccessible(true);
                 JTree tree = (JTree) treeField.get(visualizer);
@@ -1086,6 +1092,149 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
                 visualizer.add(new SampleResult());
                 refresh(visualizer);
                 assertNull(tree.getSelectionPath());
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    public void disablingAutoScrollPreservesLiveSelectionAndViewport(
+            boolean validation, boolean initiallyFollowing) throws Exception {
+        JMeterContextService.setValidationRun(validation);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                JCheckBox autoScroll = (JCheckBox) visualizerField(visualizer, "autoScrollCB");
+                autoScroll.setSelected(initiallyFollowing);
+                SampleResult selected = childSample("selected", null);
+                visualizer.addStartedSample(new SampleEvent(selected, "tg"));
+                for (int i = 0; i < 50; i++) {
+                    visualizer.add(childSample("request " + i, null));
+                }
+                refresh(visualizer);
+                autoScroll.setSelected(false);
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                DefaultMutableTreeNode root = (DefaultMutableTreeNode) tree.getModel().getRoot();
+                tree.setSelectionPath(new TreePath(((DefaultMutableTreeNode) root.getChildAt(0)).getPath()));
+                JViewport viewport = (JViewport) tree.getParent();
+                viewport.setExtentSize(new Dimension(200, 100));
+                viewport.setViewSize(tree.getPreferredSize());
+                Point position = new Point(0, 200);
+                viewport.setViewPosition(position);
+
+                visualizer.addStartedSample(new SampleEvent(childSample("latest", null), "tg"));
+                refresh(visualizer);
+                assertSame(selected, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+                assertSame(selected, visualizerField(visualizer, "resultsObject"));
+                assertEquals(position, viewport.getViewPosition());
+
+                SampleResult finished = childSample("selected", null);
+                SampleEvent event = new SampleEvent(finished, "tg");
+                event.setStartedSample(selected);
+                visualizer.add(event);
+                refresh(visualizer);
+                assertSame(finished, ((DefaultMutableTreeNode) tree.getLastSelectedPathComponent()).getUserObject());
+                assertEquals(position, viewport.getViewPosition());
+
+                tree.clearSelection();
+                visualizer.addStartedSample(new SampleEvent(childSample("another", null), "tg"));
+                refresh(visualizer);
+                assertNull(tree.getSelectionPath());
+                assertEquals(position, viewport.getViewPosition());
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    public void viewportTracksVisibleResultOnEvictionAndClampsAfterFiltering(boolean tableMode) throws Exception {
+        JMeterContextService.setValidationRun(true);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                int limit = (int) visualizerField(visualizer, "maxResults");
+                SampleResult selected = null;
+                for (int i = 0; i < limit; i++) {
+                    SampleResult sample = childSample("request " + i, null);
+                    visualizer.add(sample);
+                    if (i == limit / 2) {
+                        selected = sample;
+                    }
+                }
+                refresh(visualizer);
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                JTable table = (JTable) visualizerField(visualizer, "resultTable");
+                if (tableMode) {
+                    ((JTabbedPane) visualizerField(visualizer, "resultListTabs")).setSelectedIndex(1);
+                    table.setRowSelectionInterval(limit / 2, limit / 2);
+                } else {
+                    tree.setSelectionRow(limit / 2);
+                }
+                JComponent view = tableMode ? table : tree;
+                JViewport viewport = (JViewport) view.getParent();
+                viewport.setExtentSize(new Dimension(200, 100));
+                viewport.setViewSize(view.getPreferredSize());
+                int rowY = tableMode ? table.getCellRect(limit / 2, 0, true).y : tree.getRowBounds(limit / 2).y;
+                viewport.setViewPosition(new Point(0, rowY + 3));
+
+                visualizer.addStartedSample(new SampleEvent(childSample("latest", null), "tg"));
+                refresh(visualizer);
+                int selectedRow = tableMode ? table.getSelectedRow() : tree.getMinSelectionRow();
+                assertEquals(limit / 2 - 1, selectedRow);
+                assertSame(selected, visualizerField(visualizer, "resultsObject"));
+                int newRowY = tableMode ? table.getCellRect(selectedRow, 0, true).y : tree.getRowBounds(selectedRow).y;
+                assertEquals(newRowY + 3, viewport.getViewPosition().y);
+
+                var filter = ViewResultsFullVisualizer.class.getDeclaredMethod("filterByLabel", String.class);
+                filter.setAccessible(true);
+                filter.invoke(visualizer, selected.getSampleLabel());
+                assertEquals(0, viewport.getViewPosition().y, "A shorter filtered list must not leave blank space");
+                assertSame(selected, visualizerField(visualizer, "resultsObject"));
+                filter.invoke(visualizer, "latest");
+                assertEquals(0, viewport.getViewPosition().y);
+            } catch (ReflectiveOperationException ex) {
+                throw new AssertionError(ex);
+            } finally {
+                visualizer.clearData();
+            }
+        });
+    }
+
+    @Test
+    public void validationInTableModeClearsOnlyAutomaticTreeExpansion() throws Exception {
+        JMeterContextService.setValidationRun(true);
+        SwingUtilities.invokeAndWait(() -> {
+            ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
+            try {
+                ((JCheckBox) visualizerField(visualizer, "autoScrollCB")).setSelected(true);
+                TransactionRef first = TransactionRef.start("first", null);
+                visualizer.addStartedTransaction(new SampleEvent(transactionSample(first), "tg"));
+                visualizer.addStartedSample(new SampleEvent(childSample("first request", first), "tg"));
+                refresh(visualizer);
+                JTree tree = (JTree) visualizerField(visualizer, "jTree");
+                assertTrue(tree.isExpanded(0));
+                JTabbedPane tabs = (JTabbedPane) visualizerField(visualizer, "resultListTabs");
+                tabs.setSelectedIndex(1);
+                TransactionRef next = TransactionRef.start("next", null);
+                visualizer.addStartedTransaction(new SampleEvent(transactionSample(next), "tg"));
+                visualizer.addStartedSample(new SampleEvent(childSample("next request", next), "tg"));
+                refresh(visualizer);
+                tabs.setSelectedIndex(0);
+                assertFalse(tree.isExpanded(0));
+                tree.expandRow(0);
+                tabs.setSelectedIndex(1);
+                visualizer.addStartedSample(new SampleEvent(childSample("another request", next), "tg"));
+                refresh(visualizer);
+                tabs.setSelectedIndex(0);
+                assertTrue(tree.isExpanded(0), "Manually expanded branches must stay open");
             } catch (ReflectiveOperationException ex) {
                 throw new AssertionError(ex);
             } finally {
@@ -1209,6 +1358,7 @@ public class ViewResultsFullVisualizerTest extends JMeterTestCase implements JMe
         SwingUtilities.invokeAndWait(() -> {
             ViewResultsFullVisualizer visualizer = new ViewResultsFullVisualizer();
             try {
+                ((JCheckBox) visualizerField(visualizer, "autoScrollCB")).setSelected(true);
                 TransactionRef transaction = inTransaction ? TransactionRef.start("transaction", null) : null;
                 if (transaction != null) {
                     visualizer.addStartedTransaction(new SampleEvent(transactionSample(transaction), "tg"));

@@ -333,11 +333,16 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
      * Update the visualizer with new data.
      */
     private void updateGui() {
+        ResultViewportAnchor anchor = autoScrollCB.isSelected() ? null
+                : ResultViewportAnchor.capture(isTableMode() ? resultTable : jTree);
         liveTreeView.setUpdating(true);
         updatingResults = true;
         try {
             rebuildResultTree();
         } finally {
+            if (anchor != null) {
+                anchor.restore();
+            }
             liveTreeView.setUpdating(false);
             updatingResults = false;
         }
@@ -357,10 +362,11 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
             oldExpandedElements = liveTreeView.expandedObjects();
             Set<SampleResult> nextRunningResults = transactions.runningResults();
-            followLatest = validationResults && !isTableMode()
+            followLatest = autoScrollCB.isSelected() && validationResults && !isTableMode()
                     && (liveResultsChanged || !runningResults.isEmpty() || !nextRunningResults.isEmpty());
             liveTreeView.prepareExpansion(oldExpandedElements, transactions,
-                    validationResults && (liveResultsChanged || !nextRunningResults.isEmpty()));
+                    autoScrollCB.isSelected() && validationResults
+                            && (liveResultsChanged || !nextRunningResults.isEmpty()));
             Object selected = getSelectedObject();
             oldSelectedElement = transactions.carryOverViewState(oldExpandedElements, selected);
             selectedFinished = selected != null && runningResults.contains(selected)
