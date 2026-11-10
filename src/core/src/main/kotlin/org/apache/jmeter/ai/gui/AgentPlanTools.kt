@@ -188,8 +188,15 @@ internal object AgentPlanTools {
             "className" to element.javaClass.name,
             "enabled" to node.isEnabled,
             "properties" to properties,
-            "omitted" to "properties at their default value",
         )
+        // Names and types of the settings left out at their default, so a setting can be changed
+        // without describing the whole element type first.
+        val described = runCatching { AgentElementCatalog.describe(element)["properties"] as? List<*> }.getOrNull().orEmpty()
+            .filterIsInstance<Map<*, *>>()
+        described.filter { it["name"].toString() !in properties }
+            .joinToString(", ") { "${it["name"]}:${it["type"]}" + ((it["choices"] as? List<*>)?.let { c -> c.joinToString("|", "(", ")") } ?: "") }
+            .takeIf { it.isNotEmpty() }
+            ?.let { result["otherSettings"] = it }
         AgentElementTables.read(element).filterValues { it.isNotEmpty() }.takeIf { it.isNotEmpty() }?.let { result["tables"] = it }
         (element as? Scenario)?.let { result["workloads"] = workloadRows(gui, it) }
         children(node).takeIf { it.isNotEmpty() }?.let { kids -> result["children"] = kids.map(::summaryLine) }

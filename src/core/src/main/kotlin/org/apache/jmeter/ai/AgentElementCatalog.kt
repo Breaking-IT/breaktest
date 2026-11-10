@@ -73,6 +73,7 @@ public object AgentElementCatalog {
                     "choices" to (
                         property.propertyType.enumConstants?.map { (it as Enum<*>).name }
                             ?: (property.getValue("tags") as? Array<*>)?.toList()
+                            ?: modeConstants(element.javaClass, property)
                         ),
                     "acceptsExpression" to acceptsString(element, property)
                 )
@@ -81,6 +82,25 @@ public object AgentElementCatalog {
             "configurationNote" to "Use properties for listed scalar settings and tables for listed arrays of row objects. A supplied table replaces all rows; omitted tables are preserved. Other nested objects require dedicated tools or child elements; do not invent property keys.",
             "constraints" to constraints(element.javaClass.simpleName),
         )
+    }
+
+    /**
+     * Allowed values of a plain String "...Mode" setting, from the class's own constants: delayMode
+     * takes DELAY_FIXED, DELAY_RANDOM and so on. Without them an agent has to guess the spelling.
+     */
+    private fun modeConstants(type: Class<*>, property: PropertyDescriptor): List<String>? {
+        if (property.propertyType != String::class.java || !property.name.endsWith("Mode")) return null
+        val prefix = property.name.removeSuffix("Mode").replace(Regex("([a-z])([A-Z])"), "$1_$2").uppercase() + "_"
+        return generateSequence(type as Class<*>?) { it.superclass }
+            .flatMap { it.declaredFields.asSequence() }
+            .filter {
+                java.lang.reflect.Modifier.isStatic(it.modifiers) && java.lang.reflect.Modifier.isPublic(it.modifiers) &&
+                    it.type == String::class.java && it.name.startsWith(prefix)
+            }
+            .mapNotNull { runCatching { it.get(null) as? String }.getOrNull() }
+            // Property keys share the prefix but are not values.
+            .filter { '.' !in it }
+            .distinct().toList().takeIf { it.isNotEmpty() }
     }
 
     private fun acceptsString(element: TestElement, property: PropertyDescriptor): Boolean =

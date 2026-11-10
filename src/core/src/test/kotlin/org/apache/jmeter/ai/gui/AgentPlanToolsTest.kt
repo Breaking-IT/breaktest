@@ -102,6 +102,9 @@ class AgentPlanToolsTest : JMeterTestCase() {
         assertEquals("host", variablesRead.path("tables").path("arguments")[0].path("name").asText())
 
         val groupRead = call("get_element_open_plan", """{"targetNodePath":"Plan / Shoppers","raw":true}""")
+        val other = groupRead.path("otherSettings").asText()
+        assertTrue(other.contains("comment:String"), "settings at their default are named: $other")
+        assertFalse(other.split(", ").any { it.startsWith("name:") }, "shown properties are not repeated: $other")
         assertEquals(2, groupRead.path("children").size())
         assertEquals("Shoppers", groupRead.path("rawProperties").path("TestElement.name").asText())
     }
