@@ -74,6 +74,7 @@ import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JToggleButton;
 import javax.swing.JTree;
+import javax.swing.JViewport;
 import javax.swing.ListSelectionModel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -333,11 +334,17 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
      * Update the visualizer with new data.
      */
     private void updateGui() {
+        JViewport viewport = (JViewport) jTree.getParent();
+        var viewPosition = viewport.getViewPosition();
+        boolean preservePosition = !autoScrollCB.isSelected();
         liveTreeView.setUpdating(true);
         updatingResults = true;
         try {
             rebuildResultTree();
         } finally {
+            if (preservePosition) {
+                viewport.setViewPosition(viewPosition);
+            }
             liveTreeView.setUpdating(false);
             updatingResults = false;
         }
@@ -357,10 +364,10 @@ implements ActionListener, TreeSelectionListener, Clearable, ItemListener {
 
             oldExpandedElements = liveTreeView.expandedObjects();
             Set<SampleResult> nextRunningResults = transactions.runningResults();
-            followLatest = validationResults && !isTableMode()
+            followLatest = autoScrollCB.isSelected() && validationResults && !isTableMode()
                     && (liveResultsChanged || !runningResults.isEmpty() || !nextRunningResults.isEmpty());
             liveTreeView.prepareExpansion(oldExpandedElements, transactions,
-                    validationResults && (liveResultsChanged || !nextRunningResults.isEmpty()));
+                    followLatest);
             Object selected = getSelectedObject();
             oldSelectedElement = transactions.carryOverViewState(oldExpandedElements, selected);
             selectedFinished = selected != null && runningResults.contains(selected)
