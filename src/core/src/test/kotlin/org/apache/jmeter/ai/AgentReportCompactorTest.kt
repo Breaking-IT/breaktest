@@ -178,6 +178,20 @@ class AgentReportCompactorTest {
         assertTrue(((responses.last() as Map<*, *>)["body"] as String).contains("request-3 marker"))
         assertFalse(summary.containsKey("firstFailure"))
 
+        val repeated = AgentReportCompactor.summaryForRepair(report(requests + transaction), requests + transaction)
+        assertEquals(true, repeated["unchangedSincePreviousRun"])
+        assertEquals(1, repeated["transactionsOk"])
+        assertFalse(repeated.containsKey("samples") || repeated.containsKey("transactionPreviews"))
+        val changed = AgentReportCompactor.summaryForRepair(report(requests + transaction), requests)
+        assertTrue(changed.containsKey("samples"), "a different outcome is reported in full")
+
+        val json = requests.mapIndexed { index, it -> if (index == 1) it.copy(responseBody = """{"order":"placed"}""") else it }
+        val preferred = AgentReportCompactor.summaryForRepair(report(json + transaction))["transactionPreviews"] as List<*>
+        assertEquals(
+            listOf("request-1"), ((preferred.single() as Map<*, *>)["responses"] as List<*>).map { (it as Map<*, *>)["label"] },
+            "a JSON answer is preferred over page shells",
+        )
+
         val loose = AgentReportCompactor.summaryForRepair(report(requests))["transactionPreviews"] as List<*>
         assertEquals(4, ((loose.single() as Map<*, *>)["responses"] as List<*>).size, "requests without a transaction are previewed too")
     }

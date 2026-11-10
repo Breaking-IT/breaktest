@@ -46,15 +46,19 @@ final class AgentBridgeCommand {
                             + "` using your file-editing capability, then run `" + command
                             + " <tool-name> --arguments-file " + argumentsPath
                             + "`; overwrite that file before every bridge call",
-                    "First write `{\"level\":\"info\",\"message\":\"Starting AI Auto Scripting\"}` to `"
-                            + argumentsFile.toAbsolutePath() + "`, then run `" + command
+                    "The start is already announced. Report later milestones by writing "
+                            + "`{\"level\":\"info\",\"message\":\"...\"}` to `"
+                            + argumentsFile.toAbsolutePath() + "`, then running `" + command
                             + " agent_activity --arguments-file " + argumentsPath + "`");
         }
         return new Instructions(
                 command,
-                "run `" + command + " <tool-name> '<json-arguments>'`",
-                "First call `" + command
-                        + " agent_activity '{\"level\":\"info\",\"message\":\"Starting AI Auto Scripting\"}'`");
+                "run `" + command + " <tool-name> '<json-arguments>'`; for multi-item JSON, or JSON containing "
+                        + "quotes, pass `-` and a heredoc in the same shell call: `" + command
+                        + " <tool-name> - <<'JSON'`, the JSON on the following lines, then `JSON`",
+                "The start is already announced. Report later milestones with `" + command
+                        + " agent_activity '{\"level\":\"info\",\"message\":\"...\"}'`, in the same shell command as "
+                        + "the next tool call where possible");
     }
 
     static void deleteArgumentsFile() {

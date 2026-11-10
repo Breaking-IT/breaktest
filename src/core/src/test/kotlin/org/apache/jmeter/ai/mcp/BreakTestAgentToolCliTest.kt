@@ -71,6 +71,26 @@ class BreakTestAgentToolCliTest {
     }
 
     @Test
+    fun `dash reads the arguments from standard input and signatures fit in a prompt`() {
+        val json = """{"steps":[{"tool":"get_plan_outline","arguments":{"underNodePath":"Plan / it's"}}]}"""
+        val original = System.`in`
+        try {
+            System.setIn(java.io.ByteArrayInputStream(json.toByteArray()))
+            val invocation = BreakTestAgentToolCli.parseInvocation(arrayOf("batch_open_plan", "-"))
+            assertEquals(json, invocation.argumentsJson)
+        } finally {
+            System.setIn(original)
+        }
+        val signatures = BreakTestAgentMcpServer.toolSignaturesForPrompt(
+            listOf("validate_open_plan", "add_response_assertions_open_plan", "get_sample"),
+        ).lines()
+        assertEquals(3, signatures.size)
+        org.junit.jupiter.api.Assertions.assertTrue(signatures[0].startsWith("- validate_open_plan(") && "summary:boolean" in signatures[0])
+        org.junit.jupiter.api.Assertions.assertTrue("assertions:array[{" in signatures[1], signatures[1])
+        org.junit.jupiter.api.Assertions.assertTrue(signatures.sumOf { it.length } < 2_500)
+    }
+
+    @Test
     fun `named schemas omit unrelated tools and reject unknown names`() {
         val mapper = com.fasterxml.jackson.databind.ObjectMapper()
         val packet = mapper.readTree(BreakTestAgentMcpServer.toolsListForCli(listOf("validate_open_plan", "apply_repair_actions_open_plan")))

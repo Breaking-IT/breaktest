@@ -803,7 +803,7 @@ class AiAutoScriptingActionTest {
             assertTrue(instructions.bridgeCall().contains("--arguments-file"));
             assertTrue(instructions.bridgeCall().contains("overwrite that file before every bridge call"));
             assertTrue(instructions.startActivity().contains("agent_activity --arguments-file"));
-            assertTrue(instructions.startActivity().contains("Starting AI Auto Scripting"));
+            assertTrue(instructions.startActivity().contains("The start is already announced"));
         } finally {
             JMeterUtils.setJMeterHome(previousHome);
             if (previousTool == null) {

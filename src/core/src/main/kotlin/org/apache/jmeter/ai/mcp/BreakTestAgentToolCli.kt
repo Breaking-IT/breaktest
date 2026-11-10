@@ -64,6 +64,8 @@ public object BreakTestAgentToolCli {
                     ?: throw IllegalArgumentException("--arguments-file requires a path")
                 Invocation(args[0], readArguments(path), args.getOrNull(3))
             }
+            // A heredoc on standard input: multi-item JSON in one shell call, with no temporary file.
+            argument == "-" -> Invocation(args[0], readStandardInput(), args.getOrNull(2))
             argument?.startsWith("@") == true -> {
                 val path = argument.substring(1).takeIf { it.isNotBlank() }
                     ?: throw IllegalArgumentException("@ arguments require a path")
@@ -72,6 +74,9 @@ public object BreakTestAgentToolCli {
             else -> Invocation(args[0], argument?.takeIf { it.isNotBlank() } ?: "{}", args.getOrNull(2))
         }
     }
+
+    private fun readStandardInput(): String =
+        System.`in`.readBytes().toString(StandardCharsets.UTF_8).ifBlank { "{}" }
 
     private fun readArguments(path: String): String =
         Files.readString(Path.of(path), StandardCharsets.UTF_8)

@@ -82,6 +82,30 @@ public object BreakTestAgentMcpServer {
         // agent that just wants to find a tool would otherwise carry through the whole run.
         mapper.writeValueAsString(describeTools(mapper.createObjectNode()))
 
+    /**
+     * One line per tool: name, arguments with their types, and the required ones. Small enough
+     * to put in a prompt, so a scripted run does not spend a model turn on reading schemas.
+     */
+    @JvmStatic
+    public fun toolSignaturesForPrompt(names: List<String>): String {
+        val all = toolsListResult().path("tools").associateBy { it.path("name").asText() }
+        fun type(property: JsonNode): String {
+            val items = property.path("items")
+            return when {
+                items.path("properties").size() > 0 ->
+                    "array[{" + items.path("properties").properties().joinToString(", ") { (name, item) -> "$name:${type(item)}" } + "}]"
+                property.path("type").asText() == "array" -> "array[${items.path("type").asText("any")}]"
+                else -> property.path("type").asText("any")
+            }
+        }
+        return names.mapNotNull { all[it] }.joinToString("\n") { tool ->
+            val schema = tool.path("inputSchema")
+            val arguments = schema.path("properties").properties().joinToString(", ") { (name, property) -> "$name:${type(property)}" }
+            val required = schema.path("required").joinToString(", ") { it.asText() }
+            "- ${tool.path("name").asText()}($arguments${if (required.isEmpty()) "" else "; required: $required"})"
+        }
+    }
+
     @JvmStatic
     public fun toolsListForCli(names: List<String>): String {
         require(names.isNotEmpty()) { "Supply at least one tool name" }

@@ -68,6 +68,7 @@ import javax.swing.tree.TreePath;
 import org.apache.jmeter.ai.gui.AiAutoScriptingLogWindow;
 import org.apache.jmeter.ai.gui.AiCliProcess;
 import org.apache.jmeter.ai.gui.BreakTestAgentGuiService;
+import org.apache.jmeter.ai.mcp.BreakTestAgentMcpServer;
 import org.apache.jmeter.gui.GuiPackage;
 import org.apache.jmeter.gui.tree.JMeterTreeNode;
 import org.apache.jmeter.threads.AbstractThreadGroup;
@@ -703,8 +704,38 @@ public class AiAutoScriptingAction extends AbstractAction {
                 Map.entry("RUN_OPTIONS", runOptionsInstruction(request)),
                 Map.entry("TEST_PLAN_FILE", testPlanFile == null ? "(unknown)" : testPlanFile),
                 Map.entry("BACKUP_PATH", orUnknown(request.backupPath())),
-                Map.entry("USER_INSTRUCTIONS", userInstructionBlock(request))
+                Map.entry("USER_INSTRUCTIONS", userInstructionBlock(request)),
+                Map.entry("TOOL_SIGNATURES", BreakTestAgentMcpServer.toolSignaturesForPrompt(REPAIR_TOOLS)),
+                // Guidance the run cannot use is not sent: it would be re-read on every model turn.
+                Map.entry("WEBSOCKET_SECTION", usesWebSocket(request)
+                        ? "\n" + AiPrompts.render(AiPrompts.WEBSOCKET_SECTION, Map.of()) : ""),
+                Map.entry("GENERATION_SECTION", request.hasUserInput()
+                        ? "\n" + AiPrompts.render(AiPrompts.GENERATION_SECTION, Map.of()) : "")
         ));
+    }
+
+    /** The tools the repair workflow names, so their schemas need no separate lookup. */
+    private static final List<String> REPAIR_TOOLS = List.of(
+            "apply_repair_actions_open_plan", "apply_correlation_batch_open_plan", "batch_open_plan",
+            "validate_open_plan", "get_sample", "audit_dynamic_request_values_open_plan",
+            "add_response_assertions_open_plan", "replace_literals_open_plan", "agent_activity");
+
+    private static boolean usesWebSocket(AiRunRequest request) {
+        if (request.instructions().toLowerCase(java.util.Locale.ROOT).contains("websocket")) {
+            return true;
+        }
+        JMeterTreeNode group = request.threadGroupNode();
+        if (group == null) {
+            return false;
+        }
+        java.util.Enumeration<?> nodes = group.depthFirstEnumeration();
+        while (nodes.hasMoreElements()) {
+            if (nodes.nextElement() instanceof JMeterTreeNode node
+                    && node.getTestElement().getClass().getName().toLowerCase(java.util.Locale.ROOT).contains("websocket")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String specificRequestPrompt(AiRunRequest request, String testPlanFile) {

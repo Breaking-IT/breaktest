@@ -125,9 +125,26 @@ public object AgentReportCompactor {
      * else stays readable through get_sample by index, so a failing run costs a few kilobytes of
      * context instead of tens.
      */
-    public fun summaryForRepair(report: BreakTestAgentReport): Map<String, Any?> {
+    public fun summaryForRepair(
+        report: BreakTestAgentReport,
+        previousSamples: List<AgentSampleSummary>? = null,
+    ): Map<String, Any?> {
         val firstFailureIndex = report.validation.firstFailureIndex
         val reached = report.validation.samples.filter { firstFailureIndex == null || it.index <= firstFailureIndex }
+        fun outcome(samples: List<AgentSampleSummary>) =
+            samples.map { Triple(it.label, it.success && !it.hasAssertionFailure, it.responseCode) }
+        // A green run that repeats the previous green run, typically the final check after adding
+        // assertions, only needs to say so: the agent already holds the rows and previews.
+        if (report.validation.successful && previousSamples != null && outcome(reached) == outcome(previousSamples)) {
+            return linkedMapOf(
+                "summary" to true,
+                "successful" to true,
+                "unchangedSincePreviousRun" to true,
+                "sampleCount" to report.validation.samples.size,
+                "transactionsOk" to reached.count { it.isTransactionSample() },
+                "stopReason" to report.validation.stopReason,
+            ).filterValues { it != null }
+        }
         val shown = reached.filter { !it.isStaticAssetRequest() || !it.success }
         val failure = report.analysis.firstFailure
         val failedLeaf = failure?.flatten()?.firstOrNull { it.subResults.isEmpty() && (!it.success || it.hasAssertionFailure) } ?: failure
@@ -197,6 +214,8 @@ public object AgentReportCompactor {
             "transaction" to name,
             "responses" to leaves
                 .filter { !it.isStaticAssetRequest() && it.responseBody.isNotBlank() && it.responseBodyEncoding == "text" }
+                // A business API answer makes a better marker than the page shell around it.
+                .let { texts -> texts.filter { it.responseBody.trimStart().take(1) in JSON_STARTS }.ifEmpty { texts } }
                 .takeLast(limit)
                 .map { mapOf("index" to it.index, "label" to it.label, "body" to it.responseBody.limit(SUMMARY_PREVIEW_CHARS)) },
         )
@@ -513,7 +532,8 @@ public object AgentReportCompactor {
     }
 
     private const val SUMMARY_HEAD_CHARS = 700
-    private const val SUMMARY_PREVIEW_CHARS = 220
+    private const val SUMMARY_PREVIEW_CHARS = 400
+    private val JSON_STARTS = setOf("{", "[")
     private const val SUMMARY_PREVIEWS_PER_TRANSACTION = 2
     private const val SUMMARY_MAX_LOOSE_PREVIEWS = 20
     private const val SUMMARY_MAX_ACTIONS = 10

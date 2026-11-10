@@ -851,13 +851,15 @@ public object BreakTestAgentGuiService {
             val args = mapper.valueToTree<JsonNode>(action["applyArguments"])
             val targetPath = action["targetNodePath"] as? String
             val targetId = targetPath?.let { runCatching { nodeId(selectNodeByPath(gui.treeModel.testPlan, it, "target")) }.getOrNull() }
-            val base = action.filterKeys { it in setOf("id", "kind", "type", "confidence", "fieldName", "variableName", "replacementCount", "sourceEncodingVariant", "sourceOrdering", "sourceRequestContainsLiteral") }
+            val overlapping = overlappingRepairActions(action, snapshot.values.toList())
+            val base = action.filterKeys { it in setOf("id", "kind", "type", "confidence", "fieldName", "variableName", "replacementCount", "sourceEncodingVariant", "sourceOrdering", "sourceRequestContainsLiteral") } +
+                repairRecommendation(action, overlapping)
             if (args.isObject) {
                 base + mapOf(
                     "sourceNodeId" to args.path("sourceNodeId").asText(), "targetNodeId" to targetId,
                     "literal" to args.path("literal").asText(), "regex" to args.path("regex").asText(),
                     "useField" to args.path("useField").asText(), "evidence" to args.path("evidence").asText(),
-                    "overlappingActionIds" to overlappingRepairActions(action, snapshot.values.toList()),
+                    "overlappingActionIds" to overlapping,
                     "alternativeSources" to mapper.valueToTree<JsonNode>(action["sourceCandidates"]).drop(1).map { alternative ->
                         mapOf(
                             "sourceNodeId" to alternative.path("sourceNodeId").asText(),
@@ -869,9 +871,33 @@ public object BreakTestAgentGuiService {
         }
         return plan.filterKeys { it !in setOf("actions", "includeApplyArguments", "guidance") } + mapOf(
             "actions" to reviews, "reviewOnly" to true,
-            "guidance" to "Select reviewed action IDs; exact edit arguments remain in the snapshot. sourceOrdering is optional and only applied with applyOrdering=true.",
+            "guidance" to "Each action has a recommendation with why. Apply the ones marked apply together; leave optional ones " +
+                "unless the user asks for them or validation fails without them; skip marks a response echo; decide review ones " +
+                "from the overlap. Exact edit arguments remain in the snapshot. sourceOrdering is only applied with applyOrdering=true.",
         )
     }
+
+    /**
+     * A first verdict per proposal, so the agent's review is a check instead of a classification
+     * from scratch. Cache validators are optional: sending a stale If-None-Match only turns a 304
+     * into a 200, while correlating it usually means pulling its source out of a Parallel
+     * Controller, which changes how the page loads.
+     */
+    private fun repairRecommendation(action: Map<String, Any?>, overlapping: List<Any?>): Map<String, Any?> {
+        val field = action["fieldName"]?.toString().orEmpty().lowercase()
+        val (verdict, why) = when {
+            action["sourceRequestContainsLiteral"] == true ->
+                "skip" to "the source request already sends this value, so the response only echoes a scenario input"
+            field in CACHE_VALIDATOR_FIELDS ->
+                "optional" to "cache validator: a stale value only changes 304 into 200" +
+                    if (action["sourceOrdering"] != null) "; applying it moves its source out of a Parallel Controller" else ""
+            overlapping.isNotEmpty() -> "review" to "overlaps ${overlapping.joinToString()}; prefer the complete token"
+            else -> "apply" to null
+        }
+        return mapOf("recommendation" to verdict, "why" to why).filterValues { it != null }
+    }
+
+    private val CACHE_VALIDATOR_FIELDS = setOf("if-none-match", "if-modified-since", "if-match", "if-unmodified-since", "etag")
 
     /** Flag overlapping proposals for review; a substring may also have independent consumers. */
     private fun overlappingRepairActions(action: Map<String, Any?>, actions: List<Map<String, Any?>>): List<Any?> {
@@ -5657,7 +5683,10 @@ public object BreakTestAgentGuiService {
         val previous = lastValidation
         lastValidation = LastValidationSnapshot(scopePath, System.currentTimeMillis(), report.validation.samples)
         return if (arguments.path("summary").asBoolean(false)) {
-            AgentReportCompactor.summaryForRepair(report)
+            val changes = AiAutoScriptingLogWindow.changes()
+            AgentReportCompactor.summaryForRepair(report, previous?.takeIf { it.scopeNodePath == scopePath }?.samples) +
+                // Saves the separate change-list call before the final report.
+                mapOf("agentChanges" to mapOf("count" to changes.size, "byType" to changes.groupingBy { it["type"] }.eachCount()))
         } else if (arguments.path("compact").asBoolean(false)) {
             val previousStatus = previous
                 ?.takeIf { it.scopeNodePath == scopePath }

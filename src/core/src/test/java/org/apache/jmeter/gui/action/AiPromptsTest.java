@@ -48,6 +48,9 @@ class AiPromptsTest {
             Map.entry("MAX_RUNTIME_SECONDS", "900"),
             Map.entry("MAX_SIMILAR_RETRIES", "3"),
             Map.entry("EXTRA_INSTRUCTIONS", "(none provided)"),
+            Map.entry("TOOL_SIGNATURES", "- some_tool(argument:string)"),
+            Map.entry("WEBSOCKET_SECTION", ""),
+            Map.entry("GENERATION_SECTION", ""),
             Map.entry("ASSERTION_INSTRUCTION", "- assertion instruction"));
 
     @ParameterizedTest
@@ -55,6 +58,8 @@ class AiPromptsTest {
         AiPrompts.LIVE_GUI_REPAIR,
         AiPrompts.SPECIFIC_REQUEST,
         AiPrompts.USER_INSTRUCTIONS,
+        AiPrompts.WEBSOCKET_SECTION,
+        AiPrompts.GENERATION_SECTION,
         AiPrompts.RUN_OPTIONS,
     })
     void everyTemplateRendersWithoutUnresolvedTokens(String template) {
