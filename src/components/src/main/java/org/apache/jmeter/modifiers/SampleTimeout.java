@@ -122,7 +122,7 @@ public class SampleTimeout extends AbstractTestElement implements Serializable, 
 
         Callable<Object> call = () -> {
             long start = System.nanoTime();
-            boolean interrupted = sampler.interrupt();
+            boolean interrupted = sampler.interruptForTimeout();
             String elapsed = Double.toString((double)(System.nanoTime()-start)/ 1000000000)+" secs";
             if (interrupted) {
                 if (log.isWarnEnabled()) {

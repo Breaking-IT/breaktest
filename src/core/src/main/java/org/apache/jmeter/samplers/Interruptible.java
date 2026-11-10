@@ -30,4 +30,16 @@ public interface Interruptible {
      * @return <code>true</code> if there was an operation to interrupt.
      */
     boolean interrupt();
+
+    /**
+     * Interrupt the current operation because its sample timed out. Later samples may still run
+     * on the same worker thread. Implementations that interrupt that thread can use this hook to
+     * clear their timeout interrupt when the sample ends, while preserving independent cancellation.
+     * The default implementation retains the existing interruption behavior.
+     *
+     * @return <code>true</code> if there was an operation to interrupt.
+     */
+    default boolean interruptForTimeout() {
+        return interrupt();
+    }
 }
