@@ -57,6 +57,20 @@ class BreakTestAgentToolCliTest {
     }
 
     @Test
+    fun `tool list without names gives summaries and an unknown name is named`() {
+        val mapper = com.fasterxml.jackson.databind.ObjectMapper()
+        val listing = BreakTestAgentMcpServer.toolsListForCli()
+        val tools = mapper.readTree(listing).path("tools")
+        org.junit.jupiter.api.Assertions.assertTrue(tools.size() > 60)
+        org.junit.jupiter.api.Assertions.assertTrue(tools.all { it.has("summary") && !it.has("inputSchema") })
+        org.junit.jupiter.api.Assertions.assertTrue(listing.length < 16_000, "listing was ${listing.length} characters")
+        val failure = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            BreakTestAgentMcpServer.toolsListForCli(listOf("validate_open_plan", "get_sampel"))
+        }
+        org.junit.jupiter.api.Assertions.assertTrue(failure.message!!.contains("get_sampel"), failure.message)
+    }
+
+    @Test
     fun `named schemas omit unrelated tools and reject unknown names`() {
         val mapper = com.fasterxml.jackson.databind.ObjectMapper()
         val packet = mapper.readTree(BreakTestAgentMcpServer.toolsListForCli(listOf("validate_open_plan", "apply_repair_actions_open_plan")))

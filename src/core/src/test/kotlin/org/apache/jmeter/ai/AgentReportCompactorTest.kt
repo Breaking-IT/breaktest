@@ -142,6 +142,47 @@ class AgentReportCompactorTest {
     }
 
     @Test
+    fun `summary of a failing run is a few kilobytes and points at the failure`() {
+        val samples = (0 until 30).map { sample(it, "request-$it", success = it != 29) }
+        val full = com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(
+            AgentReportCompactor.compactForRepair(report(samples)),
+        )
+        val summary = AgentReportCompactor.summaryForRepair(report(samples))
+        val text = com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(summary)
+        assertTrue(text.length < 6_000, "summary was ${text.length} characters")
+        assertTrue(text.length * 4 < full.length, "summary ${text.length} against compact ${full.length}")
+        assertEquals(false, summary["successful"])
+        assertEquals(29, summary["firstFailureIndex"])
+        val rows = (summary["samples"] as String).lines()
+        assertEquals(30, rows.size)
+        assertEquals("29 | R | request-29 | FAILED | 500 | 12", rows.last())
+        val failure = summary["firstFailure"] as Map<*, *>
+        assertEquals("request-29", failure["label"])
+        assertTrue((failure["responseBody"] as String).startsWith("<html><title>request-29 marker"))
+        assertEquals(700, (failure["responseBody"] as String).length)
+        assertFalse(summary.containsKey("transactionPreviews"))
+    }
+
+    @Test
+    fun `summary of a green run previews the last responses of each transaction`() {
+        val requests = (0 until 4).map { sample(it, "request-$it") }
+        val transaction = sample(4, "Checkout transaction").copy(
+            responseBody = "",
+            responseMessage = org.apache.jmeter.control.TransactionController.NUMBER_OF_SAMPLES_IN_TRANSACTION_PREFIX + "4",
+        )
+        val summary = AgentReportCompactor.summaryForRepair(report(requests + transaction))
+        assertEquals(true, summary["successful"])
+        val preview = (summary["transactionPreviews"] as List<*>).single() as Map<*, *>
+        val responses = preview["responses"] as List<*>
+        assertEquals(listOf("request-2", "request-3"), responses.map { (it as Map<*, *>)["label"] })
+        assertTrue(((responses.last() as Map<*, *>)["body"] as String).contains("request-3 marker"))
+        assertFalse(summary.containsKey("firstFailure"))
+
+        val loose = AgentReportCompactor.summaryForRepair(report(requests))["transactionPreviews"] as List<*>
+        assertEquals(4, ((loose.single() as Map<*, *>)["responses"] as List<*>).size, "requests without a transaction are previewed too")
+    }
+
+    @Test
     fun `green run has no first failure`() {
         val samples = (0 until 2).map { sample(it, "req-$it") }
         val compact = AgentReportCompactor.compactForRepair(report(samples))

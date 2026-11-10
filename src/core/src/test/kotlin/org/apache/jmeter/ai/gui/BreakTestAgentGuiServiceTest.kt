@@ -74,8 +74,9 @@ class BreakTestAgentGuiServiceTest {
         )
         val model = JMeterTreeModel(TestPlan("Plan"))
         GuiPackage.initInstance(JMeterTreeListener(model).apply { setJTree(JTree(model)) }, model)
-        GuiPackage::class.java.getDeclaredField("testPlanFile").apply { isAccessible = true }
-            .set(GuiPackage.getInstance(), directory.resolve("plan.jmx").toString())
+        // Left unsaved on purpose: an imported recording is held in memory, and the tools used to
+        // refuse a plan without a file, which sent repairs into trial and error.
+        assertNull(GuiPackage.getInstance().testPlanFile)
         val plan = (model.root as JMeterTreeNode).getChildAt(0) as JMeterTreeNode
         val group = JMeterTreeNode(
             ThreadGroup().apply {

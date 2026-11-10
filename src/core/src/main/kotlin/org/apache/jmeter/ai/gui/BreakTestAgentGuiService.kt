@@ -530,28 +530,16 @@ public object BreakTestAgentGuiService {
     private fun listRecordedHarExchangesOpenPlan(arguments: JsonNode): Map<String, Any?> =
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
+            // A recording imported into a plan that was never saved is still held in memory,
+            // so an unsaved plan is looked up without a file instead of being refused.
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: return@guiCall mapOf(
-                    "linkedRecordingAvailable" to false,
-                    "status" to RecordedHarExchangeResolver.Status.TEST_PLAN_FILE_UNKNOWN.name,
-                    // Distinguish "this plan has no recording" from "the recording
-                    // cannot be read yet": samplers may well be linked, but a
-                    // recording is stored in the plan's archive and is only readable
-                    // once the plan has been written to disk.
-                    "diagnostic" to "The open plan has never been saved, so a linked recording cannot be " +
-                        "read from it yet. Samplers may still be linked to recorded exchanges. Report this " +
-                        "as an unsaved plan rather than as a plan without a recording, and work from " +
-                        "bounded validation evidence instead.",
-                    "recordingUnreadableReason" to "plan_not_saved",
-                    "exchanges" to emptyList<Map<String, Any?>>(),
-                )
             val bodyLimit = arguments.path("bodyLimit").asInt(600).coerceAtLeast(0)
             val maxEntries = arguments.path("maxEntries").asInt(80).coerceAtLeast(1)
             val includeStaticAssets = arguments.path("includeStaticAssets").asBoolean(false)
             val samplers = scopedSamplerNodes(gui, arguments.path("threadGroupName").optionalText())
             val exchanges = samplers
                 .mapIndexedNotNull { index, sampler ->
-                    val resolution = RecordedHarExchangeResolver.resolveFor(sampler, Path.of(testPlanFile))
+                    val resolution = RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile?.let { Path.of(it) })
                     if (!includeStaticAssets && isStaticHarRequest(resolution.requestText())) {
                         return@mapIndexedNotNull null
                     }
@@ -571,6 +559,17 @@ public object BreakTestAgentGuiService {
                     )
                 }
                 .take(maxEntries)
+            if (testPlanFile == null && exchanges.none { it["hasExchange"] == true }) {
+                return@guiCall mapOf(
+                    "linkedRecordingAvailable" to false,
+                    "status" to RecordedHarExchangeResolver.Status.TEST_PLAN_FILE_UNKNOWN.name,
+                    "diagnostic" to "The open plan has never been saved and no recording is held in memory " +
+                        "for it. Samplers may still be linked to recorded exchanges that become readable " +
+                        "once the plan is saved. Work from bounded validation evidence instead.",
+                    "recordingUnreadableReason" to "plan_not_saved",
+                    "exchanges" to emptyList<Map<String, Any?>>(),
+                )
+            }
             mapOf(
                 "linkedRecordingAvailable" to exchanges.any { it["hasExchange"] == true },
                 "testPlanFile" to testPlanFile,
@@ -585,7 +584,6 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before its linked recording can be resolved")
             val bodyLimit = arguments.path("bodyLimit").asInt(12_000).coerceAtLeast(0)
             val sampler = if (arguments.path("targetNodeId").optionalText() != null || arguments.path("targetNodePath").optionalText() != null) {
                 selectSamplerReference(gui, arguments, "target", "target")
@@ -595,7 +593,7 @@ public object BreakTestAgentGuiService {
                 arguments.path("targetSamplerLabel").optionalText(),
                 "target",
             )
-            val resolution = RecordedHarExchangeResolver.resolveFor(sampler, Path.of(testPlanFile))
+            val resolution = RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile?.let { Path.of(it) })
             mapOf(
                 "samplerLabel" to sampler.testElement.name,
                 "nodePath" to nodePath(sampler),
@@ -624,7 +622,6 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before its linked recording can be resolved")
             val query = arguments.path("query").optionalText()
             val regexText = arguments.path("regex").optionalText()
             require(query != null || regexText != null) {
@@ -637,7 +634,7 @@ public object BreakTestAgentGuiService {
             val matches = mutableListOf<Map<String, Any?>>()
             val samplers = scopedSamplerNodes(gui, arguments.path("threadGroupName").optionalText())
             for ((index, sampler) in samplers.withIndex()) {
-                val resolution = RecordedHarExchangeResolver.resolveFor(sampler, Path.of(testPlanFile))
+                val resolution = RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile?.let { Path.of(it) })
                 if (!resolution.exchange().isPresent) {
                     continue
                 }
@@ -701,7 +698,6 @@ public object BreakTestAgentGuiService {
         guiCall {
             val gui = GuiPackage.getInstance() ?: error("BreakTest GUI is not ready")
             val testPlanFile = gui.testPlanFile?.takeIf { it.isNotBlank() }
-                ?: error("The open plan must be saved before its linked recording can be resolved")
             val includeStaticAssets = arguments.path("includeStaticAssets").asBoolean(false)
             val maxCandidates = arguments.path("maxCandidates").asInt(120).coerceAtLeast(1)
             val contextChars = arguments.path("contextChars").asInt(180).coerceAtLeast(0)
@@ -925,9 +921,13 @@ public object BreakTestAgentGuiService {
     private fun applyCorrelationBatchOpenPlan(arguments: JsonNode): Map<String, Any?> = guiCall {
         val correlations = arguments.path("correlations")
         require(correlations.isArray && correlations.size() in 1..40) { "Supply 1..40 correlation argument objects" }
-        correlations.forEach {
+        correlations.forEachIndexed { index, it ->
             requireResponseEvidence(it, "batch correlation")
-            require(it.path("literal").asText().isNotBlank()) { "Each correlation needs a literal to replace" }
+            require(it.path("literal").asText().isNotBlank()) {
+                "Correlation ${index + 1} has no literal. Each batch item extracts a value and replaces the recorded " +
+                    "literal with \${variableName}, so pass that recorded value as literal. To only add or update an " +
+                    "extractor, call apply_regex_correlation_open_plan without literal (several fit in one batch_open_plan)."
+            }
             require(!it.path("allowUnmatchedEvidence").asBoolean(false)) { "Batch correlations must match response evidence" }
         }
         val snapshotId = "llm-correlations-${UUID.randomUUID()}"
@@ -962,7 +962,8 @@ public object BreakTestAgentGuiService {
                 .map { it.testElement.getPropertyAsString("RegexExtractor.refname") }
                 .filter { it.isNotBlank() }.toMutableSet()
 
-            if (testPlanFile != null) {
+            // Also for a plan that was never saved: its recording is held in memory.
+            run {
                 val harActions = planHarCorrelationActions(
                     gui = gui,
                     testPlanFile = testPlanFile,
@@ -4295,7 +4296,7 @@ public object BreakTestAgentGuiService {
 
     private fun linkedHarExchanges(
         gui: GuiPackage,
-        testPlanFile: String,
+        testPlanFile: String?,
         threadGroupName: String?,
         includeStaticAssets: Boolean,
     ): List<HarExchange> {
@@ -4307,7 +4308,7 @@ public object BreakTestAgentGuiService {
             allSamplers.filter { sampler -> sampler.isDescendantOf(threadGroup) }
         }
         return scopedSamplers.mapIndexedNotNull { index, sampler ->
-            val resolution = RecordedHarExchangeResolver.resolveFor(sampler, Path.of(testPlanFile))
+            val resolution = RecordedHarExchangeResolver.resolveFor(sampler, testPlanFile?.let { Path.of(it) })
             if (!resolution.exchange().isPresent) {
                 return@mapIndexedNotNull null
             }
@@ -4421,7 +4422,7 @@ public object BreakTestAgentGuiService {
 
     private fun planHarCorrelationActions(
         gui: GuiPackage,
-        testPlanFile: String,
+        testPlanFile: String?,
         threadGroupName: String?,
         includeStaticAssets: Boolean,
         contextChars: Int,
@@ -5655,7 +5656,9 @@ public object BreakTestAgentGuiService {
         )
         val previous = lastValidation
         lastValidation = LastValidationSnapshot(scopePath, System.currentTimeMillis(), report.validation.samples)
-        return if (arguments.path("compact").asBoolean(false)) {
+        return if (arguments.path("summary").asBoolean(false)) {
+            AgentReportCompactor.summaryForRepair(report)
+        } else if (arguments.path("compact").asBoolean(false)) {
             val previousStatus = previous
                 ?.takeIf { it.scopeNodePath == scopePath }
                 ?.samples

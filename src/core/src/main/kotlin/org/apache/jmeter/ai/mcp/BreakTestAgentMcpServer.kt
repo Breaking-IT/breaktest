@@ -78,7 +78,9 @@ public object BreakTestAgentMcpServer {
 
     @JvmStatic
     public fun toolsListForCli(): String =
-        mapper.writeValueAsString(toolsListResult())
+        // Names and one-line summaries only: every full schema together is some 50 KB, which an
+        // agent that just wants to find a tool would otherwise carry through the whole run.
+        mapper.writeValueAsString(describeTools(mapper.createObjectNode()))
 
     @JvmStatic
     public fun toolsListForCli(names: List<String>): String {
@@ -238,7 +240,7 @@ public object BreakTestAgentMcpServer {
             add(
                 tool(
                     "validate_open_plan",
-                    "Run a bounded validation pass for the test plan currently open in the running BreakTest GUI. Timers are skipped by default; set ignoreTimers=false to verify generated pacing and background work. Pass threadGroupName or scopeNodePath to validate only the selected Thread Group when backup/duplicate Thread Groups are enabled. Use compact=true so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise. Compact results carry full request/response evidence only for the first failure and the samples just before it; earlier passing samples and fully green runs return light response-body previews (evidenceLevel=light), which are still enough to pick assertion markers.",
+                    "Run a bounded validation pass for the test plan currently open in the running BreakTest GUI. Prefer summary=true: a few kilobytes with one row per reached request, the first failure with short request/response heads, ranked repairActions and requestCandidates, and on a green run a response preview per transaction for assertions; read anything else with get_sample(index). Timers are skipped by default; set ignoreTimers=false to verify generated pacing and background work. Pass threadGroupName or scopeNodePath to validate only the selected Thread Group when backup/duplicate Thread Groups are enabled. Use compact=true so one validation returns first-failure evidence, reached non-static samples, preFailureDynamicCandidates, and preFailureRequestCandidates without static asset noise. Compact results carry full request/response evidence only for the first failure and the samples just before it; earlier passing samples and fully green runs return light response-body previews (evidenceLevel=light), which are still enough to pick assertion markers.",
                     mapOf(
                         "threadGroupName" to "string",
                         "scopeNodePath" to "string",
@@ -252,6 +254,7 @@ public object BreakTestAgentMcpServer {
                         "includeDsl" to "boolean",
                         "dslCharacterLimit" to "number",
                         "includeStaticAssets" to "boolean",
+                        "summary" to "boolean",
                         "compact" to "boolean",
                         "compactSampleLimit" to "number",
                         "compactBodyLimit" to "number",
