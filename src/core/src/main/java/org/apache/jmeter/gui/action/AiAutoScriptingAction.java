@@ -1513,7 +1513,12 @@ public class AiAutoScriptingAction extends AbstractAction {
         private static String treePath(JMeterTreeNode node) {
             Object[] nodes = node.getPath();
             List<String> names = new ArrayList<>();
-            for (Object pathNode : nodes) {
+            for (int i = 0; i < nodes.length; i++) {
+                Object pathNode = nodes[i];
+                // The tree's root is hidden and wraps the Test Plan; naming it doubled the first segment.
+                if (i == 0 && nodes.length > 1 && node.getRoot() == pathNode) {
+                    continue;
+                }
                 if (pathNode instanceof JMeterTreeNode treeNode) {
                     names.add(treeNode.getName());
                 } else {

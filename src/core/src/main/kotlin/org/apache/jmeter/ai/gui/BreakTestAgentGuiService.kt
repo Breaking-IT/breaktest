@@ -826,13 +826,14 @@ public object BreakTestAgentGuiService {
             "samplerCount" to samplers.size,
             "functionalSamplerCount" to functional.size,
             "samplersTruncated" to (functional.size > 100),
-            "nodeColumns" to listOf("id", "parentId", "name", "type", "enabled"),
+            "nodeColumns" to "id|parentId|name|type, one node per line; a trailing |off marks a disabled node",
             "nodes" to functional.take(100).flatMap { it.path.filterIsInstance<JMeterTreeNode>() }
-                .filter { it.isDescendantOf(group) }.distinct().map { node ->
+                .filter { it.isDescendantOf(group) }.distinct().joinToString("\n") { node ->
                     listOf(
-                        nodeId(node), (node.parent as? JMeterTreeNode)?.takeIf { it.isDescendantOf(group) }?.let(::nodeId),
-                        node.testElement.name, node.testElement.javaClass.simpleName, node.isEnabled,
-                    )
+                        nodeId(node), (node.parent as? JMeterTreeNode)?.takeIf { it.isDescendantOf(group) }?.let(::nodeId).orEmpty(),
+                        node.testElement.name.orEmpty().replace('|', '/'),
+                        node.testElement.javaClass.simpleName.removeSuffix("Proxy").removeSuffix("Controller"),
+                    ).joinToString("|") + if (node.isEnabled) "" else "|off"
                 },
             "repairPlan" to compactPreflightPlan(gui, plan),
             "dynamicAudit" to auditDynamicRequestValuesOpenPlan(scoped.deepCopy().put("compact", true)),
@@ -852,8 +853,17 @@ public object BreakTestAgentGuiService {
             val targetPath = action["targetNodePath"] as? String
             val targetId = targetPath?.let { runCatching { nodeId(selectNodeByPath(gui.treeModel.testPlan, it, "target")) }.getOrNull() }
             val overlapping = overlappingRepairActions(action, snapshot.values.toList())
-            val base = action.filterKeys { it in setOf("id", "kind", "type", "confidence", "fieldName", "variableName", "replacementCount", "sourceEncodingVariant", "sourceOrdering", "sourceRequestContainsLiteral") } +
-                repairRecommendation(action, overlapping)
+            val recommendation = repairRecommendation(action, overlapping)
+            // Proposals that are not meant to be applied are listed without their evidence: the
+            // packet is re-read on every model turn, and get_repair_action_open_plan has the rest.
+            if (recommendation["recommendation"] in setOf("optional", "skip")) {
+                return@map action.filterKeys { it in setOf("id", "kind", "fieldName", "variableName") } + recommendation
+            }
+            val base = action.filterKeys { it in setOf("id", "kind", "type", "confidence", "fieldName", "variableName", "replacementCount", "sourceEncodingVariant", "sourceRequestContainsLiteral") } +
+                mapOf(
+                    // The reason is the same sentence for every move; the guidance says it once.
+                    "sourceOrdering" to (action["sourceOrdering"] as? Map<*, *>)?.filterKeys { it != "reason" },
+                ).filterValues { it != null } + recommendation
             if (args.isObject) {
                 base + mapOf(
                     "sourceNodeId" to args.path("sourceNodeId").asText(), "targetNodeId" to targetId,
@@ -861,19 +871,18 @@ public object BreakTestAgentGuiService {
                     "useField" to args.path("useField").asText(), "evidence" to args.path("evidence").asText(),
                     "overlappingActionIds" to overlapping,
                     "alternativeSources" to mapper.valueToTree<JsonNode>(action["sourceCandidates"]).drop(1).map { alternative ->
-                        mapOf(
-                            "sourceNodeId" to alternative.path("sourceNodeId").asText(),
-                            "useField" to alternative.path("useField").asText(), "evidence" to alternative.path("evidence").asText()
-                        )
-                    }
-                )
+                        mapOf("sourceNodeId" to alternative.path("sourceNodeId").asText(), "useField" to alternative.path("useField").asText())
+                    }.takeIf { it.isNotEmpty() }
+                ).filterValues { it != null }
             } else base + mapOf("steps" to action["steps"])
         }
         return plan.filterKeys { it !in setOf("actions", "includeApplyArguments", "guidance") } + mapOf(
             "actions" to reviews, "reviewOnly" to true,
             "guidance" to "Each action has a recommendation with why. Apply the ones marked apply together; leave optional ones " +
                 "unless the user asks for them or validation fails without them; skip marks a response echo; decide review ones " +
-                "from the overlap. Exact edit arguments remain in the snapshot. sourceOrdering is only applied with applyOrdering=true.",
+                "from the overlap. Exact edit arguments remain in the snapshot; get_repair_action_open_plan returns the evidence of an " +
+                "optional or skipped action. sourceOrdering moves an issuing sampler out of its Parallel Controller so dependents " +
+                "have a deterministic source, and is only applied with applyOrdering=true.",
         )
     }
 
@@ -4551,7 +4560,9 @@ public object BreakTestAgentGuiService {
                 if (!plannedLiterals.add(canonicalRepairLiteral(requestCandidate.literal))) {
                     continue
                 }
-                val variableName = uniqueVariableName(variableNameFor(requestCandidate), usedVariableNames)
+                val variableName = uniqueVariableName(
+                    variableNameFor(requestCandidate), usedVariableNames, target.sampler.testElement.name,
+                )
                 val evidence = sourceExchange.response.contextAround(
                     literalIndex,
                     literalIndex + matchedLiteral.length,
@@ -4909,12 +4920,23 @@ public object BreakTestAgentGuiService {
         return (base + if (hasStructuredRegex) 2 else -4).coerceIn(0, 99)
     }
 
-    private fun uniqueVariableName(base: String, used: MutableSet<String>): String {
+    /**
+     * [consumer] is the request that uses the value. When the plain name is taken, its last path
+     * segment tells the variables apart (csrf_token_payments) before falling back to a number.
+     */
+    private fun uniqueVariableName(base: String, used: MutableSet<String>, consumer: String? = null): String {
         val sanitized = base
             .replace(Regex("""[^A-Za-z0-9_]+"""), "_")
             .trim('_')
             .replaceFirstChar { it.lowercase() }
             .ifBlank { "ai_value" }
+        if (sanitized in used) {
+            val context = consumer.orEmpty().substringBefore('?').trimEnd('/').substringAfterLast('/')
+                .replace(Regex("""[^A-Za-z0-9]+"""), "_").trim('_')
+            if (context.isNotEmpty() && context.none { it == '{' } && used.add("${sanitized}_$context")) {
+                return "${sanitized}_$context"
+            }
+        }
         var candidate = sanitized
         var index = 2
         while (!used.add(candidate)) {
@@ -5012,7 +5034,8 @@ public object BreakTestAgentGuiService {
             ?.trim('_')
             ?.takeIf { it.isNotBlank() }
             ?: candidate.kind.replace("-", "_")
-        return base.replaceFirstChar { it.lowercase() }
+        // "x-csrf-token" reads better as csrf_token; the X- prefix says nothing about the value.
+        return base.replaceFirstChar { it.lowercase() }.removePrefix("x_").ifBlank { base }
     }
 
     private fun isLowValueHarLiteral(value: String): Boolean {

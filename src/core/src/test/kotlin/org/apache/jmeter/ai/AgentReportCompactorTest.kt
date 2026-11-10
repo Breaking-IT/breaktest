@@ -178,7 +178,9 @@ class AgentReportCompactorTest {
         assertTrue(((responses.last() as Map<*, *>)["body"] as String).contains("request-3 marker"))
         assertFalse(summary.containsKey("firstFailure"))
 
-        val repeated = AgentReportCompactor.summaryForRepair(report(requests + transaction), requests + transaction)
+        // Same requests in another order and with a 304 instead of a 200, as parallel groups and caches produce.
+        val reordered = requests.reversed().map { it.copy(responseCode = "304") } + transaction
+        val repeated = AgentReportCompactor.summaryForRepair(report(requests + transaction), reordered)
         assertEquals(true, repeated["unchangedSincePreviousRun"])
         assertEquals(1, repeated["transactionsOk"])
         assertFalse(repeated.containsKey("samples") || repeated.containsKey("transactionPreviews"))

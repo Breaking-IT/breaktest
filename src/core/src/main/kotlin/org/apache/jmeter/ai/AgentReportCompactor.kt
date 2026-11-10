@@ -131,8 +131,10 @@ public object AgentReportCompactor {
     ): Map<String, Any?> {
         val firstFailureIndex = report.validation.firstFailureIndex
         val reached = report.validation.samples.filter { firstFailureIndex == null || it.index <= firstFailureIndex }
+        // Counted, not ordered: requests in a Parallel Controller finish in a different order on
+        // every run. Pass or fail, not the code: a cached answer may be 200 one run and 304 the next.
         fun outcome(samples: List<AgentSampleSummary>) =
-            samples.map { Triple(it.label, it.success && !it.hasAssertionFailure, it.responseCode) }
+            samples.groupingBy { it.label to (it.success && !it.hasAssertionFailure) }.eachCount()
         // A green run that repeats the previous green run, typically the final check after adding
         // assertions, only needs to say so: the agent already holds the rows and previews.
         if (report.validation.successful && previousSamples != null && outcome(reached) == outcome(previousSamples)) {
