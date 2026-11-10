@@ -290,6 +290,13 @@ class AgentPlanToolsTest : JMeterTestCase() {
         assertEquals(301, login.path("window").path("offset").asInt(), "200 characters before the match at 501")
         assertEquals(20_301, login.path("window").path("nextOffset").asInt())
 
+        val aliased = call("get_sample", """{"source":"run","index":0,"parts":"request, headers"}""")
+        assertTrue(aliased.has("request") && aliased.has("responseHeaders") && !aliased.has("responseBody"), aliased.toString())
+        val unknown = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException::class.java) {
+            call("get_sample", """{"source":"run","index":0,"parts":["cookies"]}""")
+        }
+        assertTrue(unknown.message!!.contains("'cookies'"), unknown.message)
+
         val headersOnly = call("get_sample", """{"source":"run","index":1,"parts":["responseHeaders"]}""")
         assertFalse(headersOnly.has("responseBody"))
         assertFalse(headersOnly.path("success").asBoolean())

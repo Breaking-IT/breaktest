@@ -59,6 +59,10 @@ internal object AgentWorkbenchTools {
     private const val MAX_BODY_WINDOW = 400_000
     private const val FIND_LEAD_CHARS = 200
     private val SAMPLE_PARTS = setOf("requestHeaders", "requestBody", "responseHeaders", "responseBody")
+    private val SAMPLE_PART_ALIASES = SAMPLE_PARTS.associateBy { it.lowercase() } + mapOf(
+        "request" to "requestBody", "requestline" to "requestBody", "requestdata" to "requestBody",
+        "response" to "responseBody", "body" to "responseBody", "headers" to "responseHeaders",
+    )
     private const val LOAD_WAIT_MILLIS = 30_000L
     private val URL_PARTS = Regex("""^(?:(https?)://([^/:?#]+)(?::(\d+))?)?([^?#]*)(?:\?([^#]*))?(?:#.*)?$""", RegexOption.IGNORE_CASE)
     private val VARIABLE_GETTERS = listOf("getRefName", "getRefNames", "getVariableNames", "getVarName")
@@ -153,8 +157,19 @@ internal object AgentWorkbenchTools {
             sample = sample.subResults.getOrNull(sub)
                 ?: throw IllegalArgumentException("Sample '${sample.label}' has ${sample.subResults.size} sub-samples")
         }
-        val parts = arguments.path("parts").takeIf { it.isArray && it.size() > 0 }?.map { it.asText() }?.toSet() ?: SAMPLE_PARTS
-        require(SAMPLE_PARTS.containsAll(parts)) { "parts must be any of ${SAMPLE_PARTS.joinToString()}" }
+        // Accept the names an agent reaches for: the result calls the request line and body
+        // "request", and a single part is often passed as plain text instead of a list.
+        val requested = arguments.path("parts").let { node ->
+            when {
+                node.isArray && node.size() > 0 -> node.map { it.asText() }
+                node.isTextual && node.asText().isNotBlank() -> node.asText().split(',').map(String::trim)
+                else -> null
+            }
+        }
+        val parts = requested?.map { name ->
+            SAMPLE_PART_ALIASES[name.lowercase()]
+                ?: throw IllegalArgumentException("Unknown part '$name'; parts can be any of ${SAMPLE_PARTS.joinToString()}")
+        }?.toSet() ?: SAMPLE_PARTS
         val result = linkedMapOf<String, Any?>(
             "index" to sample.index,
             "label" to sample.label,

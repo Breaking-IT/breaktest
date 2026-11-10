@@ -2461,12 +2461,21 @@ public object BreakTestAgentGuiService {
             val grouped = candidates.groupBy { it.kind to it.literal }
             val compactCandidates = grouped.values.map { occurrences ->
                 val first = occurrences.first()
+                // Same verdict as the repair packet gives it, so it is not investigated again here.
+                val cacheValidator = occurrences.all { it.ownerName.lowercase() in CACHE_VALIDATOR_FIELDS }
                 mapOf(
-                    "kind" to first.kind, "literal" to first.literal, "priority" to first.priority,
-                    "reason" to first.reason, "occurrenceCount" to occurrences.size,
+                    "kind" to if (cacheValidator) "cache-validator" else first.kind,
+                    "literal" to first.literal, "priority" to first.priority,
+                    "reason" to if (cacheValidator) {
+                        "Optional: a cache validator header; a stale value only changes 304 into 200. No action needed."
+                    } else {
+                        first.reason
+                    },
+                    "optional" to true.takeIf { cacheValidator },
+                    "occurrenceCount" to occurrences.size,
                     "samplerIndexes" to occurrences.map { it.samplerIndex }.distinct(),
                     "properties" to occurrences.map { it.propertyName }.distinct()
-                )
+                ).filterValues { it != null }
             }
             mapOf(
                 "candidateCount" to candidates.size,
