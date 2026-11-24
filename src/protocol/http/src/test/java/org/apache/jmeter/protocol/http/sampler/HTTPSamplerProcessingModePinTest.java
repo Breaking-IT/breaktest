@@ -49,6 +49,22 @@ public class HTTPSamplerProcessingModePinTest {
     }
 
     @Test
+    public void storedEnumNameResolvesToMode() {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setProperty(modeName(), "FETCH_AND_DISCARD");
+
+        assertEquals(ResponseProcessingMode.FETCH_AND_DISCARD, sampler.getResponseProcessingMode());
+    }
+
+    @Test
+    public void unknownStoredModeDefaultsToStoreCompressed() {
+        HTTPSamplerProxy sampler = new HTTPSamplerProxy();
+        sampler.setProperty(modeName(), "unknown-mode");
+
+        assertEquals(ResponseProcessingMode.STORE_COMPRESSED, sampler.getResponseProcessingMode());
+    }
+
+    @Test
     public void setterPinsStoreCompressed() {
         HTTPSamplerProxy sampler = new HTTPSamplerProxy();
         sampler.setResponseProcessingMode(ResponseProcessingMode.STORE_COMPRESSED);
