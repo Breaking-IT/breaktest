@@ -109,7 +109,6 @@ import org.apache.jmeter.threads.SamplePackage;
 import org.apache.jmeter.util.JMeterUtils;
 import org.apache.jorphan.io.DirectAccessByteArrayOutputStream;
 import org.apache.jorphan.locale.ResourceKeyed;
-import org.apache.jorphan.util.EnumUtils;
 import org.apache.jorphan.util.ExceptionUtils;
 import org.apache.jorphan.util.JOrphanUtils;
 import org.apache.jorphan.util.StringUtilities;
@@ -506,6 +505,9 @@ public abstract class HTTPSamplerBase extends AbstractSampler
          */
         CHECKSUM_DECODED_MD5("response_processing_checksum_decoded_md5"); //$NON-NLS-1$
 
+        // Cache the five modes when the schema loads so the first response needs no lookup-table initialization.
+        private static final ResponseProcessingMode[] MODES = values();
+
         public final String propertyName;
 
         ResponseProcessingMode(String propertyName) {
@@ -833,15 +835,12 @@ public abstract class HTTPSamplerBase extends AbstractSampler
      */
     public ResponseProcessingMode getResponseProcessingMode() {
         String value = get(getSchema().getResponseProcessingMode());
-        ResponseProcessingMode mode = EnumUtils.valueOf(ResponseProcessingMode.class, value);
-        if (mode != null) {
-            return mode;
+        for (ResponseProcessingMode mode : ResponseProcessingMode.MODES) {
+            if (mode.propertyName.equals(value) || mode.name().equals(value)) {
+                return mode;
+            }
         }
-        try {
-            return ResponseProcessingMode.valueOf(value);
-        } catch (IllegalArgumentException | NullPointerException ignored) {
-            return ResponseProcessingMode.STORE_COMPRESSED;
-        }
+        return ResponseProcessingMode.STORE_COMPRESSED;
     }
 
     /**
